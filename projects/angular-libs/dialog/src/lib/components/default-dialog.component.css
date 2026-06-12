@@ -1,0 +1,112 @@
+.al-dialog-container {
+  display: flex;
+  flex-direction: column;
+  background: var(--al-dialog-bg, white);
+  min-width: min(400px, 100%);
+  min-height: min(200px, 100%);
+  max-width: 100%;
+  max-height: 100%;
+  font-family: var(--al-dialog-font-family, system-ui, -apple-system, sans-serif);
+  overflow: hidden;
+  height: 100%;
+  box-sizing: border-box;
+}
+.al-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--al-dialog-header-padding, 16px);
+  background: var(--al-dialog-header-bg, transparent);
+  border-bottom: 1px solid var(--al-dialog-header-border-color, #eee);
+  flex-shrink: 0;
+}
+.al-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.al-dialog-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--al-dialog-title-color, #111);
+}
+.al-dialog-subtitle {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--al-dialog-subtitle-color, #666);
+}
+.al-window-actions {
+  display: flex;
+  align-items: center;
+  border-radius: 50%;
+}
+.al-action-icon {
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  color: #999;
+  cursor: pointer;
+  padding: 8px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.al-action-icon:hover {
+  background: var(--al-action-btn-hover-bg, #f5f5f5);
+  color: var(--al-action-btn-hover-color, #333);
+}
+.al-dialog-content {
+  color: var(--al-dialog-color, #333);
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.al-dialog-content p {
+  padding: var(--al-dialog-content-padding, 0px 16px);
+  white-space: pre-line;
+}
+.al-dialog-footer {
+  padding: var(--al-dialog-footer-padding, 16px);
+  background: var(--al-dialog-footer-bg, transparent);
+  border-top: 1px solid var(--al-dialog-footer-border-color, #eee);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.al-dialog-footer:not(:has(*)) {
+  display: none;
+}
+.al-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.al-btn-primary {
+  background: var(--al-btn-primary-bg, #007bff);
+  color: var(--al-btn-primary-color, white);
+}
+.al-btn-primary:hover {
+  background: var(--al-btn-primary-hover-bg, #0069d9);
+}
+.al-btn-secondary {
+  background: var(--al-btn-secondary-bg, #e0e0e0);
+  color: var(--al-btn-secondary-color, #333);
+}
+.al-btn-secondary:hover {
+  background: var(--al-btn-secondary-hover-bg, #c8c8c8);
+}
+.al-btn-close {
+  background: transparent;
+  color: var(--al-dialog-subtitle-color, #666);
+}
+.al-btn-close:hover {
+  background: var(--al-action-btn-hover-bg, #f0f0f0);
+  color: var(--al-action-btn-hover-color, #333);
+}

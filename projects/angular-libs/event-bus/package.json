@@ -1,0 +1,36 @@
+{
+  "name": "@angular-libs/event-bus",
+  "version": "0.2.2",
+  "description": "A modern, strongly-typed, signal-based event bus service for Angular 18+ applications.",
+  "keywords": [
+    "angular",
+    "event-bus",
+    "signals",
+    "reactive",
+    "state-management",
+    "pubsub",
+    "typescript",
+    "event-emitter"
+  ],
+  "license": "MIT",
+  "author": "Angular-Libs",
+  "homepage": "https://github.com/angular-lib/event-bus/tree/main/projects/angular-libs/event-bus",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angular-lib/event-bus.git"
+  },
+  "bugs": {
+    "url": "https://github.com/angular-lib/event-bus/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@angular/core": ">=18.0.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false,
+  "schematics": "./schematics/collection.json"
+}

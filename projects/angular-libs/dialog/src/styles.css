@@ -1,0 +1,226 @@
+dialog.al-dialog {
+  /* CSS variable defaults — override in your app styles */
+  --al-dialog-border: none;
+  --al-dialog-border-radius: 8px;
+  --al-dialog-backdrop: rgba(0, 0, 0, 0.3);
+  --al-dialog-bg: #ffffff;
+  --al-dialog-color: #333333;
+  --al-dialog-font-family: system-ui, -apple-system, sans-serif;
+  --al-dialog-header-bg: transparent;
+  --al-dialog-header-border-color: #eeeeee;
+  --al-dialog-header-padding: 16px;
+  --al-dialog-title-color: #111111;
+  --al-dialog-subtitle-color: #666666;
+  --al-dialog-content-padding: 0 16px;
+  --al-dialog-footer-bg: transparent;
+  --al-dialog-footer-border-color: #eeeeee;
+  --al-dialog-footer-padding: 16px;
+  --al-dialog-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+
+  /* Buttons */
+  --al-btn-primary-bg: #007bff;
+  --al-btn-primary-color: #ffffff;
+  --al-btn-primary-hover-bg: #0069d9;
+  --al-btn-secondary-bg: #e0e0e0;
+  --al-btn-secondary-color: #333333;
+  --al-btn-secondary-hover-bg: #c8c8c8;
+
+  /* Windows controls hover backgrounds */
+  --al-action-btn-hover-bg: #f5f5f5;
+  --al-action-btn-hover-color: #333333;
+
+  /* Minimized dialog configuration */
+  --al-minimized-width: 150px;
+  --al-minimized-height: 100px;
+
+  box-sizing: border-box !important;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  padding: 0;
+  border: var(--al-dialog-border);
+  background: transparent;
+  overflow: visible;
+  outline: none;
+  border-radius: var(--al-dialog-border-radius);
+
+  box-shadow: var(--al-dialog-shadow);
+
+  /* Ensure the native dialog adapts in height & width to fit the standard dynamic components */
+  width: max-content;
+  height: max-content;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+/* Optional: Provide a default backdrop if not explicitly styled by consumers */
+dialog.al-dialog::backdrop {
+  background: var(--al-dialog-backdrop);
+}
+
+/* Container Taskbar for Minimized Dialogs (macOS Glassmorphic Dock) */
+.al-dialog-taskbar {
+  /* Key styling custom variables — perfect, focused customization point */
+  --al-dock-bg: rgba(255, 255, 255, 0.4);
+  --al-dock-backdrop-filter: blur(12px);
+  --al-dock-border: 1px solid rgba(15, 23, 42, 0.08);
+  --al-dock-padding: 10px 18px;
+  --al-dock-border-radius: 18px;
+  --al-dock-box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+  --al-dock-gap: 16px;
+
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: row;
+  gap: var(--al-dock-gap);
+  z-index: 10000;
+  pointer-events: none;
+
+  /* Aesthetics configured elegantly through CSS variables */
+  background: var(--al-dock-bg);
+  backdrop-filter: var(--al-dock-backdrop-filter);
+  -webkit-backdrop-filter: var(--al-dock-backdrop-filter);
+  border: var(--al-dock-border);
+  padding: var(--al-dock-padding);
+  border-radius: var(--al-dock-border-radius);
+  box-shadow: var(--al-dock-box-shadow);
+
+  /* Smooth Slide-down Transitions */
+  transition: transform 0.4s cubic-bezier(0.25, 1, 0.25, 1), opacity 0.3s ease;
+  opacity: 1;
+}
+
+/* CSS-only macOS Dock Autohide Support */
+.al-dialog-taskbar.al-autohide {
+  transform: translate(-50%, calc(100% - 6px));
+  opacity: 0.1;
+}
+
+.al-dialog-taskbar.al-autohide:hover {
+  transform: translateX(-50%);
+  opacity: 1;
+}
+
+/* Hover trigger area extending to bottom viewport edge */
+.al-dialog-taskbar.al-autohide::before {
+  content: '';
+  position: absolute;
+  top: -24px;
+  left: 0;
+  right: 0;
+  bottom: -32px;
+  pointer-events: auto;
+}
+
+dialog.al-dialog:fullscreen,
+dialog.al-dialog:has(:fullscreen),
+dialog.al-dialog.al-dialog-maximized {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  transform: none !important;
+  resize: none !important;
+}
+
+dialog.al-dialog.al-dialog-minimized {
+  position: fixed !important;
+  inset: auto !important;
+  bottom: 24px !important;
+  left: 24px !important;
+  width: var(--al-minimized-width) !important;
+  min-width: var(--al-minimized-width) !important;
+  max-width: var(--al-minimized-width) !important;
+  height: var(--al-minimized-height) !important;
+  min-height: var(--al-minimized-height) !important;
+  max-height: var(--al-minimized-height) !important;
+  resize: none !important;
+  transform: none !important;
+  margin: 0 !important;
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.2) !important;
+  overflow: hidden;
+  z-index: 1000;
+  cursor: pointer;
+  pointer-events: auto !important;
+}
+
+/* When minimized and placed inside a taskbar/dock, make it flow relative instead of fixed in screen corner */
+.al-dialog-taskbar dialog.al-dialog.al-dialog-minimized {
+  position: relative !important;
+  inset: auto !important;
+  bottom: auto !important;
+  left: auto !important;
+}
+
+dialog.al-dialog.al-dialog-minimized > * {
+  display: block !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transform: scale(0.25) !important;
+  transform-origin: top left !important;
+  width: 400% !important;
+  height: 400% !important;
+}
+
+/* Tile Snapping Overlay and Grid Styles */
+.al-tile-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  opacity: 0;
+  transition: opacity 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+  user-select: none;
+  touch-action: none;
+}
+
+.al-tile-overlay.al-visible {
+  opacity: 1;
+}
+
+.al-tile-grid {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.al-tile-cell {
+  background: rgba(0, 0, 0, 0.1);
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+.al-tile-cell.al-selected {
+  background: rgba(0, 125, 255, 0.2) !important;
+  border: 2px solid rgba(0, 125, 255, 0.3) !important;
+  box-shadow: 0 0 8px rgba(0, 125, 255, 0.2) !important;
+}
+
+/* Draggable Plugin Styles */
+.al-dialog-draggable {
+  /* Prevent pointer/touch gestures like scrolling while dragging on mobile devices */
+  touch-action: none;
+}
+
+.al-dialog-drag-handle {
+  cursor: move;
+  /* Allow clicking buttons inside the handle, but make the handle area drag-ready */
+  user-select: none;
+}

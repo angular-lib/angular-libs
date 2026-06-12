@@ -1,0 +1,43 @@
+{
+  "name": "@angular-libs/dialog",
+  "version": "0.0.3",
+  "description": "An extensible service for opening Angular components inside a native HTML <dialog> element. ",
+  "author": "angular-lib",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angular-lib/dialog.git"
+  },
+  "keywords": [
+    "angular",
+    "dialog",
+    "modal",
+    "native",
+    "html5",
+    "popover",
+    "draggable",
+    "dock",
+    "window-manager",
+    "layout-persistence",
+    "auto-close",
+    "tile-snapping",
+    "fullscreen",
+    "snapping"
+  ],
+  "peerDependencies": {
+    "@angular/common": ">=19",
+    "@angular/core": ">=19"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "exports": {
+    "./styles.css": {
+      "default": "./src/styles.css"
+    }
+  },
+  "sideEffects": false
+}

@@ -1,0 +1,39 @@
+{
+  "name": "@angular-libs/translate",
+  "version": "0.2.0",
+  "description": "A modern, highly performant, Signals-based translation library for Angular 19+.",
+  "keywords": [
+    "angular",
+    "translate",
+    "i18n",
+    "internationalization",
+    "localization",
+    "signals",
+    "plugins",
+    "pipe",
+    "standalone components",
+    "ngx-translate alternative"
+  ],
+  "author": "benrei",
+  "license": "MIT",
+  "homepage": "https://github.com/angular-lib/translate#readme",
+  "bugs": {
+    "url": "https://github.com/angular-lib/translate/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angular-lib/translate.git",
+    "directory": "projects/angular-libs/translate"
+  },
+  "peerDependencies": {
+    "@angular/common": ">=19.0.0",
+    "@angular/core": ">=19.0.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
+}
