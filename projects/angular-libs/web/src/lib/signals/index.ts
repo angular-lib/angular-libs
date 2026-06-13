@@ -13,3 +13,6 @@ export * from './picture-in-picture';
 export * from './vibrate';
 export * from './bluetooth';
 export * from './nfc';
+export * from './accelerometer';
+export * from './gyroscope';
+export * from './ambient-light';

@@ -1,39 +1,58 @@
-<div class="app-layout">
+<div class="app-layout" [class.collapsed]="isCollapsed()">
   <aside class="sidebar">
     <div class="brand">
       <span class="logo-icon">▲</span>
-      <h1>Angular Libs Demo</h1>
+      @if (!isCollapsed()) {
+        <h1>Angular Libs Demo</h1>
+      }
+      <button class="toggle-btn" (click)="toggleSidebar()" aria-label="Toggle Sidebar">
+        @if (isCollapsed()) {
+          ▶
+        } @else {
+          ◀
+        }
+      </button>
     </div>
     
     <nav class="nav-links">
-      <a routerLink="/dialog" routerLinkActive="active" class="nav-item">
+      <a routerLink="/dialog" routerLinkActive="active" class="nav-item" title="Dialog">
         <span class="nav-icon">▢</span>
-        <span class="nav-label">Dialog</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Dialog</span>
+        }
       </a>
       
-      <a routerLink="/event-bus" routerLinkActive="active" class="nav-item">
+      <a routerLink="/event-bus" routerLinkActive="active" class="nav-item" title="Event Bus">
         <span class="nav-icon">⇄</span>
-        <span class="nav-label">Event Bus</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Event Bus</span>
+        }
       </a>
       
-      <a routerLink="/store" routerLinkActive="active" class="nav-item">
+      <a routerLink="/store" routerLinkActive="active" class="nav-item" title="Store">
         <span class="nav-icon">⛃</span>
-        <span class="nav-label">Store</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Store</span>
+        }
       </a>
       
-      <a routerLink="/translate" routerLinkActive="active" class="nav-item">
+      <a routerLink="/translate" routerLinkActive="active" class="nav-item" title="Translate">
         <span class="nav-icon">🌐</span>
-        <span class="nav-label">Translate</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Translate</span>
+        }
       </a>
       
-      <a routerLink="/web" routerLinkActive="active" class="nav-item">
+      <a routerLink="/web" routerLinkActive="active" class="nav-item" title="Web Utility">
         <span class="nav-icon">🖧</span>
-        <span class="nav-label">Web Utility</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Web Utility</span>
+        }
       </a>
     </nav>
     
     <div class="sidebar-footer">
-      <p>Angular v22 Template</p>
+      <p>{{ isCollapsed() ? 'v22' : 'Angular v22 Template' }}</p>
     </div>
   </aside>
 

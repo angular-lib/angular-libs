@@ -9,4 +9,9 @@ import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 })
 export class App {
   protected readonly title = signal('demo');
+  protected readonly isCollapsed = signal(false);
+
+  protected toggleSidebar(): void {
+    this.isCollapsed.update((val) => !val);
+  }
 }

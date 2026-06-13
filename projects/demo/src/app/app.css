@@ -20,14 +20,39 @@
   display: flex;
   flex-direction: column;
   border-right: 1px solid #334155;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .brand {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding: 24px;
+  padding: 24px 16px 24px 24px;
   border-bottom: 1px solid #334155;
+  overflow: hidden;
+  height: 73px;
+  box-sizing: border-box;
+}
+
+.toggle-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 4px;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+}
+
+.toggle-btn:hover {
+  background-color: #334155;
+  color: #38bdf8;
 }
 
 .logo-icon {
@@ -62,6 +87,8 @@
   font-weight: 500;
   border-radius: 6px;
   transition: all 0.2s ease;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .nav-item:hover {
@@ -77,6 +104,10 @@
 
 .nav-icon {
   font-size: 1.1rem;
+  min-width: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .sidebar-footer {
@@ -84,10 +115,37 @@
   border-top: 1px solid #334155;
   font-size: 0.8rem;
   color: #64748b;
+  transition: padding 0.3s ease;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .sidebar-footer p {
   margin: 0;
+}
+
+/* Collapsed Sidebar Styles */
+.app-layout.collapsed .sidebar {
+  width: 70px;
+}
+
+.app-layout.collapsed .brand {
+  padding: 24px 12px;
+  justify-content: center;
+}
+
+.app-layout.collapsed .nav-links {
+  padding: 20px 8px;
+}
+
+.app-layout.collapsed .nav-item {
+  padding: 10px 0;
+  justify-content: center;
+}
+
+.app-layout.collapsed .sidebar-footer {
+  padding: 16px 8px;
+  text-align: center;
 }
 
 .main-content {
