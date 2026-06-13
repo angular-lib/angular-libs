@@ -6,6 +6,9 @@ import {
   ambientLightSignal,
   batterySignal,
   deviceOrientationSignal,
+  fileSystemSignal,
+  bluetoothSignal,
+  nfcSignal,
 } from '../../../../angular-libs/web/src/public-api';
 
 @Component({
@@ -279,6 +282,183 @@ import {
             <p class="error-text">DeviceOrientation event is not available in the current context.</p>
           }
         </div>
+
+        <!-- File System Access Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📂 File System Access</h3>
+            <span class="badge" [class.badge-primary]="fs.state().supported" [class.badge-danger]="!fs.state().supported">
+              {{ fs.state().supported ? 'Supported' : 'Not Supported' }}
+            </span>
+          </div>
+
+          @if (fs.state().supported) {
+            <div class="card-content">
+              <p class="help-text">Directly open, read, edit and save local text files safely from the browser.</p>
+              
+              <div class="btn-group">
+                <button class="btn" (click)="fs.open({ readAsText: true })" [disabled]="fs.state().loading">
+                  Open File
+                </button>
+                <button class="btn btn-secondary" (click)="fs.clear()" [disabled]="!fs.state().fileHandle">
+                  Clear
+                </button>
+              </div>
+
+              @if (fs.state().file) {
+                <div class="specs-grid" style="margin-bottom: 12px;">
+                  <div class="spec-item">
+                    <span class="label">File Name:</span>
+                    <span class="value">{{ fs.state().file?.name }}</span>
+                  </div>
+                  <div class="spec-item">
+                    <span class="label">Size:</span>
+                    <span class="value">{{ fs.state().file?.size | number }} bytes</span>
+                  </div>
+                </div>
+
+                <textarea #editor [value]="fs.state().content || ''" rows="6" 
+                  style="width: 100%; border-radius: 6px; padding: 10px; border: 1px solid #cbd5e1; outline: none; resize: vertical; margin-bottom: 10px;"
+                  placeholder="File content goes here..."></textarea>
+                
+                <button class="btn" (click)="fs.save(editor.value)" [disabled]="fs.state().loading">
+                  Save Changes
+                </button>
+              } @else {
+                <div class="placeholder-msg">
+                  No file open. Click 'Open File' to begin.
+                </div>
+              }
+
+              @if (fs.state().error) {
+                <div class="error-msg">
+                  ⚠️ {{ fs.state().error?.message }}
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="error-text">File System Access API is not supported in this browser (requires Chromium-based browser).</p>
+          }
+        </div>
+
+        <!-- Bluetooth Scanning Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3>⚡ Bluetooth Scanner</h3>
+            <span class="badge" [class.badge-primary]="bt.state().supported" [class.badge-danger]="!bt.state().supported">
+              {{ bt.state().supported ? 'Supported' : 'Not Supported' }}
+            </span>
+          </div>
+
+          @if (bt.state().supported) {
+            <div class="card-content">
+              <p class="help-text">Pair and connect to nearby Bluetooth peripherals using native Web Bluetooth.</p>
+
+              <div class="btn-group">
+                @if (!bt.state().connected) {
+                  <button class="btn" (click)="onPairBluetooth()" [disabled]="bt.state().loading">
+                    {{ bt.state().loading ? 'Connecting...' : 'Pair Device' }}
+                  </button>
+                } @else {
+                  <button class="btn btn-secondary" (click)="onDisconnectBluetooth()">
+                    Disconnect
+                  </button>
+                }
+              </div>
+
+              @if (bt.state().device) {
+                <div class="specs-grid">
+                  <div class="spec-item">
+                    <span class="label">Device Name:</span>
+                    <span class="value">{{ bt.state().device?.name || 'Unnamed Device' }}</span>
+                  </div>
+                  <div class="spec-item">
+                    <span class="label">Device ID:</span>
+                    <span class="value" style="font-size: 0.8rem;">{{ bt.state().device?.id }}</span>
+                  </div>
+                  <div class="spec-item">
+                    <span class="label">Connected:</span>
+                    <span class="value" [style.color]="bt.state().connected ? '#4caf50' : '#d32f2f'">
+                      {{ bt.state().connected ? 'Yes' : 'No' }}
+                    </span>
+                  </div>
+                </div>
+              } @else if (!bt.state().loading) {
+                <div class="placeholder-msg">
+                  No device paired. Click 'Pair Device' to scan.
+                </div>
+              }
+
+              @if (bt.state().error) {
+                <div class="error-msg">
+                  ⚠️ {{ bt.state().error?.message }}
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="error-text">Web Bluetooth API is not supported in this browser (Chrome/Edge/Opera supported on secure contexts).</p>
+          }
+        </div>
+
+        <!-- Web NFC Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📡 Web NFC Tag Tools</h3>
+            <span class="badge" [class.badge-primary]="nfc.state().supported" [class.badge-danger]="!nfc.state().supported">
+              {{ nfc.state().supported ? 'Supported' : 'Not Supported' }}
+            </span>
+          </div>
+
+          @if (nfc.state().supported) {
+            <div class="card-content">
+              <p class="help-text">Read and write NDEF message tags near your device's NFC chip reader.</p>
+
+              <div class="btn-group">
+                <button class="btn" (click)="onScanNfc()" [disabled]="nfc.state().reading">
+                  {{ nfc.state().reading ? 'NFC Scanner Active 📡' : 'Start NFC Scan' }}
+                </button>
+                <button class="btn btn-secondary" (click)="onWriteNfc()">
+                  Write Tag
+                </button>
+              </div>
+
+              @if (nfc.state().message) {
+                <div class="specs-grid">
+                  <div class="spec-item">
+                    <span class="label">Tag Serial:</span>
+                    <span class="value">{{ nfc.state().message?.serialNumber || 'Unknown' }}</span>
+                  </div>
+                </div>
+
+                <div style="margin-top: 10px;">
+                  <strong>Records Found:</strong>
+                  <ul style="margin: 5px 0 0 0; padding-left: 20px;">
+                    @for (record of nfc.state().message?.records; track $index) {
+                      <li>
+                        Type: <code>{{ record.recordType }}</code> 
+                        @if (record.data) {
+                          - Data: <code>{{ record.data }}</code>
+                        }
+                      </li>
+                    }
+                  </ul>
+                </div>
+              } @else {
+                <div class="placeholder-msg">
+                  {{ nfc.state().reading ? 'Listening for NFC tag alignment...' : 'Ready to start scanning NFC devices.' }}
+                </div>
+              }
+
+              @if (nfc.state().error) {
+                <div class="error-msg">
+                  ⚠️ {{ nfc.state().error?.message }}
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="error-text">Web NFC is not supported in this browser or OS context (requires Chrome/Android or supported PWA modes).</p>
+          }
+        </div>
       </div>
     </div>
   `,
@@ -543,6 +723,9 @@ export class WebDemoComponent {
   acc = accelerometerSignal();
   gyro = gyroscopeSignal();
   orientation = deviceOrientationSignal();
+  fs = fileSystemSignal();
+  bt = bluetoothSignal();
+  nfc = nfcSignal();
 
   async onRequestPermission() {
     const granted = await this.orientation.requestPermission();
@@ -550,6 +733,35 @@ export class WebDemoComponent {
       alert('iOS Motion & Orientation Permission successfully granted!');
     } else {
       alert('iOS Motion & Orientation Permission was denied.');
+    }
+  }
+
+  async onPairBluetooth() {
+    try {
+      await this.bt.requestDevice({ acceptAllDevices: true });
+    } catch (e: any) {
+      console.warn('Bluetooth connection cancelled or failed', e);
+    }
+  }
+
+  onDisconnectBluetooth() {
+    this.bt.disconnect();
+  }
+
+  async onScanNfc() {
+    try {
+      await this.nfc.scan();
+    } catch (e: any) {
+      console.warn('NFC scanning activation failed', e);
+    }
+  }
+
+  async onWriteNfc() {
+    try {
+      await this.nfc.write('Hello NFC from @angular-libs/web!');
+      alert('Write command queued successfully! Hold your NFC tag near the reader.');
+    } catch (e: any) {
+      alert('NFC Write failed: ' + e?.message || e);
     }
   }
 }

@@ -172,6 +172,13 @@ export function tileSnappingPlugin(options: TileSnappingOptions = {}): DialogPlu
         const targetWidth = right - left;
         const targetHeight = bottom - top;
 
+        // Neutralize the center-alignment CSS and margins to align translation coordinate space
+        // 1:1 with targeted viewport boundaries.
+        element.style.margin = '0';
+        element.style.inset = '0 auto auto 0';
+        element.style.maxWidth = 'none';
+        element.style.maxHeight = 'none';
+
         // Reset dialog alignment natively using unified setPosition
         setPosition(dialogRef, 0, 0, targetWidth, targetHeight);
 

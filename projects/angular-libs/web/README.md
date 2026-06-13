@@ -1,64 +1,154 @@
-# Web
+# @angular-libs/web
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.0.0.
+A powerful, light-weight utility library designed to wrap native, modern browser/hardware Web APIs cleanly and reactively using **Angular Signals** and Directives.
 
-## Code scaffolding
+## 🚀 Key Features & Reactive Signals
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+The library exports multiple lightweight reactive custom signals and directives matching modern hardware and system-wide Web interfaces.
 
-```bash
-ng generate component component-name
-```
+### 📁 1. File System Access (`fileSystemSignal`)
+Access the sandboxed or native desktop file system to read, write, and select local storage documents directly from secure browser tabs.
+* **Usage**:
+  ```typescript
+  import { fileSystemSignal } from '@angular-libs/web';
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+  const fs = fileSystemSignal();
+  
+  // Choose & load local text details
+  await fs.open({ readAsText: true });
+  console.log(fs.state().content);
 
-```bash
-ng generate --help
-```
+  // Write changes back directly onto physical file handle
+  await fs.save('Hello physical disk!');
+  ```
 
-## Building
+### ⚡ 2. Web Bluetooth Peripheral Controller (`bluetoothSignal`)
+Discover, pair, secure, and stream hardware indicators from standard adjacent Bluetooth Low Energy (BLE) transponders natively.
+* **Usage**:
+  ```typescript
+  import { bluetoothSignal } from '@angular-libs/web';
 
-To build the library, run:
+  const bt = bluetoothSignal();
 
-```bash
-ng build web
-```
+  // Requests scanning and pairing dialogue
+  await bt.requestDevice({ acceptAllDevices: true });
+  console.log('Connected:', bt.state().connected);
+  ```
 
-This command will compile your project, and the build artifacts will be placed in the `dist/` directory.
+### 📡 3. Web NFC Tag Reader/Writer (`nfcSignal`)
+Listen for nearby NFC tag alignment, read record formats, handle NDEF buffers, and queue written records.
+* **Usage**:
+  ```typescript
+  import { nfcSignal } from '@angular-libs/web';
 
-### Publishing the Library
+  const nfc = nfcSignal();
 
-Once the project is built, you can publish your library by following these steps:
+  // Start scanning
+  await nfc.scan();
 
-1. Navigate to the `dist` directory:
+  // Write tag content payloads
+  await nfc.write('Metadata payloads here');
+  ```
 
-   ```bash
-   cd dist/web
-   ```
+---
 
-2. Run the `npm publish` command to publish your library to the npm registry:
-   ```bash
-   npm publish
-   ```
+## 🛠 Complete Implementation List
 
-## Running unit tests
+Every signal follows consistent, lightweight lifecycles with built-in `DestroyRef` automatic listener cleanups to prevent resource leaks:
 
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
+*   🔋 **`batterySignal`**: Real-time battery level percentage, charging status metrics, and remaining drain time estimations.
+*   💡 **`ambientLightSignal`**: Detect lux levels dynamically in the immediate proximity.
+*   🏃 **`accelerometerSignal`**: Access local physical displacement x, y, and z forces.
+*   🔄 **`gyroscopeSignal`**: Rotational velocities and tilt alignments.
+*   📱 **`deviceOrientationSignal`**: Device gyroscope positioning variables (iOS/Safari motion permission layers included).
+*   📂 **`fileSystemSignal`**: Create, read, and write permissions for local physical disk volumes.
+*   📡 **`nfcSignal`**: Web NDEF NFC operations.
+*   ⚡ **`bluetoothSignal`**: Web bluetooth communication protocols.
 
-```bash
-ng test
-```
+## Current Features
+This library provides reactive wrappers (such as signals and directives) around native browser APIs:
+- **Directives:**
+  - File Drop (`file-drop.directive.ts`)
+- **Signals:**
+  - Accelerometer (`accelerometer.ts`)
+  - Ambient Light (`ambient-light.ts`)
+  - Battery Status (`battery.ts`)
+  - Bluetooth (`bluetooth.ts`)
+  - Clipboard (`clipboard.ts`)
+  - Device Orientation (`device-orientation.ts`)
+  - Geolocation (`geolocation.ts`)
+  - Gyroscope (`gyroscope.ts`)
+  - Idle Detection (`idle.ts`)
+  - Keyboard State (`keyboard-state.ts`)
+  - Media Devices (`media-devices.ts`)
+  - Network Status (`network.ts`)
+  - NFC (`nfc.ts`)
+  - Performance (`performance.ts`)
+  - Permission (`permission.ts`)
+  - Picture-in-Picture (`picture-in-picture.ts`)
+  - Screen Orientation (`screen-orientation.ts`)
+  - Vibrate (`vibrate.ts`)
 
-## Running end-to-end tests
+---
 
-For end-to-end (e2e) testing, run:
+## 20 Feature Ideas for @angular-libs/web
 
-```bash
-ng e2e
-```
+1. **Web Share API (`injectShare` / `ShareDirective`)**
+   - Easily share text, URLs, or files using the client's native system sharing dialog.
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+2. **Web Speech API - Speech Synthesis (`injectSpeechSynthesis`)**
+   - Control text-to-speech dynamically with reactive signals for voice, speed, pitch, volume, and playback state (playing, paused, stopped).
 
-## Additional Resources
+3. **Web Speech API - Speech Recognition (`injectSpeechRecognition`)**
+   - Convert spoken audio into real-time text streams using reactive signal outputs for transcribed words and recording state.
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+4. **EyeDropper API (`injectEyeDropper`)**
+   - Sample colors directly from any pixel on the user's screen using the browser's native magnifier tool.
+
+5. **Intersection Observer API (`injectIntersection` / `IntersectionDirective`)**
+   - Track visibility and viewport intersection of HTML elements natively for lazy-loading or dynamic animations.
+
+6. **Resize Observer API (`injectResize` / `ResizeDirective`)**
+   - Reactive signal monitoring of element size alterations, perfect for container queries and custom responsive components.
+
+7. **Mutation Observer API (`injectMutation` / `MutationDirective`)**
+   - Listen to changes inside the DOM tree (child additions/removals, attribute manipulations) reactively.
+
+8. **Page Visibility API (`injectPageVisibility`)**
+   - Determine if the current browser tab is in the foreground or hidden/background to pause expensive operations.
+
+9. **Gamepad API (`injectGamepad`)**
+   - Map physical button presses and joystick movements from game controllers connected via USB or Bluetooth.
+
+10. **Device Memory API (`injectDeviceMemory`)**
+    - Retrieve client device memory (RAM) sizes to dynamically optimize memory usage and application workloads.
+
+11. **Reactive Local / Session Storage (`injectLocalStorage` / `injectSessionStorage`)**
+    - Angular signals synchronized bidirectionally with Web Storage API key-value stores.
+
+12. **Screen Wake Lock API (`injectWakeLock`)**
+    - Keep the active display from going to sleep or dimming during video player usage, slideshow presentations, or recipe views.
+
+13. **Audio Context API (`injectAudioContext`)**
+    - Utility signals for recording microphone audio, audio analysis data, or generating synthetic browser audio.
+
+14. **IndexedDB API Wrapper (`injectIndexedDB`)**
+    - Signal-based or Promise-based reactive transactions for reading and writing large, persistent data payloads locally.
+
+15. **Broadcast Channel API (`injectBroadcastChannel`)**
+    - Reactively communicate messages and status updates across different active browser tabs or windows under the same origin.
+
+16. **Contact Picker API (`injectContactPicker`)**
+    - Query and select contacts from the user's native address book on supported mobile/desktop browsers.
+
+17. **WebOTP API (`injectWebOTP`)**
+    - Read one-time passcodes from incoming SMS notifications to streamline authentication flows on supported devices.
+
+18. **Network Quality API (`injectNetworkQuality`)**
+    - Dive deeper into connection specs like download speeds (`downlink`), round-trip time (`rtt`), and battery/network data saving modes (`saveData`).
+
+19. **Badge API (`injectBadge`)**
+    - Read, update, or clear home screen / taskbar badge counts directly for Progressive Web Applications (PWAs).
+
+20. **Virtual Keyboard API (`injectVirtualKeyboard`)**
+    - Control and listen to virtual on-screen keyboard overlaps and visibility boundaries on touchscreen layouts.

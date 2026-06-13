@@ -4,11 +4,11 @@
   "compileOnSave": false,
   "compilerOptions": {
     "paths": {
-      "@angular-libs/dialog": ["./dist/angular-libs/dialog"],
-      "@angular-libs/event-bus": ["./dist/angular-libs/event-bus"],
-      "@angular-libs/store": ["./dist/angular-libs/store"],
-      "@angular-libs/translate": ["./dist/angular-libs/translate"],
-      "@angular-libs/web": ["./dist/angular-libs/web"]
+      "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
+      "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],
+      "@angular-libs/store": ["./projects/angular-libs/store/src/public-api.ts"],
+      "@angular-libs/translate": ["./projects/angular-libs/translate/src/public-api.ts"],
+      "@angular-libs/web": ["./projects/angular-libs/web/src/public-api.ts"]
     },
     "noImplicitOverride": true,
     "noPropertyAccessFromIndexSignature": true,
