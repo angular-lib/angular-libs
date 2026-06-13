@@ -5,7 +5,8 @@ import {
   entityPlugin,
   historyPlugin,
   persistPlugin,
-  resourcePlugin
+  resourcePlugin,
+  indexedDBPlugin
 } from '@angular-libs/store';
 
 export interface Todo {
@@ -41,17 +42,25 @@ export class AppDemoStore extends ALStore<DemoState> {
     entityPlugin('todos', { idField: 'id' })
   );
 
-  // 2. Add full time-travel capability to the Todo list modifications
+  // 2. Persist 'dummyDoc' separately in IndexedDB with lazy-loading and multi-tab live mirroring
+  readonly idbSaver = this.registerPlugin(
+    indexedDBPlugin(['dummyDoc'], { storeName: 'doc-persist-store' })
+  );
+
+  // 3. Add full time-travel capability to the Todo list modifications
   readonly todoHistory = this.registerPlugin(
     historyPlugin('todos', { limit: 10 })
   );
 
-  // 3. Add history to the doc editor
+  // 4. Add history to the doc editor, gracefully waiting for IndexedDB hydration starting point
   readonly docHistory = this.registerPlugin(
-    historyPlugin('dummyDoc', { limit: 20 })
+    historyPlugin('dummyDoc', { 
+      limit: 20,
+      isReady: () => this.idbSaver.isReady()
+    })
   );
 
-  // 4. Simulated Async Resource Plugin fetching descriptions for a selected Todo
+  // 5. Simulated Async Resource Plugin fetching descriptions for a selected Todo
   readonly infoResource = this.registerPlugin(
     resourcePlugin('todoDetails', {
       params: () => this.getSignal('selectedTodoId')(),
@@ -73,7 +82,7 @@ export class AppDemoStore extends ALStore<DemoState> {
     })
   );
 
-  // 5. Selectively persist the 'theme' and 'todos' across page reloads
+  // 6. Selectively persist the 'theme' and 'todos' across page reloads
   readonly stateSaver = this.registerPlugin(
     persistPlugin(['theme', 'todos'], { keyPrefix: 'demo-app:' })
   );
@@ -154,6 +163,19 @@ export class AppDemoStore extends ALStore<DemoState> {
               class="editor-textarea"
               [value]="store.getSignal('dummyDoc')()"
               (input)="updateDoc($event)"></textarea>
+
+            <!-- IndexedDB Connection Status -->
+            <div class="idb-status-panel">
+              <span class="idb-status-indicator" [class.hydrated]="store.idbSaver.isReady()"></span>
+              <span class="idb-status-text">
+                IndexedDB Status: 
+                @if (store.idbSaver.isReady()) {
+                  <strong class="text-success">Connected & Hydrated ✓</strong>
+                } @else {
+                  <strong class="text-warning">Connecting & Restoring state...</strong>
+                }
+              </span>
+            </div>
           </div>
 
           <div class="widget-card">
@@ -234,6 +256,18 @@ export class AppDemoStore extends ALStore<DemoState> {
     .history-label { font-size: 0.8rem; color: #64748b; font-weight: 600; margin-right: auto; }
     .dark-theme .history-label { color: #cbd5e1; }
     .btn-group { display: flex; gap: 4px; }
+
+    .idb-status-panel { display: flex; align-items: center; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px dashed #cbd5e1; font-size: 0.8rem; color: #64748b; }
+    .dark-theme .idb-status-panel { border-top-color: #475569; color: #94a3b8; }
+    .idb-status-indicator { width: 8px; height: 8px; border-radius: 50%; background-color: #eab308; }
+    .idb-status-indicator.hydrated { background-color: #22c55e; animation: pulse-green 2s infinite; }
+    .text-success { color: #16a34a; }
+    .text-warning { color: #d97706; }
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+      70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
 
     .resource-desc { font-size: 0.9rem; color: #475569; margin: 0; padding: 12px; background: #f0fdf4; border-left: 4px solid #22c55e; border-radius: 6px; }
     .dark-theme .resource-desc { background: #14532d; color: #f8fafc; border-left-color: #22c55e; }

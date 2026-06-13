@@ -9,6 +9,12 @@ export interface HistoryAdapterOptions {
   limit?: number;
   /** Optional injector if created outside of an injection context */
   injector?: Injector;
+  /**
+   * Optional signal or getter function indicating if the state is still hydrating/loading.
+   * If provided, changes to the tracked key will not be added to the undo stack
+   * until this signal or function evaluates to true.
+   */
+  isReady?: Signal<boolean> | (() => boolean);
 }
 
 /**

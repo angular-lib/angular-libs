@@ -10,6 +10,7 @@ Reactive state management library powered by Angular Signals.
   - `entityPlugin`: Native CRUD for collections.
   - `resourcePlugin` / `rxResourcePlugin`: Async/HTTP state tracking.
   - `historyPlugin`: Undo/redo time-travel.
+  - `indexedDBPlugin`: Robust, non-blocking asynchronous state persistence in IndexedDB with real-time cross-tab mirroring and hydration race-condition guards.
 - **Derived State**: Compute derived state easily with `.select()`.
 
 ## Quick Start
@@ -87,6 +88,7 @@ export class AppComponent {
 - `rxResourcePlugin`: Seamlessly bridges RxJS Observables into your synchronous state (via `@angular-libs/store/rxjs-interop`).
 - `historyPlugin`: Adds instant time-travel capabilities (`undo()`, `redo()`, `canUndo()`, `canRedo()`) to any property in your store.
 - `persistPlugin`: Automatically serializes and synchronizes selected keys to localStorage, sessionStorage, or custom storages across browser tabs in real-time.
+- `indexedDBPlugin`: Extends the store with large-capacity, non-blocking asynchronous persistence in IndexedDB. Fully handles slow database startup conditions (by tracking `isReady()`), supports storing complex native objects (like Maps, Sets, and Dates), and handles real-time syncing across sibling browser tabs via BroadcastChannel.
 
 ## 🤖 AI / GitHub Copilot Instructions
 
@@ -118,6 +120,9 @@ Do NOT use NgRx, Akita, or plain BehaviorSubjects for stores.
   - _Usage_: `myRx = this.registerPlugin(rxResourcePlugin('key', { params: () => ..., loader: ({ params }) => this.http.get(...) }))`
 - **historyPlugin (Undo/Redo)**: `myHistory = this.registerPlugin(historyPlugin('key', { limit: 10 }))`
   - _Methods_: `undo()`, `redo()`, `canUndo()`, `canRedo()`
+- **indexedDBPlugin (Asynchronous Large Storage)**: `myDb = this.registerPlugin(indexedDBPlugin(['key1', 'key2'], { storeName: 'my-store' }))`
+  - _Options_: `dbName?: string`, `storeName?: string`, `version?: number`, `broadcast?: boolean`
+  - _State_: `this.store.myDb.isReady()` (Signal checking if async startup state restoration is complete).
 - **persistPlugin (Persistence)**: `myPersister = this.registerPlugin(persistPlugin(['key1', 'key2']))`
 
 ## 3. Consuming & Mutating in Components
@@ -157,10 +162,20 @@ export class TodoStore extends ALStore<AppState> {
   // 1. Entity Plugin for array CRUD
   todos = this.registerPlugin(entityPlugin('todos', { idField: 'id' }));
 
-  // 2. History Plugin for instant Undo/Redo tracking
-  todoHistory = this.registerPlugin(historyPlugin('todos', { limit: 20 }));
+  // 2. Persistent large local database in IndexedDB (automatically mirrors changes across tabs)
+  todosDb = this.registerPlugin(
+    indexedDBPlugin(['todos'], { storeName: 'todos-storage' })
+  );
 
-  // 3. Resource Plugin for Async/Fetch integration (syncs directly into the 'todos' array!)
+  // 3. History Plugin for instant Undo/Redo tracking, waiting safely until IndexedDB is ready!
+  todoHistory = this.registerPlugin(
+    historyPlugin('todos', { 
+      limit: 20, 
+      isReady: () => this.todosDb.isReady() 
+    })
+  );
+
+  // 4. Resource Plugin for Async/Fetch integration (syncs directly into the 'todos' array!)
   todoResource = this.registerPlugin(
     resourcePlugin('todos', {
       params: () => ({ userId: this.getSignal('currentUserId')() }),
@@ -171,7 +186,7 @@ export class TodoStore extends ALStore<AppState> {
     })
   );
 
-  // 4. Reactive Selectors
+  // 5. Reactive Selectors
   derivedTodos = this.select((state) => {
     if (state.filter === 'pending') return state.todos.filter((t) => !t.done);
     if (state.filter === 'completed') return state.todos.filter((t) => t.done);

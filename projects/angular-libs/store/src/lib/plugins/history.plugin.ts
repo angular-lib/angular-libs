@@ -62,6 +62,21 @@ export function historyPlugin<
 
       const currentValue = newVal;
 
+      // Determine if the store state is considered hydrated or ready
+      let hydrated = true;
+      if (options?.isReady) {
+        hydrated = typeof options.isReady === 'function' 
+          ? (options.isReady as () => boolean)() 
+          : (options.isReady as Signal<boolean>)();
+      }
+
+      if (!hydrated) {
+        // While hydrating, discard changes from entering history stack
+        // and keep shifting the baseline value so it correctly aligns on completion
+        previousValue = structuredClone(currentValue);
+        return;
+      }
+
       if (!isRestoring) {
         if (JSON.stringify(previousValue) !== JSON.stringify(currentValue)) {
           const past = undoStack();

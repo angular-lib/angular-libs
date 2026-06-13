@@ -9,3 +9,5 @@ export { entityPlugin } from './lib/plugins/entity.plugin';
 export { resourcePlugin } from './lib/plugins/resource.plugin';
 export { historyPlugin } from './lib/plugins/history.plugin';
 export { persistPlugin } from './lib/plugins/persist.plugin';
+export { indexedDBPlugin } from './lib/plugins/indexeddb.plugin';
+export type { IndexedDBPluginOptions, IndexedDBPlugin } from './lib/plugins/indexeddb.plugin';
