@@ -64,6 +64,7 @@ Every signal follows consistent, lightweight lifecycles with built-in `DestroyRe
 *   📂 **`fileSystemSignal`**: Create, read, and write permissions for local physical disk volumes.
 *   📡 **`nfcSignal`**: Web NDEF NFC operations.
 *   ⚡ **`bluetoothSignal`**: Web bluetooth communication protocols.
+*   📐 **`resizeObserverSignal`**: Deep reactive tracking of element boundary sizes, logical box proportions, and layout dimensions natively.
 
 ## Current Features
 This library provides reactive wrappers (such as signals and directives) around native browser APIs:
@@ -86,6 +87,7 @@ This library provides reactive wrappers (such as signals and directives) around 
   - Performance (`performance.ts`)
   - Permission (`permission.ts`)
   - Picture-in-Picture (`picture-in-picture.ts`)
+  - Resize Observer (`resize.ts`)
   - Screen Orientation (`screen-orientation.ts`)
   - Vibrate (`vibrate.ts`)
 

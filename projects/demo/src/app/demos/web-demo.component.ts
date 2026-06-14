@@ -1,4 +1,4 @@
-import { Component, ChangeDetectionStrategy } from '@angular/core';
+import { Component, ChangeDetectionStrategy, ViewChild, ElementRef, viewChild, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   accelerometerSignal,
@@ -9,6 +9,7 @@ import {
   fileSystemSignal,
   bluetoothSignal,
   nfcSignal,
+  resizeObserverSignal,
   AlClickOutsideDirective,
   AlFileDropDirective,
 } from '../../../../angular-libs/web/src/public-api';
@@ -106,6 +107,31 @@ import {
                 No files dropped yet
               </div>
             }
+          </div>
+        </div>
+
+        <!-- Resize Observer API Card -->
+        <div class="card" #resizeDemoCard>
+          <div class="card-header">
+            <h3>📐 Resize Observer</h3>
+            <span class="badge" [class.badge-primary]="cardSize().supported" [class.badge-danger]="!cardSize().supported">
+              {{ cardSize().supported ? 'Supported' : 'Not Supported' }}
+            </span>
+          </div>
+
+          <div class="card-content">
+            <p class="help-text">Resize your browser window or drag the handle to change this card's dimensions and watch the signal update reactively.</p>
+            
+            <div class="specs-grid" style="margin-top: auto;">
+              <div class="spec-item">
+                <span class="label">Width:</span>
+                <span class="value">{{ cardSize().width | number:'1.0-0' }}px</span>
+              </div>
+              <div class="spec-item">
+                <span class="label">Height:</span>
+                <span class="value">{{ cardSize().height | number:'1.0-0' }}px</span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -848,6 +874,10 @@ export class WebDemoComponent {
   fs = fileSystemSignal();
   bt = bluetoothSignal();
   nfc = nfcSignal();
+
+  // Create a template reference signal for the demo card resize tracker
+  resizeDemoCardRef = viewChild<ElementRef<HTMLElement>>('resizeDemoCard');
+  cardSize = resizeObserverSignal(() => this.resizeDemoCardRef()?.nativeElement);
 
   clickOutsideCount = 0;
   isDropdownOpen = false;

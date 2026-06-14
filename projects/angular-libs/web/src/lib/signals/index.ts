@@ -17,3 +17,4 @@ export * from './accelerometer';
 export * from './gyroscope';
 export * from './ambient-light';
 export * from './file-system-access';
+export * from './resize';
