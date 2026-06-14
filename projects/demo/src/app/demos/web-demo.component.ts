@@ -9,12 +9,14 @@ import {
   fileSystemSignal,
   bluetoothSignal,
   nfcSignal,
+  AlClickOutsideDirective,
+  AlFileDropDirective,
 } from '../../../../angular-libs/web/src/public-api';
 
 @Component({
   selector: 'app-web-demo',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AlClickOutsideDirective, AlFileDropDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="demo-container">
@@ -23,6 +25,92 @@ import {
         Explore modern hardware and environment Web APIs reactively integrated with Angular Signals.
       </p>
 
+      <h3 class="section-title">✨ Directives</h3>
+      <div class="grid">
+        <!-- Click Outside Directive Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🖱️ Click Outside Directive</h3>
+            <span class="badge badge-primary">Directive</span>
+          </div>
+
+          <div class="card-content">
+            <p class="help-text">Click inside the button to toggle the dropdown. Click outside of it to trigger the directive and close the dropdown.</p>
+
+            <div class="demo-interactive-zone" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px;">
+              <button class="btn" (click)="toggleDropdown(); $event.stopPropagation()">
+                {{ isDropdownOpen ? 'Close Dropdown' : 'Open Dropdown' }}
+              </button>
+
+              <div *ngIf="isDropdownOpen" 
+                   alClickOutside 
+                   (alClickOutside)="onClickOutside()" 
+                   style="background: #ffffff; border: 1px solid #1976d2; border-radius: 8px; padding: 16px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
+                <p style="margin: 0 0 8px 0; font-weight: bold; color: #1976d2;">Dropdown Content</p>
+                <span class="help-text">Clicking inside here won't close it. Clicking anywhere outside will!</span>
+              </div>
+            </div>
+
+            <div class="specs-grid">
+              <div class="spec-item">
+                <span class="label">Click Outside Count:</span>
+                <span class="value">{{ clickOutsideCount }}</span>
+              </div>
+              <div class="spec-item">
+                <span class="label">Dropdown State:</span>
+                <span class="value" [style.color]="isDropdownOpen ? '#4caf50' : '#d32f2f'">
+                  {{ isDropdownOpen ? 'Open' : 'Closed' }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- File Drop Directive Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📁 File Drop Directive</h3>
+            <span class="badge badge-primary">Directive</span>
+          </div>
+
+          <div class="card-content">
+            <p class="help-text">Drag one or more files and drop them into the area below to view their metadata reactively.</p>
+
+            <div
+              alFileDrop
+              (fileDrop)="onFilesDropped($event)"
+              #fileDropDir="alFileDrop"
+              class="drop-zone"
+              [class.active]="fileDropDir.isOver()"
+            >
+              @if (fileDropDir.isOver()) {
+                <span class="drop-text active">Drop files now! ✨</span>
+              } @else {
+                <span class="drop-text">Drag files here... 📄</span>
+              }
+            </div>
+
+            @if (droppedFiles.length > 0) {
+              <div style="margin-top: 15px;">
+                <strong>Dropped Files:</strong>
+                <ul class="file-list" style="margin: 5px 0 0 0; padding-left: 20px; font-size: 0.9rem;">
+                  @for (file of droppedFiles; track $index) {
+                    <li>
+                      <strong>{{ file.name }}</strong> ({{ file.size | number }} bytes) - <code>{{ file.type || 'unknown' }}</code>
+                    </li>
+                  }
+                </ul>
+              </div>
+            } @else {
+              <div class="placeholder-msg" style="padding: 15px;">
+                No files dropped yet
+              </div>
+            }
+          </div>
+        </div>
+      </div>
+
+      <h3 class="section-title">📡 Web API Signals</h3>
       <div class="grid">
         <!-- Battery Status API Card -->
         <div class="card">
@@ -714,6 +802,40 @@ import {
       font-size: 0.85rem;
       color: #e21d12;
     }
+    .section-title {
+      font-size: 1.5rem;
+      color: #1976d2;
+      margin: 40px 0 20px 0;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #eef3fb;
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .drop-zone {
+      border: 2px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 30px;
+      text-align: center;
+      transition: all 0.2s ease-in-out;
+      background: #f8fafc;
+      cursor: pointer;
+      margin-bottom: 12px;
+    }
+    .drop-zone.al-file-drop-over {
+      border-color: #1976d2;
+      background: #e3f2fd;
+      transform: scale(1.02);
+    }
+    .drop-text {
+      color: #64748b;
+      font-size: 1rem;
+    }
+    .drop-text.active {
+      color: #1976d2;
+      font-weight: bold;
+    }
   `],
 })
 export class WebDemoComponent {
@@ -726,6 +848,29 @@ export class WebDemoComponent {
   fs = fileSystemSignal();
   bt = bluetoothSignal();
   nfc = nfcSignal();
+
+  clickOutsideCount = 0;
+  isDropdownOpen = false;
+  droppedFiles: File[] = [];
+
+  toggleDropdown() {
+    this.isDropdownOpen = !this.isDropdownOpen;
+  }
+
+  onClickOutside() {
+    this.clickOutsideCount++;
+    this.isDropdownOpen = false;
+  }
+
+  onFilesDropped(files: FileList) {
+    this.droppedFiles = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files.item(i);
+      if (file) {
+        this.droppedFiles.push(file);
+      }
+    }
+  }
 
   async onRequestPermission() {
     const granted = await this.orientation.requestPermission();
