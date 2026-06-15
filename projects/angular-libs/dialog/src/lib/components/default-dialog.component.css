@@ -10,6 +10,7 @@
   overflow: hidden;
   height: 100%;
   box-sizing: border-box;
+  border-radius: var(--al-dialog-border-radius, 8px);
 }
 .al-dialog-header {
   display: flex;
