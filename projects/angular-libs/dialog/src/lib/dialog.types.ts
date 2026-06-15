@@ -23,11 +23,11 @@ export type ComponentInputs<T> = {
 };
 
 /**
- * Infers the dialog result type from a component extending DialogComponent.
+ * Infers the dialog result type from a component by checking its `dialogRef` property or its interface setup.
  *
  * @typeParam TComponent Component type rendered by the dialog.
  */
-export type InferDialogResult<TComponent> = TComponent extends DialogComponent<infer R>
+export type InferDialogResult<TComponent> = TComponent extends { dialogRef: DialogRef<infer R, any> }
   ? R
   : unknown;
 

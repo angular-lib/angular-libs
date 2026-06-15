@@ -66,9 +66,5 @@ export function snapToEdge(ref: DialogRef<any, any>, edge: SnapEdge): void {
       break;
   }
 
-  // Guarantee that max width & max height won't choke down the snapped layouts
-  dialogEl.style.maxWidth = 'none';
-  dialogEl.style.maxHeight = 'none';
-
   setPosition(ref, x, y, width, height);
 }

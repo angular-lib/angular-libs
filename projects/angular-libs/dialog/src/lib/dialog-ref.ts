@@ -189,7 +189,7 @@ export class DialogRef<TResult = any, TComponent = any> {
     }
 
     const target = event.target as HTMLElement | null;
-    if (target && (this.dialogEl === target || this.dialogEl.contains(target))) {
+    if (target && this.dialogEl.contains(target)) {
       restore(this);
       event.preventDefault();
       event.stopPropagation();

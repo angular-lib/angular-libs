@@ -1,6 +1,6 @@
 {
   "name": "@angular-libs/dialog",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "An extensible service for opening Angular components inside a native HTML <dialog> element. ",
   "author": "angular-lib",
   "license": "MIT",

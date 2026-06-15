@@ -21,7 +21,7 @@ import {
     <div class="demo-container">
       <div class="header-section">
         <h2>Dialog Playground ▢</h2>
-        <p class="description">Native HTML5 <code>&lt;dialog&gt;</code> manager with a visual plugin pipeline.</p>
+        <p class="description">Native HTML5 <code>&lt;dialog&gt;</code> with plugin support.</p>
         <button class="btn btn-danger" (click)="closeAll()">Close All Dialogs</button>
       </div>
 
@@ -51,7 +51,7 @@ import {
 
       <!-- PLUGINS PIPELINE -->
       <section class="section">
-        <h3 class="section-title">Visual Actions & Plugins</h3>
+        <h3 class="section-title">Plugins</h3>
         <div class="grid">
           <div class="card">
             <span class="badge badge-teal">draggable</span>

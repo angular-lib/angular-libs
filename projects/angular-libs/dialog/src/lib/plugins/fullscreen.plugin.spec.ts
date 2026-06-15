@@ -29,6 +29,10 @@ describe('Fullscreen Plugin and Actions', () => {
       this.open = true;
     });
 
+    HTMLDialogElement.prototype.showModal = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = true;
+    });
+
     HTMLDialogElement.prototype.close = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
       this.open = false;
       const event = new Event('close');
@@ -78,7 +82,7 @@ describe('Fullscreen Plugin and Actions', () => {
       const entered = await enterFullscreen(ref);
       expect(entered).toBe(true);
       expect(isFullscreen(ref)).toBe(true);
-      expect(mockFullscreenElement).toBe(ref.dialogEl);
+      expect(mockFullscreenElement).toBe(ref.dialogEl.firstElementChild || ref.dialogEl);
 
       const exited = await exitFullscreen(ref);
       expect(exited).toBe(true);
