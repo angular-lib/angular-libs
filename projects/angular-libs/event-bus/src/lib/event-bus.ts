@@ -20,6 +20,8 @@ import {
   BusEvent,
   SubscriptionOptions,
   TransformOptions,
+  IALEventBus,
+  ALEventBusPlugin,
 } from './event-bus.models';
 import { TransformedPayloads } from './event-bus.internal';
 
@@ -70,7 +72,7 @@ import { TransformedPayloads } from './event-bus.internal';
  * ```
  */
 @Injectable({ providedIn: 'root' })
-export class ALEventBus<TEventMap extends {}> implements OnDestroy {
+export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>, OnDestroy {
   private readonly NOT_EMITTED = Symbol('NOT_EMITTED');
   // capture the injector at construction time so we can create effects
   // in the library's injection context even when `on` is called from
@@ -78,10 +80,23 @@ export class ALEventBus<TEventMap extends {}> implements OnDestroy {
   private injector = inject(Injector);
   private events = new Map<string, WritableSignal<any>>();
   private effects = new Map<string, EffectRef[]>();
+  private plugins: ALEventBusPlugin<TEventMap>[] = [];
 
   ngOnDestroy(): void {
     this.unsubscribeAll();
     this.events.clear();
+    this.plugins.forEach((plugin) => plugin.onDestroy?.());
+    this.plugins = [];
+  }
+
+  /**
+   * Registers a plugin to extend the event bus functionality.
+   * Plugins can react to key lifecycle phases or intercept/modify values before emission.
+   */
+  protected registerPlugin<P extends ALEventBusPlugin<TEventMap>>(plugin: P): P {
+    plugin.onInit?.(this);
+    this.plugins.push(plugin);
+    return plugin;
   }
 
   /**
@@ -188,13 +203,31 @@ export class ALEventBus<TEventMap extends {}> implements OnDestroy {
       ? [key: K]
       : [key: K, payload: TEventMap[K]]
   ): void {
-    const [key, payload] = args;
+    const key = args[0];
+    let payload = args[1] as TEventMap[K];
+
+    for (const plugin of this.plugins) {
+      if (plugin.onBeforeEmit) {
+        const result = plugin.onBeforeEmit(key, payload);
+        if (result === false) {
+          return;
+        }
+        if (result !== undefined) {
+          payload = result;
+        }
+      }
+    }
+
     const event: BusEvent<TEventMap[K]> = {
       key: key as string,
-      payload: payload as TEventMap[K],
+      payload,
       timestamp: Date.now(),
     };
     this.getSignal<BusEvent<TEventMap[K]>>(key as string).set(event);
+
+    for (const plugin of this.plugins) {
+      plugin.onAfterEmit?.(key, payload);
+    }
   }
 
   /**

@@ -9,4 +9,6 @@ export type {
   CombineLatestSource,
   CombineLatestOptions,
   BusEvent,
+  IALEventBus,
+  ALEventBusPlugin,
 } from './lib/event-bus.models';

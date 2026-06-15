@@ -56,3 +56,51 @@ export interface BusEvent<TPayload> {
   /** The event timestamp. */
   timestamp: number;
 }
+
+/**
+ * Minimal interface of the event bus exposed to plugins.
+ */
+export interface IALEventBus<TEventMap extends {}> {
+  emit<K extends keyof TEventMap>(
+    ...args: TEventMap[K] extends void | undefined
+      ? [key: K]
+      : [key: K, payload: TEventMap[K]]
+  ): void;
+  latest<K extends keyof TEventMap>(key: K): BusEvent<TEventMap[K]> | undefined;
+  resetEvent<K extends keyof TEventMap>(key: K): void;
+  resetAllEvents(): void;
+}
+
+/**
+ * Interface that all ALEventBus plugins must implement.
+ */
+export interface ALEventBusPlugin<TEventMap extends {} = any> {
+  /**
+   * Called immediately when registering the plugin in the event bus.
+   * Gives the plugin access to the event bus reference.
+   */
+  onInit?(bus: IALEventBus<TEventMap>): void;
+
+  /**
+   * Called before an event is emitted.
+   * If it returns `false`, the emission is cancelled.
+   * If it returns a value, that value (including `undefined` or new objects) overrides the event payload.
+   */
+  onBeforeEmit?<K extends keyof TEventMap>(
+    key: K,
+    payload: TEventMap[K]
+  ): TEventMap[K] | false | void;
+
+  /**
+   * Called after an event is emitted (and the underlying Signal has updated).
+   */
+  onAfterEmit?<K extends keyof TEventMap>(
+    key: K,
+    payload: TEventMap[K]
+  ): void;
+
+  /**
+   * Called when the event bus instance is destroyed.
+   */
+  onDestroy?(): void;
+}
