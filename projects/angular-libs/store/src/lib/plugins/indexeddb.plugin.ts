@@ -71,7 +71,7 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
   let db: IDBDatabase | null = null;
   let resolvedKeys: (keyof StoreState)[] = [];
   let isPluginDisabled = false;
-  let isHydrating = false;
+  let isWritingHydrationValue = false;
   let broadcastChannel: BroadcastChannel | undefined;
   let isSyncing = false;
 
@@ -205,7 +205,6 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
       }
 
       // Async Hydration with Race Safety
-      isHydrating = true;
       try {
         for (const key of resolvedKeys) {
           try {
@@ -213,14 +212,18 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
             
             // Only write if the application has not modified this key during the hydration window
             if (savedValue !== undefined && savedValue !== null && !dirtyKeysDuringHydration.has(key)) {
-              store.set(key, savedValue);
+              isWritingHydrationValue = true;
+              try {
+                store.set(key, savedValue);
+              } finally {
+                isWritingHydrationValue = false;
+              }
             }
           } catch (e) {
             console.error(`[IndexedDBPlugin] Failed to hydrate key "${String(key)}":`, e);
           }
         }
       } finally {
-        isHydrating = false;
         _isReady.set(true);
         dirtyKeysDuringHydration.clear();
       }
@@ -228,14 +231,14 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
 
     onBeforeUpdate(key, prevValue, newValue) {
       // If store writes happen before hydration is complete, and NOT by the hydration process itself, mark as dirty
-      if (!isHydrating && !_isReady() && resolvedKeys.includes(key)) {
+      if (!isWritingHydrationValue && !_isReady() && resolvedKeys.includes(key)) {
         dirtyKeysDuringHydration.add(key);
       }
       return newValue;
     },
 
     onAfterUpdate(key, prevValue, newValue) {
-      if (isPluginDisabled || isHydrating || !resolvedKeys.includes(key)) return;
+      if (isPluginDisabled || isWritingHydrationValue || !resolvedKeys.includes(key)) return;
 
       // Only perform database writes if change didn't originate from a sync event
       if (!isSyncing && db) {

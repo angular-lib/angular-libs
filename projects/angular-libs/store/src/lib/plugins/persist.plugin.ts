@@ -1,3 +1,4 @@
+import { inject, DestroyRef } from '@angular/core';
 import { ALStorePlugin } from '../interfaces/al-store-plugin';
 import { IALStore } from '../interfaces/ial-store';
 
@@ -64,6 +65,12 @@ export function persistPlugin<StoreState extends Record<string, any>>(
   let resolvedKeys: (keyof StoreState)[] = [];
   let broadcastChannel: BroadcastChannel | undefined;
   let isSyncing = false;
+  let destroyRef: DestroyRef | null = null;
+  try {
+    destroyRef = inject(DestroyRef);
+  } catch (e) {
+    // Fail-safe if plugin instantiates outside of creation context
+  }
 
   const isKeyTracked = (key: keyof StoreState): boolean => {
     return resolvedKeys.includes(key);
@@ -93,6 +100,13 @@ export function persistPlugin<StoreState extends Record<string, any>>(
       }
 
       const isBrowser = typeof window !== 'undefined';
+
+      // Safe clean up on Store destruction
+      if (destroyRef) {
+        destroyRef.onDestroy(() => {
+          broadcastChannel?.close();
+        });
+      }
 
       // Unified BroadcastChannel sync (Works for sessionStorage, custom stores, and localStorage)
       if (broadcast && isBrowser && typeof BroadcastChannel !== 'undefined') {
