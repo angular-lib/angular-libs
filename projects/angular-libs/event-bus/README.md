@@ -76,6 +76,66 @@ export class ExampleComponent {
 - `resetEvent(key)`: Resets the stored payload for a single event so it behaves as if it has never emitted. This does NOT remove subscriptions — it only clears the latest cached value.
 - `resetAllEvents()`: Resets the stored payloads for all events so they behave as if they have never emitted. This does NOT remove subscriptions.
 
+## Plugins & Extensibility
+
+`@angular-libs/event-bus` features a robust, functional plugin architecture that allows intercepted observation, payload modification, and custom lifecycle additions (e.g., cross-tab sync, debouncing, time-travel). To register plugins in your event bus subclass, invoke `registerPlugin`:
+
+```typescript
+@Injectable({ providedIn: 'root' })
+export class AppEventBus extends ALEventBus<AppEventMap, AppHeaders> {
+  // 1. Property-stored Active Plugin (exposes public controls)
+  history = this.registerPlugin(historyPlugin({ keys: ['chat:message'] }));
+
+  constructor() {
+    super();
+
+    // 2. Passive Interceptor Plugins
+    this.registerPlugin(loggerPlugin());
+    this.registerPlugin(syncPlugin());
+    this.registerPlugin(debouncePlugin([
+      { key: 'input:search-typed', delay: 300 }
+    ]));
+  }
+}
+```
+
+### Built-in Plugins
+
+The package ships with four high-profile, plug-and-play functional factories:
+
+| Plugin | Type | Options | Description |
+|:---|:---:|:---|:---|
+| **`loggerPlugin`** | Passive | `{ enabled?: boolean, theme?: { headerColor?: string, payloadColor?: string } }` | Automatically styles, groups, and logs emissions, timestamps, and metadata headers to the browser console. |
+| **`debouncePlugin`** | Passive | `DebounceRule[]` | Intercepts rapid event cascades (like typing or window resizes) and buffers dispatches with a strict custom millisecond delay. |
+| **`syncPlugin`** | Passive | `{ keys?: string[], channelName?: string }` | Synchronizes specified events across browser tabs in real time using the highly optimized `BroadcastChannel` API. |
+| **`historyPlugin`** | Active | `{ limit?: number, keys?: string[] }` | Exposes a complete historical timeline stack with `.undo()`, `.redo()`, `.canUndo()`, and `.canRedo()` triggers. |
+
+---
+
+## Global Typed Headers
+
+The event bus supports type-safe metadata headers on emissions and plugin pipelines by supplying a second type parameter:
+
+```typescript
+interface CustomHeaders {
+  origin?: 'server' | 'user' | 'extension';
+  traceId?: string;
+}
+
+@Injectable({ providedIn: 'root' })
+export class AppEventBus extends ALEventBus<AppEventMap, CustomHeaders> {}
+
+// Strictly typed emission matching CustomHeaders:
+eventBus.emit('theme:changed', 'dark', {
+  headers: { origin: 'user', traceId: 'tx_abc123' }
+});
+
+// Access anywhere on subscriber events:
+eventBus.on('theme:changed', {
+  callback: (e) => console.log('Tx log:', e.headers?.traceId),
+});
+```
+
 ## RxJS Integration
 
 If parts of your application rely heavily on RxJS (e.g., state management, complex debouncing, or routing pipelines), you can easily bridge the signal-based event bus to an Observable. Since the core library is strictly RxJS-free, we recommend adding this simple integration pattern directly in your application's typed service:
@@ -125,7 +185,7 @@ If you are an AI coding assistant, please follow these rules when generating cod
 2. **Setup**: Always extend `ALEventBus<YourAppEventMap>` and provide it in the root (`@Injectable({ providedIn: 'root' })`). Do not use the base class directly without a type map.
 3. **Injection**: Prefer Angular's `inject(YourAppEventBus)` over relying on constructor injection.
 4. **Reactivity**: Prefer `onToSignal('event')` when binding state to a template to stay aligned with Angular's reactive Signal architecture.
-5. **Cleanup**: When using the callback-based `on()` method inside a component/directive, always pass an `unsubscribeOn` option for automatic memory management. You can pass a `DestroyRef`, a boolean `Signal`, or another event key (e.g., `unsubscribeOn: 'user:logout'`).
+5. **Cleanup**: When using the callback-based `on()` method inside a component/directive, always pass an `unsubscribeOn` option for automatic memory management. You can pass a `DestroyRef`, or a string/array-of-strings representing other event keys (e.g., `unsubscribeOn: 'user:logout'`).
 6. **Types**: Do not map payloads to `any`. Let TypeScript infer the payload type based on the defined `EventMap`.
 7. **Transformations**: Instead of manually mapping values later, use the `transform` property in the options object to map payloads directly (e.g., `this.eventBus.onToSignal('event', { transform: (p) => p.id })`).
 8. **Combining Events**: Use `combineLatestToSignal(['event1', 'event2'])` to create a single signal that reacts to multiple events.

@@ -20,20 +20,24 @@ import { AppEventMap } from './event-bus.models';
 @Injectable({ providedIn: 'root' })
 export class AppEventBus extends ALEventBus<AppEventMap> {}
 `;
-    tree.create(
-      `${projectPath}/app/event-bus/app-event-bus.service.ts`,
-      serviceContent
-    );
+    const servicePath = `${projectPath}/app/event-bus/app-event-bus.service.ts`;
+    if (!tree.exists(servicePath)) {
+      tree.create(servicePath, serviceContent);
+    } else {
+      context.logger.warn(`File ${servicePath} already exists, skipping creation.`);
+    }
 
     // Create event-bus.models.ts
     const modelsContent = `export interface AppEventMap {
   'user:login': { userId: number, userName: string };
 }
 `;
-    tree.create(
-      `${projectPath}/app/event-bus/event-bus.models.ts`,
-      modelsContent
-    );
+    const modelsPath = `${projectPath}/app/event-bus/event-bus.models.ts`;
+    if (!tree.exists(modelsPath)) {
+      tree.create(modelsPath, modelsContent);
+    } else {
+      context.logger.warn(`File ${modelsPath} already exists, skipping creation.`);
+    }
 
     return tree;
   };

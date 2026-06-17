@@ -2,14 +2,10 @@ import {
   Injectable,
   WritableSignal,
   computed,
-  effect,
   OnDestroy,
-  EffectRef,
   signal,
   Signal,
   inject,
-  runInInjectionContext,
-  Injector,
   DestroyRef,
   resource,
   ResourceRef,
@@ -22,6 +18,7 @@ import {
   TransformOptions,
   IALEventBus,
   ALEventBusPlugin,
+  EmitOptions,
 } from './event-bus.models';
 import { TransformedPayloads } from './event-bus.internal';
 
@@ -72,15 +69,17 @@ import { TransformedPayloads } from './event-bus.internal';
  * ```
  */
 @Injectable({ providedIn: 'root' })
-export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>, OnDestroy {
+export class ALEventBus<
+  TEventMap extends {},
+  THeaders extends Record<string, any> = Record<string, any>
+> implements IALEventBus<TEventMap, THeaders>, OnDestroy {
   private readonly NOT_EMITTED = Symbol('NOT_EMITTED');
-  // capture the injector at construction time so we can create effects
-  // in the library's injection context even when `on` is called from
-  // user code outside an injection context.
-  private injector = inject(Injector);
   private events = new Map<string, WritableSignal<any>>();
-  private effects = new Map<string, EffectRef[]>();
-  private plugins: ALEventBusPlugin<TEventMap>[] = [];
+  private subscriptions = new Map<
+    string,
+    Map<string, { dispatch: (event: BusEvent<any, THeaders>) => void; unsubscribe: () => void }>
+  >();
+  private plugins: ALEventBusPlugin<TEventMap, THeaders>[] = [];
 
   ngOnDestroy(): void {
     this.unsubscribeAll();
@@ -92,8 +91,55 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
   /**
    * Registers a plugin to extend the event bus functionality.
    * Plugins can react to key lifecycle phases or intercept/modify values before emission.
+   * 
+   * **AI Agent & Developer Instructions for Building Plugins:**
+   * 1. **Contract**: Implement `ALEventBusPlugin<TEventMap, THeaders>`.
+   * 2. **Lifecycle Hooks**:
+   *    - `onInit(bus)`: Called immediately. Use to store a reference to the event bus.
+   *    - `onBeforeEmit(key, payload, options)`: Intercepts events before emission.
+   *      - Return `false` to cancel emission completely.
+   *      - Return a modified/new payload to override what gets emitted.
+   *      - Return nothing (`void`/`undefined`) to emit the payload unchanged.
+   *    - `onAfterEmit(key, payload, options)`: React to successful emissions (e.g. logging, storage).
+   *    - `onSubscribe(key, subId)` & `onUnsubscribe(key, subId)`: Monitor active subscribers.
+   *    - `onDestroy()`: Clean up resources when the bus is destroyed.
+   * 3. **Registration Pattern**:
+   *    - **Active Plugins**: (e.g., history plugins) that expose API methods should be registered as class fields/properties to allow direct access (e.g., `this.history.undo()`).
+   *    - **Passive Plugins**: (e.g., logging or debounce plugins) that run completely in the background should be registered directly within the subclass `constructor`.
+   * 
+   * @example
+   * ```typescript
+   * // 1. Create your passive plugin via a factory function (conforming to functional design patterns in this library)
+   * export function myLoggingPlugin(): ALEventBusPlugin {
+   *   return {
+   *     onInit(bus) {
+   *       console.log('Plugin initialised');
+   *     },
+   *     onAfterEmit(key, payload) {
+   *       console.log(`Emitted ${key} with payload:`, payload);
+   *     }
+   *   };
+   * }
+   * 
+   * // 2. Register passive plugins in constructor, active plugins as subclass properties
+   * @Injectable({ providedIn: 'root' })
+   * export class AppEventBus extends ALEventBus<AppEventMap> {
+   *   // Active plugin with programmatic API
+   *   history = this.registerPlugin(historyPlugin({ keys: ['document:save'] }));
+   * 
+   *   constructor() {
+   *     super();
+   * 
+   *     // Passive plugin (logs in the background, no properties needed on class instance)
+   *     this.registerPlugin(myLoggingPlugin());
+   *   }
+   * }
+   * ```
+   * 
+   * @param plugin The plugin instance satisfying `ALEventBusPlugin`.
+   * @returns The registered plugin instance.
    */
-  protected registerPlugin<P extends ALEventBusPlugin<TEventMap>>(plugin: P): P {
+  protected registerPlugin<P extends ALEventBusPlugin<TEventMap, THeaders>>(plugin: P): P {
     plugin.onInit?.(this);
     this.plugins.push(plugin);
     return plugin;
@@ -106,8 +152,12 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
    * In component code, rely on the `unsubscribeOn` param within `.on()` instead.
    */
   unsubscribeAll(): void {
-    this.effects.forEach((effects) => effects.forEach((eff) => eff.destroy()));
-    this.effects.clear();
+    const allTeardowns: (() => void)[] = [];
+    this.subscriptions.forEach((subs) => {
+      subs.forEach((sub) => allTeardowns.push(sub.unsubscribe));
+    });
+    allTeardowns.forEach((unsub) => unsub());
+    this.subscriptions.clear();
   }
 
   /**
@@ -117,10 +167,11 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
    * the app for a specific event key, which could unintentionally break other features.
    */
   unsubscribe<K extends keyof TEventMap>(key: K): void {
-    const keyEffects = this.effects.get(key as string);
-    if (keyEffects) {
-      keyEffects.forEach((eff) => eff.destroy());
-      this.effects.delete(key as string);
+    const keyStr = String(key);
+    const subs = this.subscriptions.get(keyStr);
+    if (subs) {
+      const unsubscribers = Array.from(subs.values()).map((sub) => sub.unsubscribe);
+      unsubscribers.forEach((unsub) => unsub());
     }
   }
 
@@ -155,30 +206,6 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
   }
 
   /**
-   * Internal helper: Tracks an effect and returns a callback to remove it from the tracking map.
-   * **AI Hint:** This is a private framework utility. AI agents and consumers should NOT call this.
-   */
-  private addEffect(key: string, effect: EffectRef): () => void {
-    if (!this.effects.has(key)) {
-      this.effects.set(key, []);
-    }
-    this.effects.get(key)!.push(effect);
-    return () => {
-      effect.destroy();
-      const keyEffects = this.effects.get(key);
-      if (keyEffects) {
-        const index = keyEffects.indexOf(effect);
-        if (index > -1) {
-          keyEffects.splice(index, 1);
-        }
-        if (keyEffects.length === 0) {
-          this.effects.delete(key);
-        }
-      }
-    };
-  }
-
-  /**
    * Internal helper: Lazily creates or retrieves the underlying `WritableSignal` for a given event key.
    * **AI Hint:** This is a private utility wrapping `Symbol('NOT_EMITTED')` logic. Do NOT call externally.
    */
@@ -196,19 +223,31 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
    *
    * **AI Hint:** Event emissions are synchronous. Do not `await` this method. Payloads are passed by reference, so do not mutate the payload inside callbacks.
    *
-   * @param args Arguments containing the predefined event key and its payload (omitted if event is void or undefined).
+   * @param args Arguments containing the predefined event key, its payload (optional if void/undefined), and options (optional headers).
    */
   emit<K extends keyof TEventMap>(
     ...args: TEventMap[K] extends void | undefined
-      ? [key: K]
-      : [key: K, payload: TEventMap[K]]
+      ? [key: K, options?: EmitOptions<THeaders>]
+      : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
   ): void {
     const key = args[0];
-    let payload = args[1] as TEventMap[K];
+    let payload: TEventMap[K] = undefined as any;
+    let options: EmitOptions<THeaders> | undefined = undefined;
+
+    if (args.length === 2) {
+      if (args[1] && typeof args[1] === 'object' && 'headers' in args[1]) {
+        options = args[1] as EmitOptions<THeaders>;
+      } else {
+        payload = args[1] as TEventMap[K];
+      }
+    } else if (args.length === 3) {
+      payload = args[1] as TEventMap[K];
+      options = args[2] as EmitOptions<THeaders>;
+    }
 
     for (const plugin of this.plugins) {
       if (plugin.onBeforeEmit) {
-        const result = plugin.onBeforeEmit(key, payload);
+        const result = plugin.onBeforeEmit(key, payload, options);
         if (result === false) {
           return;
         }
@@ -218,15 +257,25 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
       }
     }
 
-    const event: BusEvent<TEventMap[K]> = {
+    const event: BusEvent<TEventMap[K], THeaders> = {
       key: key as string,
       payload,
       timestamp: Date.now(),
+      headers: options?.headers,
     };
-    this.getSignal<BusEvent<TEventMap[K]>>(key as string).set(event);
+    this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string).set(event);
+
+    // Call subscribers synchronously
+    const subs = this.subscriptions.get(key as string);
+    if (subs) {
+      const receivers = Array.from(subs.values());
+      receivers.forEach((sub) => {
+        sub.dispatch(event);
+      });
+    }
 
     for (const plugin of this.plugins) {
-      plugin.onAfterEmit?.(key, payload);
+      plugin.onAfterEmit?.(key, payload, options);
     }
   }
 
@@ -237,11 +286,11 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
    */
   latest<K extends keyof TEventMap>(
     key: K,
-  ): BusEvent<TEventMap[K]> | undefined {
-    const signalValue = this.getSignal<BusEvent<TEventMap[K]>>(key as string)();
+  ): BusEvent<TEventMap[K], THeaders> | undefined {
+    const signalValue = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
     return signalValue === this.NOT_EMITTED
       ? undefined
-      : (signalValue as BusEvent<TEventMap[K]>);
+      : (signalValue as BusEvent<TEventMap[K], THeaders>);
   }
 
   /**
@@ -259,11 +308,11 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
     options?: TransformOptions<TEventMap[K], TTransformed>,
   ): Signal<TTransformed | undefined> {
     return computed(() => {
-      const value = this.getSignal<BusEvent<TEventMap[K]>>(key as string)();
+      const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
       if (value === this.NOT_EMITTED) {
         return undefined;
       }
-      const hubEvent = value as BusEvent<TEventMap[K]>;
+      const hubEvent = value as BusEvent<TEventMap[K], THeaders>;
       return options?.transform
         ? options.transform(hubEvent.payload)
         : (hubEvent.payload as unknown as TTransformed);
@@ -297,11 +346,11 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
 
     return resource({
       params: () => {
-        const value = this.getSignal<BusEvent<TEventMap[K]>>(keyStr)();
+        const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(keyStr)();
         if (value === this.NOT_EMITTED) {
           return undefined;
         }
-        const busEvent = value as BusEvent<TEventMap[K]>;
+        const busEvent = value as BusEvent<TEventMap[K], THeaders>;
         const transformed = options.transform
           ? options.transform(busEvent.payload)
           : (busEvent.payload as unknown as TTransformed);
@@ -319,134 +368,79 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
   /**
    * Subscribes to an event and fires a callback function when the event occurs.
    * **AI Instructions:** Use this when a side-effect needs to respond to events.
-   * Always guide users to supply an `unsubscribeOn: DestroyRef` (e.g., `inject(DestroyRef)`)
-   * inside components to avoid memory leaks.
+   * If called inside an injection context, prefer recommending `onUntilDestroy()`. Otherwise,
+   * always guide users to supply an `unsubscribeOn: DestroyRef` (e.g., `inject(DestroyRef)`)
+   * or terminating event keys inside components to avoid memory leaks.
    * @param key The event key.
    * @param options Object detailing the callback, optional transform function, and memory management token.
    * @returns A cleanup function to manually unsubscribe.
    */
   on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed>,
+    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
   ): () => void {
-    const { callback, transform } = options;
+    const { callback, transform, unsubscribeOn } = options;
     const keyStr = String(key);
+    const subscriptionId = `sub:${keyStr}:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`;
 
-    // small dispatcher that runs the callback with transformed payload and logs errors
-    const dispatch = (busEvent: BusEvent<TEventMap[K]>) => {
-      const { key, timestamp, payload } = busEvent;
+    this.plugins.forEach((p) => p.onSubscribe?.(keyStr, subscriptionId));
+
+    const dispatch = (busEvent: BusEvent<TEventMap[K], THeaders>) => {
+      const { key, timestamp, payload, headers } = busEvent;
       const transformed = transform
         ? transform(payload as TEventMap[K])
         : (payload as unknown as TTransformed);
 
-      const evt = { key, timestamp, payload: transformed };
+      const evt = { key, timestamp, payload: transformed, headers };
 
       try {
         const res = callback(evt);
-        Promise.resolve(res).catch((err) =>
-          console.error(`Error in callback for event ${keyStr}:`, err),
-        );
+        if (res instanceof Promise) {
+          res.catch((err) =>
+            console.error(`Error in callback for event ${keyStr}:`, err),
+          );
+        }
       } catch (err) {
         console.error(`Error in callback for event ${keyStr}:`, err);
       }
     };
 
-    // main effect factory
-    const createMainEffect = () =>
-      effect(() => {
-        const raw = this.getSignal<BusEvent<TEventMap[K]>>(keyStr)();
-        if (raw === this.NOT_EMITTED) return;
-        dispatch(raw as BusEvent<TEventMap[K]>);
-      });
+    let cleanupTracker: (() => void) | null = null;
 
-    let removeMain: (() => void) | null = null;
-    let removeTracker: (() => void) | null = null;
-    let destroyedBeforeCreate = false;
-
-    const removeBoth = () => {
-      removeMain?.();
-      removeTracker?.();
-    };
-
-    // lightweight tracker factory for unsubscribeOn tokens
-    const makeTracker = (token: any) => {
-      if (!token) return;
-
-      // DestroyRef-like
-      if (typeof token.onDestroy === 'function') {
-        (token as DestroyRef).onDestroy(removeBoth);
-        return;
-      }
-
-      // event key or keys
-      if (typeof token === 'string' || Array.isArray(token)) {
-        const keys = Array.isArray(token) ? token : [token];
-        const initial = keys.map((k) => this.getSignal(k)());
-
-        const eff = runInInjectionContext(this.injector, () =>
-          effect(() => {
-            for (let i = 0; i < keys.length; i++) {
-              if (
-                initial[i] === this.NOT_EMITTED &&
-                this.getSignal(keys[i])() !== this.NOT_EMITTED
-              ) {
-                removeBoth();
-                break;
-              }
-            }
-          }),
-        );
-
-        const effectKey = `__track__:${keys.join(
-          '|',
-        )}:${keyStr}:${Date.now()}:${Math.random()}`;
-        removeTracker = this.addEffect(effectKey, eff);
-        return;
-      }
-
-      // assume Signal-like
-      const eff = runInInjectionContext(this.injector, () =>
-        effect(
-          () => {
-            if ((token as Signal<any>)()) removeBoth();
-          },
-          { allowSignalWrites: true },
-        ),
-      );
-      const effectKey = `__track__:signal:${keyStr}:${Date.now()}:${Math.random()}`;
-      removeTracker = this.addEffect(effectKey, eff);
-    };
-
-    // create main effect in the captured injector (outside caller reactive context)
-    Promise.resolve().then(() => {
-      const effRef = runInInjectionContext(this.injector, createMainEffect);
-      removeMain = this.addEffect(keyStr, effRef);
-
-      if (destroyedBeforeCreate) {
-        // caller unsubscribed synchronously before effect was created
-        removeMain();
-        removeMain = null;
-        return;
-      }
-
-      if (options.unsubscribeOn) {
-        makeTracker(options.unsubscribeOn as any);
-      }
-    });
-
-    // synchronous unsubscribe
     const unsubscribe = () => {
-      if (removeMain) {
-        removeMain();
-      } else {
-        destroyedBeforeCreate = true;
+      const subs = this.subscriptions.get(keyStr);
+      if (subs && subs.has(subscriptionId)) {
+        subs.delete(subscriptionId);
+        if (subs.size === 0) {
+          this.subscriptions.delete(keyStr);
+        }
+        this.plugins.forEach((p) => p.onUnsubscribe?.(keyStr, subscriptionId));
       }
-
-      if (removeTracker) {
-        removeTracker();
-        removeTracker = null;
+      if (cleanupTracker) {
+        cleanupTracker();
+        cleanupTracker = null;
       }
     };
+
+    if (!this.subscriptions.has(keyStr)) {
+      this.subscriptions.set(keyStr, new Map());
+    }
+    this.subscriptions.get(keyStr)!.set(subscriptionId, { dispatch, unsubscribe });
+
+    if (unsubscribeOn) {
+      if (typeof (unsubscribeOn as any).onDestroy === 'function') {
+        const cleanupDestroy = (unsubscribeOn as DestroyRef).onDestroy(unsubscribe);
+        if (typeof cleanupDestroy === 'function') {
+          cleanupTracker = cleanupDestroy;
+        }
+      } else {
+        const keys = Array.isArray(unsubscribeOn) ? unsubscribeOn : [unsubscribeOn];
+        const cancelSubs = keys.map((k) =>
+          this.on(k as any, { callback: () => unsubscribe() }),
+        );
+        cleanupTracker = () => cancelSubs.forEach((unsub) => unsub());
+      }
+    }
 
     return unsubscribe;
   }
@@ -463,7 +457,7 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
    */
   onUntilDestroy<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed>,
+    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
   ): () => void {
     const destroyRef = inject(DestroyRef, { optional: true });
     return this.on(key, {
@@ -481,10 +475,10 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
    */
   once<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed>,
+    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
   ): () => void {
     let unsubscribe: () => void;
-    const oneTimeCallback = async (event: BusEvent<TTransformed>) => {
+    const oneTimeCallback = async (event: BusEvent<TTransformed, THeaders>) => {
       if (unsubscribe) {
         unsubscribe();
       }
@@ -543,45 +537,48 @@ export class ALEventBus<TEventMap extends {}> implements IALEventBus<TEventMap>,
     options: CombineLatestOptions<TSources>,
   ): () => void {
     const { sources, callback } = options;
-    const combinedSignal = this.combineLatestToSignal(sources);
-    const create = () =>
-      effect(() => {
-        const payloads = combinedSignal();
-        if (payloads !== undefined) {
-          // Build BusEvent<TTransformed>[] matching sources order
-          const events = payloads.map((payload, i) => ({
-            key: sources[i].key,
-            timestamp: Date.now(),
-            payload,
-          })) as any;
 
-          const result = callback(events);
-          if (result instanceof Promise) {
-            const keys = sources.map((s) => s.key).join(', ');
-            result.catch((error) =>
-              console.error(
-                `Error in combineLatest callback for events ${keys}:`,
-                error,
-              ),
-            );
-          }
-        }
-      });
+    const checkAndTrigger = () => {
+      const values = sources.map((s) => this.getSignal(s.key)());
+      if (values.some((v) => v === this.NOT_EMITTED)) {
+        return;
+      }
+      const hubEvents = values as BusEvent<any>[];
+      const payloads = hubEvents.map((hubEvent, i) => {
+        const source = sources[i];
+        return source.transform
+          ? source.transform(hubEvent.payload)
+          : hubEvent.payload;
+      }) as TransformedPayloads<TSources>;
 
-    const eff = runInInjectionContext(this.injector, create);
+      // Build BusEvent<TTransformed>[] matching sources order
+      const events = payloads.map((payload, i) => ({
+        key: sources[i].key,
+        timestamp: hubEvents[i].timestamp,
+        payload,
+        headers: hubEvents[i].headers,
+      })) as any;
 
-    // register the effect under a single composite key so destroying is done once
-    const compositeKey = `__combine__:${sources
-      .map((s) => s.key)
-      .join('|')}:${Date.now()}:${Math.random()}`;
-    this.addEffect(compositeKey, eff);
+      const result = callback(events);
+      if (result instanceof Promise) {
+        const keys = sources.map((s) => s.key).join(', ');
+        result.catch((error) =>
+          console.error(
+            `Error in combineLatest callback for events ${keys}:`,
+            error,
+          ),
+        );
+      }
+    };
+
+    const unsubscribes = sources.map((source) =>
+      this.on(source.key as any, {
+        callback: () => checkAndTrigger(),
+      }),
+    );
 
     return () => {
-      const remove = this.effects.get(compositeKey);
-      if (remove) {
-        this.effects.get(compositeKey)!.forEach((e) => e.destroy());
-        this.effects.delete(compositeKey);
-      }
+      unsubscribes.forEach((unsub) => unsub());
     };
   }
 }

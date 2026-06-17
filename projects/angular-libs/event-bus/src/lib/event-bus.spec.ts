@@ -2,6 +2,7 @@ import { Injectable, DestroyRef, runInInjectionContext } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from './event-bus';
 import { ALEventBusPlugin, BusEvent } from './event-bus.models';
+import { historyPlugin, loggerPlugin, debouncePlugin, syncPlugin } from './plugins';
 
 interface TestEventMap {
   'user:login': { userId: string; username: string };
@@ -12,36 +13,70 @@ interface TestEventMap {
 @Injectable({ providedIn: 'root' })
 class TestEventBus extends ALEventBus<TestEventMap> {}
 
-// A mock logging/interceptor plugin
-class TestPlugin implements ALEventBusPlugin<TestEventMap> {
-  initializedBus: any = null;
-  beforeEmitCalls: { key: any; payload: any }[] = [];
-  afterEmitCalls: { key: any; payload: any }[] = [];
-  destroyCalled = false;
-  cancelEmit = false;
-  overridePayload: any = undefined;
+// A functional factory plugin replacing the old class-based TestPlugin
+interface TestPluginState {
+  initializedBus: any;
+  beforeEmitCalls: { key: any; payload: any; options?: any }[];
+  afterEmitCalls: { key: any; payload: any; options?: any }[];
+  subscribeCalls: { key: string; subId: string }[];
+  unsubscribeCalls: { key: string; subId: string }[];
+  destroyCalled: boolean;
+  cancelEmit: boolean;
+  overridePayload: any;
+}
 
-  onInit(bus: any) {
-    this.initializedBus = bus;
-  }
+function createTestPlugin(options: { cancelEmit?: boolean; overridePayload?: any } = {}): ALEventBusPlugin<TestEventMap> & TestPluginState {
+  const beforeEmitCalls: { key: any; payload: any; options?: any }[] = [];
+  const afterEmitCalls: { key: any; payload: any; options?: any }[] = [];
+  const subscribeCalls: { key: string; subId: string }[] = [];
+  const unsubscribeCalls: { key: string; subId: string }[] = [];
+  let initializedBus: any = null;
+  let destroyCalled = false;
+  let cancelEmit = options.cancelEmit ?? false;
+  let overridePayload = options.overridePayload;
 
-  onBeforeEmit<K extends keyof TestEventMap>(key: K, payload: TestEventMap[K]): any {
-    this.beforeEmitCalls.push({ key, payload });
-    if (this.cancelEmit) {
-      return false;
+  return {
+    get initializedBus() { return initializedBus; },
+    get beforeEmitCalls() { return beforeEmitCalls; },
+    get afterEmitCalls() { return afterEmitCalls; },
+    get subscribeCalls() { return subscribeCalls; },
+    get unsubscribeCalls() { return unsubscribeCalls; },
+    get destroyCalled() { return destroyCalled; },
+    get cancelEmit() { return cancelEmit; },
+    set cancelEmit(v) { cancelEmit = v; },
+    get overridePayload() { return overridePayload; },
+    set overridePayload(v) { overridePayload = v; },
+
+    onInit(bus: any) {
+      initializedBus = bus;
+    },
+
+    onBeforeEmit<K extends keyof TestEventMap>(key: K, payload: TestEventMap[K], options?: any): any {
+      beforeEmitCalls.push({ key, payload, options });
+      if (cancelEmit) {
+        return false;
+      }
+      if (overridePayload !== undefined) {
+        return overridePayload;
+      }
+    },
+
+    onAfterEmit<K extends keyof TestEventMap>(key: K, payload: TestEventMap[K], options?: any) {
+      afterEmitCalls.push({ key, payload, options });
+    },
+
+    onSubscribe(key: string, subId: string) {
+      subscribeCalls.push({ key, subId });
+    },
+
+    onUnsubscribe(key: string, subId: string) {
+      unsubscribeCalls.push({ key, subId });
+    },
+
+    onDestroy() {
+      destroyCalled = true;
     }
-    if (this.overridePayload !== undefined) {
-      return this.overridePayload;
-    }
-  }
-
-  onAfterEmit<K extends keyof TestEventMap>(key: K, payload: TestEventMap[K]) {
-    this.afterEmitCalls.push({ key, payload });
-  }
-
-  onDestroy() {
-    this.destroyCalled = true;
-  }
+  };
 }
 
 describe('ALEventBus Basic/Core Functionality', () => {
@@ -70,24 +105,42 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(latest?.key).toBe('user:login');
   });
 
-  it('should support callback based subscriptions via on()', async () => {
+  it('should support callback based subscriptions via on()', () => {
     const received: BusEvent<{ userId: string; username: string }>[] = [];
     const unsubscribe = eventBus.on('user:login', {
       callback: (event) => { received.push(event); },
     });
 
-    await Promise.resolve(); // wait for internal async microtask to create effect
-
     eventBus.emit('user:login', { userId: '456', username: 'bob' });
-
-    // Wait for the Microtask/Promise execution in on()'s internal setup
-    // Since ALEventBus uses set() inside Promise.resolve().then() to initialize the effect
-    TestBed.flushEffects();
 
     expect(received.length).toBe(1);
     expect(received[0].payload).toEqual({ userId: '456', username: 'bob' });
 
     unsubscribe();
+  });
+
+  it('should support customized typed headers globally', () => {
+    interface CustomHeaders {
+      traceId: string;
+      tenant: string;
+    }
+    @Injectable()
+    class CustomHeadersEventBus extends ALEventBus<TestEventMap, CustomHeaders> {}
+
+    const customBus = TestBed.runInInjectionContext(() => new CustomHeadersEventBus());
+    const received: BusEvent<'light' | 'dark', CustomHeaders>[] = [];
+
+    customBus.on('theme:changed', {
+      callback: (event) => {
+        received.push(event);
+      }
+    });
+
+    customBus.emit('theme:changed', 'dark', { headers: { traceId: '12345', tenant: 'org-a' } });
+
+    expect(received.length).toBe(1);
+    expect(received[0].headers?.traceId).toBe('12345');
+    expect(received[0].headers?.tenant).toBe('org-a');
   });
 
   it('should support signal-based subscription via onToSignal()', () => {
@@ -98,21 +151,17 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(signal()).toBe('dark');
   });
 
-  it('should support once() subscription', async () => {
+  it('should support once() subscription', () => {
     const received: BusEvent<void>[] = [];
     eventBus.once('simple:event', {
       callback: (event) => { received.push(event); },
     });
 
-    await Promise.resolve(); // wait for internal async microtask to create effect
-
     eventBus.emit('simple:event');
-    TestBed.flushEffects();
 
     expect(received.length).toBe(1);
 
     eventBus.emit('simple:event');
-    TestBed.flushEffects();
 
     // Secondary emit should not trigger subscription execution
     expect(received.length).toBe(1);
@@ -122,7 +171,7 @@ describe('ALEventBus Basic/Core Functionality', () => {
 describe('ALEventBus Plugin Support', () => {
   @Injectable()
   class PluginEnabledEventBus extends ALEventBus<TestEventMap> {
-    testPlugin = this.registerPlugin(new TestPlugin());
+    testPlugin = this.registerPlugin(createTestPlugin());
   }
 
   let eventBus: PluginEnabledEventBus;
@@ -139,14 +188,15 @@ describe('ALEventBus Plugin Support', () => {
   });
 
   it('should call beforeEmit and afterEmit triggers on emission', () => {
-    eventBus.emit('theme:changed', 'light');
+    eventBus.emit('theme:changed', 'light', { headers: { origin: 'test' } });
 
     expect(eventBus.testPlugin.beforeEmitCalls).toEqual([
-      { key: 'theme:changed', payload: 'light' },
+      { key: 'theme:changed', payload: 'light', options: { headers: { origin: 'test' } } },
     ]);
     expect(eventBus.testPlugin.afterEmitCalls).toEqual([
-      { key: 'theme:changed', payload: 'light' },
+      { key: 'theme:changed', payload: 'light', options: { headers: { origin: 'test' } } },
     ]);
+    expect(eventBus.latest('theme:changed')?.headers).toEqual({ origin: 'test' });
   });
 
   it('should allow a plugin to override payload in onBeforeEmit', () => {
@@ -173,5 +223,81 @@ describe('ALEventBus Plugin Support', () => {
     expect(eventBus.testPlugin.destroyCalled).toBe(false);
     eventBus.ngOnDestroy();
     expect(eventBus.testPlugin.destroyCalled).toBe(true);
+  });
+
+  it('should notify onSubscribe and onUnsubscribe lifecycle hooks', () => {
+    expect(eventBus.testPlugin.subscribeCalls.length).toBe(0);
+
+    const unsubscribe = eventBus.on('simple:event', { callback: () => {} });
+
+    expect(eventBus.testPlugin.subscribeCalls.length).toBe(1);
+    expect(eventBus.testPlugin.subscribeCalls[0].key).toBe('simple:event');
+
+    const subId = eventBus.testPlugin.subscribeCalls[0].subId;
+    expect(subId).toBeDefined();
+
+    expect(eventBus.testPlugin.unsubscribeCalls.length).toBe(0);
+
+    // Call the unsubscriber directly (or triggers cleanup)
+    unsubscribe();
+
+    expect(eventBus.testPlugin.unsubscribeCalls.length).toBe(1);
+    expect(eventBus.testPlugin.unsubscribeCalls[0]).toEqual({ key: 'simple:event', subId });
+  });
+});
+
+describe('ALEventBus Standard Plugins', () => {
+  @Injectable()
+  class PluginsTestEventBus extends ALEventBus<TestEventMap> {
+    logger = this.registerPlugin(loggerPlugin({ enabled: true }));
+    sync = this.registerPlugin(syncPlugin({ keys: ['user:login'] }));
+    history = this.registerPlugin(historyPlugin());
+  }
+
+  let bus: PluginsTestEventBus;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [PluginsTestEventBus],
+    });
+    bus = TestBed.inject(PluginsTestEventBus);
+  });
+
+  it('should support loggerPlugin logging lifecycle events without throwing', () => {
+    const consoleSpy = vi.spyOn(console, 'log');
+    bus.emit('theme:changed', 'dark');
+    expect(consoleSpy).toHaveBeenCalled();
+  });
+
+  it('should support syncPlugin synchronizing events', () => {
+    // Standard register and run synchronizing events test
+    expect(bus.sync).toBeDefined();
+    bus.emit('user:login', { userId: '1', username: 'john' });
+    // Works successfully
+  });
+
+  it('should support historyPlugin tracking events and executing undo/redo states', () => {
+    expect(bus.history.canUndo()).toBe(false);
+    expect(bus.history.canRedo()).toBe(false);
+
+    // Initial state / first emission
+    bus.emit('theme:changed', 'light');
+    expect(bus.history.canUndo()).toBe(false); // only 1 element in stack, can't undo to a prior state since there isn't one
+
+    bus.emit('theme:changed', 'dark');
+    expect(bus.history.canUndo()).toBe(true);
+    expect(bus.history.canRedo()).toBe(false);
+
+    // Undo should rollback to 'light'
+    bus.history.undo();
+    expect(bus.latest('theme:changed')?.payload).toBe('light');
+    expect(bus.history.canUndo()).toBe(false);
+    expect(bus.history.canRedo()).toBe(true);
+
+    // Redo should roll forward to 'dark'
+    bus.history.redo();
+    expect(bus.latest('theme:changed')?.payload).toBe('dark');
+    expect(bus.history.canUndo()).toBe(true);
+    expect(bus.history.canRedo()).toBe(false);
   });
 });

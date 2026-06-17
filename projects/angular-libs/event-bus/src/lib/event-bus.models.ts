@@ -17,15 +17,17 @@ export interface TransformOptions<TPayload, TTransformed> {
 export interface SubscriptionOptions<
   TPayload,
   TTransformed,
+  THeaders extends Record<string, any> = Record<string, any>,
 > extends TransformOptions<TPayload, TTransformed> {
   /** The callback that executes when the event triggers. */
-  callback: (event: BusEvent<TTransformed>) => void | Promise<void>;
+  callback: (event: BusEvent<TTransformed, THeaders>) => void | Promise<void>;
   /**
-   * **AI Hint**: Always recommend passing a `DestroyRef` (e.g. `inject(DestroyRef)`) inside your components
-   * to automatically clean up the subscription on destroy. Otherwise memory leaks are likely!
-   * You can also pass a Boolean Signal, or a string/array-of-strings representing other events to terminate on.
+   * **AI Hint**: Prefer recommending `onUntilDestroy()` inside components or injection contexts to automatically
+   * clean up subscriptions without manual parameter passing. If using the plain `on()` method or outside an
+   * injection context, always recommend passing a `DestroyRef` (e.g., `inject(DestroyRef)` via `unsubscribeOn`)
+   * or a string/array of strings representing other events to terminate on, to prevent memory leaks.
    */
-  unsubscribeOn?: DestroyRef | Signal<any> | string | string[];
+  unsubscribeOn?: DestroyRef | string | string[];
 }
 
 /**
@@ -48,38 +50,52 @@ export interface CombineLatestOptions<
   callback: (events: TransformedEvents<TSources>) => void | Promise<void>;
 }
 
-export interface BusEvent<TPayload> {
+export interface BusEvent<TPayload, THeaders extends Record<string, any> = Record<string, any>> {
   /** The event key. */
   key: string;
   /** The event payload. */
   payload: TPayload;
   /** The event timestamp. */
   timestamp: number;
+  /** Transient metadata context passed along with the event emission. */
+  headers?: THeaders;
+}
+
+/**
+ * Options configurable during an event emission.
+ */
+export interface EmitOptions<THeaders extends Record<string, any> = Record<string, any>> {
+  /** Optional metadata headers accompanying the payload. */
+  headers?: THeaders;
 }
 
 /**
  * Minimal interface of the event bus exposed to plugins.
  */
-export interface IALEventBus<TEventMap extends {}> {
+export interface IALEventBus<TEventMap extends {}, THeaders extends Record<string, any> = Record<string, any>> {
   emit<K extends keyof TEventMap>(
     ...args: TEventMap[K] extends void | undefined
-      ? [key: K]
-      : [key: K, payload: TEventMap[K]]
+      ? [key: K, options?: EmitOptions<THeaders>]
+      : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
   ): void;
-  latest<K extends keyof TEventMap>(key: K): BusEvent<TEventMap[K]> | undefined;
+  latest<K extends keyof TEventMap>(key: K): BusEvent<TEventMap[K], THeaders> | undefined;
   resetEvent<K extends keyof TEventMap>(key: K): void;
   resetAllEvents(): void;
+  on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
+    key: K,
+    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>
+  ): () => void;
 }
 
 /**
  * Interface that all ALEventBus plugins must implement.
  */
-export interface ALEventBusPlugin<TEventMap extends {} = any> {
+export interface ALEventBusPlugin<TEventMap extends {} = any, THeaders extends Record<string, any> = Record<string, any>> {
   /**
    * Called immediately when registering the plugin in the event bus.
    * Gives the plugin access to the event bus reference.
    */
-  onInit?(bus: IALEventBus<TEventMap>): void;
+  onInit?(bus: IALEventBus<TEventMap, THeaders>): void;
 
   /**
    * Called before an event is emitted.
@@ -88,7 +104,8 @@ export interface ALEventBusPlugin<TEventMap extends {} = any> {
    */
   onBeforeEmit?<K extends keyof TEventMap>(
     key: K,
-    payload: TEventMap[K]
+    payload: TEventMap[K],
+    options?: EmitOptions<THeaders>
   ): TEventMap[K] | false | void;
 
   /**
@@ -96,8 +113,19 @@ export interface ALEventBusPlugin<TEventMap extends {} = any> {
    */
   onAfterEmit?<K extends keyof TEventMap>(
     key: K,
-    payload: TEventMap[K]
+    payload: TEventMap[K],
+    options?: EmitOptions<THeaders>
   ): void;
+
+  /**
+   * Called when a new subscription is registered on the event bus.
+   */
+  onSubscribe?(key: string, subscriptionId: string): void;
+
+  /**
+   * Called when a subscription is removed/unsuscribed.
+   */
+  onUnsubscribe?(key: string, subscriptionId: string): void;
 
   /**
    * Called when the event bus instance is destroyed.

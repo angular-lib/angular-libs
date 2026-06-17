@@ -1,15 +1,31 @@
 import { Component, inject, Injectable, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ALEventBus } from '@angular-libs/event-bus';
+import { debouncePlugin, historyPlugin, loggerPlugin, syncPlugin } from '@angular-libs/event-bus';
 
 interface DemoEventMap {
   'chat:message': { username: string; text: string };
   'system:notification': { priority: 'low' | 'high'; text: string };
   'action:clear': void;
+  'input:keystroke': { text: string };
 }
 
 @Injectable({ providedIn: 'root' })
-export class DemoEventBus extends ALEventBus<DemoEventMap> {}
+export class DemoEventBus extends ALEventBus<DemoEventMap> {
+  // Register active undo/redo history plugin
+  history = this.registerPlugin(historyPlugin({ keys: ['chat:message', 'system:notification'] }));
+
+  constructor() {
+    super();
+
+    // Register passive plugins
+    this.registerPlugin(loggerPlugin());
+    this.registerPlugin(syncPlugin({ keys: ['chat:message'] }));
+    this.registerPlugin(debouncePlugin([
+      { key: 'input:keystroke', delay: 400 }
+    ]));
+  }
+}
 
 interface LogEntry {
   id: number;
@@ -32,6 +48,18 @@ interface LogEntry {
       <div class="layout-grid">
         <!-- CONTROLLER (DISPATCH CENTER) -->
         <div class="column">
+          <!-- HISTORY UNDO/REDO PANEL -->
+          <div class="widget-card history-controls">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <h3>↩️ History Controls (historyPlugin)</h3>
+              <div style="display: flex; gap: 8px;">
+                <button [disabled]="!hasUndo" (click)="undo()" class="btn btn-secondary-outline btn-xs" style="padding: 6px 12px;">⏪ Undo</button>
+                <button [disabled]="!hasRedo" (click)="redo()" class="btn btn-secondary-outline btn-xs" style="padding: 6px 12px;">⏩ Redo</button>
+              </div>
+            </div>
+            <p class="sub-caption" style="margin-top: 4px; margin-bottom: 0;">Supports traveling backwards/forwards across chat and system notification alerts.</p>
+          </div>
+
           <div class="widget-card">
             <h3>📢 Dispatch Center</h3>
             <p class="sub-caption">Fully custom and typesafe event streams dispatched instantly on the bus.</p>
@@ -43,6 +71,22 @@ interface LogEntry {
                 <input type="text" #chatUser placeholder="Username..." value="Ava" class="input-inline user-input">
                 <input type="text" #chatMsg placeholder="Type message..." value="Hello World! 🚀" class="input-inline msg-input" (keydown.enter)="triggerChat(chatUser, chatMsg)">
                 <button class="btn btn-primary" (click)="triggerChat(chatUser, chatMsg)">Emit</button>
+              </div>
+            </div>
+
+            <!-- Debounced Keystroke sub-form -->
+            <div class="form-sub-panel">
+              <h4>⏱️ Debounced Input Event (debouncePlugin)</h4>
+              <div class="inputs-row">
+                <input type="text" [value]="keystrokeInput()" (input)="onKeystroke($event)" placeholder="Type fast here..." class="input-inline msg-input">
+              </div>
+              <div style="margin-top: 8px; font-size: 0.8rem; color: #475569;">
+                <strong>Debounced Value (400ms delay):</strong> 
+                @if (debouncedKeystroke()) {
+                  <span style="color: #0284c7; font-family: monospace;">"{{ debouncedKeystroke()?.text }}"</span>
+                } @else {
+                  <span style="color: #94a3b8; font-style: italic;">No keystrokes emitted yet</span>
+                }
               </div>
             </div>
 
@@ -230,6 +274,10 @@ export class EventBusDemoComponent {
   logs = signal<LogEntry[]>([]);
   private logId = 0;
 
+  // Track debounced keystrokes
+  keystrokeInput = signal('');
+  debouncedKeystroke = this.eventBus.onToSignal('input:keystroke');
+
   chatSignal = this.eventBus.onToSignal('chat:message');
   notifySignal = this.eventBus.onToSignal('system:notification');
 
@@ -272,12 +320,41 @@ export class EventBusDemoComponent {
       callback: (e) => this.pushLog(e.key, `[${e.payload.priority.toUpperCase()}] ${e.payload.text}`)
     });
 
+    this.eventBus.on('input:keystroke', {
+      callback: (e) => this.pushLog(e.key, `Keystroke captured: "${e.payload.text}"`)
+    });
+
     this.eventBus.on('action:clear', {
       callback: () => {
         this.pushLog('action:clear', 'SYSTEM STATE FLUSHED');
         this.eventBus.resetAllEvents();
       }
     });
+  }
+
+  // Undo/Redo trigger helpers
+  get hasUndo() {
+    return this.eventBus.history.canUndo();
+  }
+
+  get hasRedo() {
+    return this.eventBus.history.canRedo();
+  }
+
+  undo() {
+    this.eventBus.history.undo();
+    this.pushLog('system:history', 'History Action: UNDO executed');
+  }
+
+  redo() {
+    this.eventBus.history.redo();
+    this.pushLog('system:history', 'History Action: REDO executed');
+  }
+
+  onKeystroke(event: Event) {
+    const text = (event.target as HTMLInputElement).value;
+    this.keystrokeInput.set(text);
+    this.eventBus.emit('input:keystroke', { text });
   }
 
   triggerChat(userEl: HTMLInputElement, msgEl: HTMLInputElement) {
