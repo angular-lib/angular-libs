@@ -80,7 +80,7 @@ export function resizeObserverSignal(
         });
       }
     });
-    observer.observe(element);
+    observer.observe(element, {});
   };
 
   const resolve = (t: ResizeObserverTarget): HTMLElement | SVGElement | null => {
@@ -101,26 +101,34 @@ export function resizeObserverSignal(
     return null;
   };
 
+  let currentEl: HTMLElement | SVGElement | null = null;
+  const initialEl = resolve(target);
+  if (initialEl) {
+    observe(initialEl);
+    currentEl = initialEl;
+  }
+
   // Bind effect if provided a function or selector, otherwise resolve static element
   if (typeof target === 'function' || typeof target === 'string') {
     try {
       effect(() => {
         const el = resolve(target);
         untracked(() => {
-          if (el) observe(el);
-          else {
+          if (el) {
+            if (el !== currentEl) {
+              observe(el);
+              currentEl = el;
+            }
+          } else {
             cleanup();
+            currentEl = null;
             state.set(initialEmptyState);
           }
         });
       });
     } catch {
-      const el = resolve(target);
-      if (el) observe(el);
+      // Handled synchronously by first resolve
     }
-  } else {
-    const el = resolve(target);
-    if (el) observe(el);
   }
 
   try {

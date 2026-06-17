@@ -22,6 +22,8 @@ describe('resizeObserverSignal', () => {
     }
 
     vi.stubGlobal('ResizeObserver', MockResizeObserver);
+    vi.stubGlobal('requestAnimationFrame', (cb: any) => cb());
+    vi.stubGlobal('cancelAnimationFrame', () => {});
   });
 
   afterEach(() => {
@@ -88,6 +90,7 @@ describe('resizeObserverSignal', () => {
 
     // Dynamically update the signal to el2
     targetSignal.set(el2);
+    TestBed.flushEffects();
 
     // Verify it cleans up the old elements and observes the new one
     expect(mockDisconnect).toHaveBeenCalled();
@@ -105,6 +108,7 @@ describe('resizeObserverSignal', () => {
     expect(mockObserve).toHaveBeenCalledWith(el, {});
 
     targetSignal.set(null);
+    TestBed.flushEffects();
 
     expect(mockDisconnect).toHaveBeenCalled();
   });
