@@ -96,6 +96,52 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
   private channel?: BroadcastChannel;
   private destroyRef = inject(DestroyRef);
 
+  /**
+   * Registers a plugin to extend the store functionality.
+   * Plugins can react to key lifecycle phases or intercept/modify values before they are written.
+   * 
+   * **AI Agent & Developer Instructions for Building Plugins:**
+   * 1. **Contract**: Implement `ALStorePlugin<T>`.
+   * 2. **Lifecycle Hooks**:
+   *    - `onInit(store)`: Called immediately on registration. Gives the plugin access to the `ALStore` reference.
+   *    - `onBeforeUpdate(key, prevValue, newValue)`: Called before a property value changes. Return a new value to override what gets written to the state.
+   *    - `onAfterUpdate(key, prevValue, newValue)`: Called after a property value changes. Perfect for tracking history, writing side effects, syncing to storage, logging, etc.
+   * 3. **Registration Pattern**:
+   *    - **Active Plugins**: (e.g., entity, resource, history plugins) that expose API methods should be registered as class fields/properties to allow direct access (e.g., `this.users.add(item)`).
+   *    - **Passive Plugins**: (e.g., logging, persistence, or sync plugins) that run completely in the background should be registered directly within the subclass `constructor`.
+   * 
+   * @example
+   * ```typescript
+   * // 1. Create your passive plugin via a factory function (conforming to functional design patterns in this library)
+   * export function myLoggerPlugin(): ALStorePlugin<any> {
+   *   return {
+   *     onInit(store) {
+   *       console.log('Store Plugin initialised');
+   *     },
+   *     onAfterUpdate(key, prev, next) {
+   *       console.log(`State change [${String(key)}]:`, prev, '->', next);
+   *     }
+   *   };
+   * }
+   * 
+   * // 2. Register passive plugins in constructor, active plugins as subclass properties
+   * @Injectable({ providedIn: 'root' })
+   * export class AppStore extends ALStore<AppState> {
+   *   // Active plugin with programmatic API
+   *   users = this.registerPlugin(entityPlugin('users', { idField: 'id' }));
+   * 
+   *   constructor() {
+   *     super(initialState);
+   *     
+   *     // Passive plugin (logs in the background, no properties needed on class instance)
+   *     this.registerPlugin(myLoggerPlugin());
+   *   }
+   * }
+   * ```
+   * 
+   * @param plugin The plugin instance satisfying `ALStorePlugin`.
+   * @returns The registered plugin instance.
+   */
   protected registerPlugin<P extends ALStorePlugin<T>>(plugin: P): P {
     plugin.onInit?.(this);
     this.plugins.push(plugin);
