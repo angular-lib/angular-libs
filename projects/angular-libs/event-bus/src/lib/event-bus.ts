@@ -23,6 +23,8 @@ import {
 } from './event-bus.models';
 import { type TransformedPayloads } from './event-bus.internal';
 
+type ValueWithDefault<TValue, TDefault> = TDefault extends TValue ? TValue : TValue | TDefault;
+
 /**
  * A generic, signal-based event bus service for Angular applications.
  *
@@ -304,19 +306,36 @@ export class ALEventBus<
    * @param options An optional object to transform the payload and/or provide a default fallback value.
    * @returns A Signal containing the latest event payload (or transformed payload).
    */
-  onToSignal<K extends keyof TEventMap, TTransformed = TEventMap[K], TDefault = undefined>(
+  /**
+   * Creates a reactive Angular Signal that updates whenever the specified event is emitted.
+   * **AI Instructions:** This is the preferred way to consume events for use in modern Angular templates
+   * or as derived state using `computed`. It returns `undefined` until the first emission (or `options.defaultValue` if provided).
+   * You can optionally apply a transformation function.
+   *
+   * @param key The event key to listen to.
+   * @param options An optional object to transform the payload and/or provide a default fallback value.
+   * @returns A Signal containing the latest event payload (or transformed payload).
+   */
+  onToSignal<
+    K extends keyof TEventMap,
+    TTransformed = TEventMap[K],
+    TDefault = undefined
+  >(
     key: K,
-    options?: TransformOptions<TEventMap[K], TTransformed> & { defaultValue?: TDefault },
-  ): Signal<TTransformed | TDefault> {
+    options?: {
+      transform?: (payload: TEventMap[K]) => TTransformed;
+      defaultValue?: TDefault;
+    },
+  ): Signal<ValueWithDefault<TTransformed, TDefault>> {
     return computed(() => {
       const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
       if (value === this.NOT_EMITTED) {
-        return options?.defaultValue as TDefault;
+        return options?.defaultValue as any;
       }
       const hubEvent = value as BusEvent<TEventMap[K], THeaders>;
-      return options?.transform
+      return (options?.transform
         ? options.transform(hubEvent.payload)
-        : (hubEvent.payload as unknown as TTransformed);
+        : (hubEvent.payload as any)) as any;
     });
   }
 
@@ -333,7 +352,7 @@ export class ALEventBus<
     K extends keyof TEventMap,
     TResponse,
     TTransformed = TEventMap[K],
-    TDefault = undefined,
+    TDefault = undefined
   >(
     key: K,
     options: {
@@ -344,11 +363,11 @@ export class ALEventBus<
       }) => Promise<TResponse> | TResponse;
       defaultValue?: TDefault;
     },
-  ): ResourceRef<TResponse | TDefault> {
+  ): ResourceRef<ValueWithDefault<TResponse, TDefault>> {
     const keyStr = String(key);
 
     return resource({
-      defaultValue: options.defaultValue,
+      defaultValue: options.defaultValue as TResponse | undefined,
       params: () => {
         const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(keyStr)();
         if (value === this.NOT_EMITTED) {
@@ -357,16 +376,16 @@ export class ALEventBus<
         const busEvent = value as BusEvent<TEventMap[K], THeaders>;
         const transformed = options.transform
           ? options.transform(busEvent.payload)
-          : (busEvent.payload as unknown as TTransformed);
+          : (busEvent.payload as any);
         return { payload: transformed };
       },
       loader: async ({ params, abortSignal }) => {
         if (params === undefined) {
           return undefined as any;
         }
-        return options.loader({ params: params.payload, abortSignal });
+        return options.loader({ params: params.payload as any, abortSignal });
       },
-    }) as ResourceRef<TResponse | TDefault>;
+    }) as any;
   }
 
   /**
