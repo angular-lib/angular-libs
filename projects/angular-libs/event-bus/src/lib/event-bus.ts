@@ -9,18 +9,19 @@ import {
   DestroyRef,
   resource,
   ResourceRef,
+  isDevMode,
 } from '@angular/core';
 import {
-  CombineLatestOptions,
-  CombineLatestSource,
-  BusEvent,
-  SubscriptionOptions,
-  TransformOptions,
-  IALEventBus,
-  ALEventBusPlugin,
-  EmitOptions,
+  type CombineLatestOptions,
+  type CombineLatestSource,
+  type BusEvent,
+  type SubscriptionOptions,
+  type TransformOptions,
+  type IALEventBus,
+  type ALEventBusPlugin,
+  type EmitOptions,
 } from './event-bus.models';
-import { TransformedPayloads } from './event-bus.internal';
+import { type TransformedPayloads } from './event-bus.internal';
 
 /**
  * A generic, signal-based event bus service for Angular applications.
@@ -29,8 +30,8 @@ import { TransformedPayloads } from './event-bus.internal';
  * - This service uses Angular Signals (`WritableSignal`, `computed`, `effect`) instead of RxJS.
  * - You can inject this directly or extend it to define a strict event map interface.
  * - For connecting events to component state or templates, prefer `onToSignal` which returns a reactive `Signal`.
- * - For side-effects in component initialization contexts, prefer `onUntilDestroy` which contextually handles unsubscription automatically.
- * - For executing side effects reacting to events outside an injection context, use `on` or `once` with a callback and `unsubscribeOn`.
+ * - For side-effects in component initialization contexts, call `on` directly. It automatically detects and binds to the surrounding `DestroyRef` to auto-unsubscribe.
+ * - For executing side effects reacting to events outside an injection context (e.g. inside an async method), use `on` or `once` with a callback. If you don't want them to leak, remember to capture the returned unsubscribe function or pass `{ unsubscribeOn: 'manual' }`.
  * - Event emissions are synchronous. Do not `await` the `emit()` method.
  *
  * @example
@@ -54,8 +55,8 @@ import { TransformedPayloads } from './event-bus.internal';
  *   loginData = this.eventBus.onToSignal('user:login');
  *
  *   constructor() {
- *     // Execute a side effect with automatic cleanup upon destroy
- *     this.eventBus.onUntilDestroy('user:login', {
+ *     // Execute a side effect with automatic cleanup upon destroy (context-aware!)
+ *     this.eventBus.on('user:login', {
  *       callback: (event) => console.log('User logged in:', event.payload.userId)
  *     });
  *
@@ -371,9 +372,10 @@ export class ALEventBus<
   /**
    * Subscribes to an event and fires a callback function when the event occurs.
    * **AI Instructions:** Use this when a side-effect needs to respond to events.
-   * If called inside an injection context, prefer recommending `onUntilDestroy()`. Otherwise,
-   * always guide users to supply an `unsubscribeOn: DestroyRef` (e.g., `inject(DestroyRef)`)
-   * or terminating event keys inside components to avoid memory leaks.
+   * By default, if this method is called within an Angular injection context (e.g. within a component or service constructor or field initialization),
+   * it automatically resolves `DestroyRef` contextually and registers auto-unsubscription, protecting against memory leaks without extra boilerplate.
+   * Under other execution profiles (like dynamic async handlers), capture the returned unsubscribe function or specify alternative termination conditions.
+   *
    * @param key The event key.
    * @param options Object detailing the callback, optional transform function, and memory management token.
    * @returns A cleanup function to manually unsubscribe.
@@ -430,14 +432,37 @@ export class ALEventBus<
     }
     this.subscriptions.get(keyStr)!.set(subscriptionId, { dispatch, unsubscribe });
 
-    if (unsubscribeOn) {
-      if (typeof (unsubscribeOn as any).onDestroy === 'function') {
-        const cleanupDestroy = (unsubscribeOn as DestroyRef).onDestroy(unsubscribe);
+    // Context-guided automatic DestroyRef resolution
+    let contextDestroyRef: DestroyRef | null = null;
+    try {
+      contextDestroyRef = inject(DestroyRef, { optional: true });
+    } catch {
+      // Safely ignore if executed outside an active injection context
+    }
+
+    if (isDevMode() && !contextDestroyRef && !unsubscribeOn) {
+      console.warn(
+        `[ALEventBus] Potential memory leak: Subscription for event "${keyStr}" was created outside an injection context without an explicit 'unsubscribeOn' strategy.\n` +
+        `Make sure to either:\n` +
+        `1. Call on() inside an injection context (e.g. constructor or field initializer) to enable automatic cleanup.\n` +
+        `2. Manually capture and call the returned unsubscribe function.\n` +
+        `3. Pass an explicit 'unsubscribeOn' strategy (e.g. DestroyRef or list of terminating event keys).\n` +
+        `To suppress this warning, explicitly pass: { unsubscribeOn: 'manual' }`
+      );
+    }
+
+    const finalUnsubscribeOn = unsubscribeOn === 'manual'
+      ? undefined
+      : (unsubscribeOn ?? contextDestroyRef ?? undefined);
+
+    if (finalUnsubscribeOn) {
+      if (typeof (finalUnsubscribeOn as any).onDestroy === 'function') {
+        const cleanupDestroy = (finalUnsubscribeOn as DestroyRef).onDestroy(unsubscribe);
         if (typeof cleanupDestroy === 'function') {
           cleanupTracker = cleanupDestroy;
         }
       } else {
-        const keys = Array.isArray(unsubscribeOn) ? unsubscribeOn : [unsubscribeOn];
+        const keys = Array.isArray(finalUnsubscribeOn) ? finalUnsubscribeOn : [finalUnsubscribeOn];
         const cancelSubs = keys.map((k) =>
           this.on(k as any, { callback: () => unsubscribe() }),
         );
@@ -446,27 +471,6 @@ export class ALEventBus<
     }
 
     return unsubscribe;
-  }
-
-  /**
-   * Subscribes to an event and automatically cleans up the subscription when the
-   * current injection context (e.g., component, directive, or service) is destroyed.
-   *
-   * Must be called in an injection context (e.g., during construction or field initialization).
-   *
-   * @param key The event key.
-   * @param options Object detailing the callback, optional transform function, and optional memory management token.
-   * @returns A cleanup function to manually unsubscribe.
-   */
-  onUntilDestroy<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-    key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
-  ): () => void {
-    const destroyRef = inject(DestroyRef, { optional: true });
-    return this.on(key, {
-      ...options,
-      unsubscribeOn: options.unsubscribeOn ?? destroyRef ?? undefined,
-    });
   }
 
   /**

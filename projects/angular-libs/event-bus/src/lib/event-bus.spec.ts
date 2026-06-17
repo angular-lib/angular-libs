@@ -1,8 +1,16 @@
-import { Injectable, DestroyRef, runInInjectionContext } from '@angular/core';
+import { Injectable, DestroyRef, runInInjectionContext, Injector, inject, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from './event-bus';
 import { ALEventBusPlugin, BusEvent } from './event-bus.models';
 import { historyPlugin, loggerPlugin, debouncePlugin, syncPlugin } from './plugins';
+
+@Component({
+  standalone: true,
+  template: ''
+})
+class MockComponent {
+  destroyRef = inject(DestroyRef);
+}
 
 interface TestEventMap {
   'user:login': { userId: string; username: string };
@@ -105,7 +113,9 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(latest?.key).toBe('user:login');
   });
 
-  it('should support callback based subscriptions via on()', () => {
+  it('should support callback based subscriptions via on() and print warning but suppress if manual', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const received: BusEvent<{ userId: string; username: string }>[] = [];
     const unsubscribe = eventBus.on('user:login', {
       callback: (event) => { received.push(event); },
@@ -116,7 +126,56 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(received.length).toBe(1);
     expect(received[0].payload).toEqual({ userId: '456', username: 'bob' });
 
+    // Expect warning in devMode for outside-injection-context on()
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+
     unsubscribe();
+  });
+
+  it('should support automatic contextual unsubscription via DestroyRef inside an injection context', () => {
+    const received: BusEvent<'light' | 'dark'>[] = [];
+    
+    const fixture = TestBed.createComponent(MockComponent);
+    const componentInjector = fixture.debugElement.injector;
+
+    runInInjectionContext(componentInjector, () => {
+      eventBus.on('theme:changed', {
+        callback: (event) => { received.push(event); }
+      });
+    });
+
+    eventBus.emit('theme:changed', 'dark');
+    expect(received.length).toBe(1);
+
+    // Simulate destruction of the context natively through Component lifecycle!
+    fixture.destroy();
+
+    eventBus.emit('theme:changed', 'dark');
+    expect(received.length).toBe(1); // Should not have increased since we auto-unsubscribed!
+  });
+
+  it('should bypass automatic unsubscription if unsubscribeOn is "manual"', () => {
+    const received: BusEvent<'light' | 'dark'>[] = [];
+    
+    const fixture = TestBed.createComponent(MockComponent);
+    const componentInjector = fixture.debugElement.injector;
+
+    runInInjectionContext(componentInjector, () => {
+      eventBus.on('theme:changed', {
+        callback: (event) => { received.push(event); },
+        unsubscribeOn: 'manual'
+      });
+    });
+
+    eventBus.emit('theme:changed', 'dark');
+    expect(received.length).toBe(1);
+
+    // Simulate destruction of the context - should be ignored due to manual bypass
+    fixture.destroy();
+
+    eventBus.emit('theme:changed', 'dark');
+    expect(received.length).toBe(2); // Should have increased because we bypassed contextual destruction!
   });
 
   it('should support customized typed headers globally', () => {

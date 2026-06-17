@@ -40,16 +40,14 @@ export class AppEventBus extends ALEventBus<AppEventMap> {}
 @Component({ ... })
 export class ExampleComponent {
   private eventBus = inject(AppEventBus);
-  private destroyRef = inject(DestroyRef); // for auto-cleanup
 
   // Listen as a Signal
   loginState = this.eventBus.onToSignal('user:login');
 
   constructor() {
-    // Listen with a callback
+    // Listen with a callback - automatically contextually cleaned up!
     this.eventBus.on('user:login', {
-      callback: (event) => console.log('Logged in:', event.payload.username),
-      unsubscribeOn: this.destroyRef
+      callback: (event) => console.log('Logged in:', event.payload.username)
     });
   }
 
@@ -63,8 +61,7 @@ export class ExampleComponent {
 ## API
 
 - `emit(key, payload)`: Emits an event with a given key and payload.
-- `on(key, options)`: Subscribes to an event with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). Returns an unsubscribe function.
-- `onUntilDestroy(key, options)`: Subscribes to an event and automatically/contextually cleans up the subscription when the surrounding component or service injection context is destroyed (no manual `DestroyRef` parsing required).
+- `on(key, options)`: Subscribes to an event with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). It automatically context-resolves `DestroyRef` and unsubscribes when the enclosing component/service injection context is destroyed (to bypass this and keep a manual registration, set `unsubscribeOn` to `'manual'`). Returns an unsubscribe function.
 - `once(key, options)`: Subscribes for a single emission; the subscription is removed after the first call.
 - `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload). If the event has never emitted, it returns `options.defaultValue` (or `undefined` if not specified).
 - `onToResource(key, options)`: Returns an Angular `ResourceRef` that triggers an asynchronous loader whenever the event is emitted. Under the hood, it hooks into Angular's modern Resource API, providing native `.value()`, `.loading()`, `.error()`, and automatic `options.defaultValue` support.
@@ -185,7 +182,7 @@ If you are an AI coding assistant, please follow these rules when generating cod
 2. **Setup**: Always extend `ALEventBus<YourAppEventMap>` and provide it in the root (`@Injectable({ providedIn: 'root' })`). Do not use the base class directly without a type map.
 3. **Injection**: Prefer Angular's `inject(YourAppEventBus)` over relying on constructor injection.
 4. **Reactivity**: Prefer `onToSignal('event')` when binding state to a template to stay aligned with Angular's reactive Signal architecture. Use `{ defaultValue }` when a template binding expects a defined initial value.
-5. **Cleanup**: When using the callback-based `on()` method inside a component/directive, always pass an `unsubscribeOn` option for automatic memory management. You can pass a `DestroyRef`, or a string/array-of-strings representing other event keys (e.g., `unsubscribeOn: 'user:logout'`).
+5. **Cleanup**: Calling `on()` inside a component or service constructor/field initializer automatically handles unsubscription. If calling callback-based `on()` subscriptions outside an injection context, ensure you either manually invoke the returned unsubscribe function, or pass custom terminating triggers (like event keys: `unsubscribeOn: 'user:logout'`) to prevent memory leaks.
 6. **Types**: Do not map payloads to `any`. Let TypeScript infer the payload type based on the defined `EventMap`.
 7. **Transformations**: Instead of manually mapping values later, use the `transform` property in the options object to map payloads directly (e.g., `this.eventBus.onToSignal('event', { transform: (p) => p.id })`).
 8. **Combining Events**: Use `combineLatestToSignal(['event1', 'event2'])` to create a single signal that reacts to multiple events.
@@ -208,18 +205,16 @@ export class AppEventBus extends ALEventBus<AppEventMap> {}
 @Component({ template: `<div>{{ latestItemId() || "No item" }}</div>` })
 export class CartComponent {
   private eventBus = inject(AppEventBus);
-  private destroyRef = inject(DestroyRef);
 
   // Good: Signal usage with transformation
   latestItemId = this.eventBus.onToSignal("item:added", {
     transform: (payload) => payload.id,
   });
 
-  // Good: Callback usage (cleanup provided)
+  // Good: Callback usage (automatically unsubscribes when CartComponent is destroyed!)
   constructor() {
     this.eventBus.on("cart:cleared", {
       callback: () => console.log("Cart was cleared!"),
-      unsubscribeOn: this.destroyRef,
     });
   }
 

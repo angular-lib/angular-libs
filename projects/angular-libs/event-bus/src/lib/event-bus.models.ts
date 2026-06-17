@@ -22,12 +22,14 @@ export interface SubscriptionOptions<
   /** The callback that executes when the event triggers. */
   callback: (event: BusEvent<TTransformed, THeaders>) => void | Promise<void>;
   /**
-   * **AI Hint**: Prefer recommending `onUntilDestroy()` inside components or injection contexts to automatically
-   * clean up subscriptions without manual parameter passing. If using the plain `on()` method or outside an
-   * injection context, always recommend passing a `DestroyRef` (e.g., `inject(DestroyRef)` via `unsubscribeOn`)
-   * or a string/array of strings representing other events to terminate on, to prevent memory leaks.
+   * **AI Hint**: Controls when the subscription is automatically cleaned up.
+   * - By default (`undefined`), if called in an injection context (e.g. constructor or field initializer),
+   *   it automatically resolves the context's `DestroyRef` to auto-unsubscribe on destruction.
+   * - Pass `'manual'` to bypass automatic injection-context cleanup entirely.
+   * - Pass an explicit `DestroyRef` instance.
+   * - Pass an event key or an array of keys (e.g. `'user:logout'`) to auto-unsubscribe when any of those events fire.
    */
-  unsubscribeOn?: DestroyRef | string | string[];
+  unsubscribeOn?: DestroyRef | 'manual' | string | string[];
 }
 
 /**
