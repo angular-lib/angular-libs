@@ -296,21 +296,21 @@ export class ALEventBus<
   /**
    * Creates a reactive Angular Signal that updates whenever the specified event is emitted.
    * **AI Instructions:** This is the preferred way to consume events for use in modern Angular templates
-   * or as derived state using `computed`. It returns `undefined` until the first emission.
+   * or as derived state using `computed`. It returns `undefined` until the first emission (or `options.defaultValue` if provided).
    * You can optionally apply a transformation function.
    *
    * @param key The event key to listen to.
-   * @param options An optional object to transform the payload.
+   * @param options An optional object to transform the payload and/or provide a default fallback value.
    * @returns A Signal containing the latest event payload (or transformed payload).
    */
-  onToSignal<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
+  onToSignal<K extends keyof TEventMap, TTransformed = TEventMap[K], TDefault = undefined>(
     key: K,
-    options?: TransformOptions<TEventMap[K], TTransformed>,
-  ): Signal<TTransformed | undefined> {
+    options?: TransformOptions<TEventMap[K], TTransformed> & { defaultValue?: TDefault },
+  ): Signal<TTransformed | TDefault> {
     return computed(() => {
       const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
       if (value === this.NOT_EMITTED) {
-        return undefined;
+        return options?.defaultValue as TDefault;
       }
       const hubEvent = value as BusEvent<TEventMap[K], THeaders>;
       return options?.transform
@@ -325,13 +325,14 @@ export class ALEventBus<
    * (via `AbortSignal`) when multiple events are emitted rapidly.
    *
    * @param key The event key.
-   * @param options Object detailing the async loader and an optional transform function.
+   * @param options Object detailing the async loader, initial default value, and an optional transform function.
    * @returns A ResourceRef representing the async operation's status and resolved value.
    */
   onToResource<
     K extends keyof TEventMap,
     TResponse,
     TTransformed = TEventMap[K],
+    TDefault = undefined,
   >(
     key: K,
     options: {
@@ -340,11 +341,13 @@ export class ALEventBus<
         params: TTransformed;
         abortSignal: AbortSignal;
       }) => Promise<TResponse> | TResponse;
+      defaultValue?: TDefault;
     },
-  ): ResourceRef<TResponse | undefined> {
+  ): ResourceRef<TResponse | TDefault> {
     const keyStr = String(key);
 
     return resource({
+      defaultValue: options.defaultValue,
       params: () => {
         const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(keyStr)();
         if (value === this.NOT_EMITTED) {
@@ -362,7 +365,7 @@ export class ALEventBus<
         }
         return options.loader({ params: params.payload, abortSignal });
       },
-    }) as ResourceRef<TResponse | undefined>;
+    }) as ResourceRef<TResponse | TDefault>;
   }
 
   /**

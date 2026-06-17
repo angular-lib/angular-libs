@@ -151,6 +151,31 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(signal()).toBe('dark');
   });
 
+  it('should support signal-based subscription via onToSignal() with a defaultValue', () => {
+    const signal = eventBus.onToSignal('theme:changed', { defaultValue: 'light' });
+    expect(signal()).toBe('light');
+
+    eventBus.emit('theme:changed', 'dark');
+    expect(signal()).toBe('dark');
+  });
+
+  it('should support async resource mapping via onToResource() with a defaultValue', async () => {
+    const res = TestBed.runInInjectionContext(() => eventBus.onToResource('theme:changed', {
+      defaultValue: 'light-default',
+      loader: async ({ params }) => {
+        return `fetched:${params}`;
+      }
+    }));
+
+    expect(res.value()).toBe('light-default');
+
+    eventBus.emit('theme:changed', 'dark');
+    
+    // Allow macro-task/promise resolution
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(res.value()).toBe('fetched:dark');
+  });
+
   it('should support once() subscription', () => {
     const received: BusEvent<void>[] = [];
     eventBus.once('simple:event', {

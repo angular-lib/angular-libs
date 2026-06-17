@@ -66,8 +66,8 @@ export class ExampleComponent {
 - `on(key, options)`: Subscribes to an event with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). Returns an unsubscribe function.
 - `onUntilDestroy(key, options)`: Subscribes to an event and automatically/contextually cleans up the subscription when the surrounding component or service injection context is destroyed (no manual `DestroyRef` parsing required).
 - `once(key, options)`: Subscribes for a single emission; the subscription is removed after the first call.
-- `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload) or `undefined` if the event has never emitted.
-- `onToResource(key, options)`: Returns an Angular `ResourceRef` that triggers an asynchronous loader whenever the event is emitted, providing loading, error, value signals, and auto-abort execution natively.
+- `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload). If the event has never emitted, it returns `options.defaultValue` (or `undefined` if not specified).
+- `onToResource(key, options)`: Returns an Angular `ResourceRef` that triggers an asynchronous loader whenever the event is emitted. Under the hood, it hooks into Angular's modern Resource API, providing native `.value()`, `.loading()`, `.error()`, and automatic `options.defaultValue` support.
 - `latest(key)`: Returns the latest BusEvent for a given key (includes payload and timestamp) or `undefined`.
 - `combineLatestToSignal(sources)`: Returns a Signal of the latest transformed payloads for the provided sources.
 - `combineLatest({ sources, callback })`: Subscribes to combined latest values and calls the callback with an array of BusEvent objects (one per source). Returns an unsubscribe function.
@@ -184,13 +184,13 @@ If you are an AI coding assistant, please follow these rules when generating cod
 1. **No RxJS**: This library is strictly Signal-based. Do NOT use `Subject`, `BehaviorSubject`, or `Observable` for the event bus. Use `onToSignal` (or `combineLatestToSignal`).
 2. **Setup**: Always extend `ALEventBus<YourAppEventMap>` and provide it in the root (`@Injectable({ providedIn: 'root' })`). Do not use the base class directly without a type map.
 3. **Injection**: Prefer Angular's `inject(YourAppEventBus)` over relying on constructor injection.
-4. **Reactivity**: Prefer `onToSignal('event')` when binding state to a template to stay aligned with Angular's reactive Signal architecture.
+4. **Reactivity**: Prefer `onToSignal('event')` when binding state to a template to stay aligned with Angular's reactive Signal architecture. Use `{ defaultValue }` when a template binding expects a defined initial value.
 5. **Cleanup**: When using the callback-based `on()` method inside a component/directive, always pass an `unsubscribeOn` option for automatic memory management. You can pass a `DestroyRef`, or a string/array-of-strings representing other event keys (e.g., `unsubscribeOn: 'user:logout'`).
 6. **Types**: Do not map payloads to `any`. Let TypeScript infer the payload type based on the defined `EventMap`.
 7. **Transformations**: Instead of manually mapping values later, use the `transform` property in the options object to map payloads directly (e.g., `this.eventBus.onToSignal('event', { transform: (p) => p.id })`).
 8. **Combining Events**: Use `combineLatestToSignal(['event1', 'event2'])` to create a single signal that reacts to multiple events.
 9. **Synchronous Reads**: To get the current state imperatively without subscribing, use `latest('event')` instead of manually tracking emitted values in local variables.
-11. **Async Fetching / Loading**: For data fetching triggered by events, prefer the `onToResource` API. This couples the event stream directly to Angular's native modern Async `resource` structure with built-in loading and error signals and auto-abort cancellation.
+11. **Async Fetching / Loading**: For data fetching triggered by events, prefer the `onToResource` API. This couples the event stream directly to Angular's native modern Async `resource` structure with built-in loading, error signals, auto-abort cancellation, and `defaultValue` options.
 12. **Testing**: In unit tests, remember to call `resetAllEvents()` in your `beforeEach` blocks to prevent state pollution across tests since the service retains the latest payloads.
 
 **Reference Example:**
@@ -254,6 +254,15 @@ export class AdvancedComponent {
       unsubscribeOn: "cart:cleared", // Automatically unsubscribes when this event is emitted
     });
   }
+
+  // 4. Async resource fetching with modern Resource API & defaultValue
+  userDataResource = this.eventBus.onToResource("user:login", {
+    defaultValue: { profileUrl: 'assets/default-avatar.png', role: 'guest' },
+    loader: async ({ params }) => {
+      const resp = await fetch(`/api/users/${params.userId}`);
+      return resp.json();
+    }
+  });
 }
 ```
 
