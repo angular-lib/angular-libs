@@ -88,7 +88,7 @@ export class AppEventBus extends ALEventBus<AppEventMap, AppHeaders> {
 
     // 2. Passive Interceptor Plugins
     this.registerPlugin(loggerPlugin());
-    this.registerPlugin(syncPlugin());
+    this.registerPlugin(crossTabSyncPlugin());
     this.registerPlugin(debouncePlugin([
       { key: 'input:search-typed', delay: 300 }
     ]));
@@ -104,7 +104,7 @@ The package ships with four high-profile, plug-and-play functional factories:
 |:---|:---:|:---|:---|
 | **`loggerPlugin`** | Passive | `{ enabled?: boolean, theme?: { headerColor?: string, payloadColor?: string } }` | Automatically styles, groups, and logs emissions, timestamps, and metadata headers to the browser console. |
 | **`debouncePlugin`** | Passive | `DebounceRule[]` | Intercepts rapid event cascades (like typing or window resizes) and buffers dispatches with a strict custom millisecond delay. |
-| **`syncPlugin`** | Passive | `{ keys?: string[], channelName?: string }` | Synchronizes specified events across browser tabs in real time using the highly optimized `BroadcastChannel` API. |
+| **`crossTabSyncPlugin`** | Passive | `{ keys?: string[], channelName?: string }` | Synchronizes specified events across browser tabs in real time using the highly optimized `BroadcastChannel` API. |
 | **`historyPlugin`** | Active | `{ limit?: number, keys?: string[] }` | Exposes a complete historical timeline stack with `.undo()`, `.redo()`, `.canUndo()`, and `.canRedo()` triggers. |
 
 ---

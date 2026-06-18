@@ -2,7 +2,7 @@ import { Injectable, DestroyRef, runInInjectionContext, Injector, inject, Compon
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from './event-bus';
 import { ALEventBusPlugin, BusEvent } from './event-bus.models';
-import { historyPlugin, loggerPlugin, debouncePlugin, syncPlugin } from './plugins';
+import { historyPlugin, loggerPlugin, debouncePlugin, crossTabSyncPlugin } from './plugins';
 
 @Component({
   standalone: true,
@@ -334,7 +334,7 @@ describe('ALEventBus Standard Plugins', () => {
   @Injectable()
   class PluginsTestEventBus extends ALEventBus<TestEventMap> {
     logger = this.registerPlugin(loggerPlugin({ enabled: true }));
-    sync = this.registerPlugin(syncPlugin({ keys: ['user:login'] }));
+    sync = this.registerPlugin(crossTabSyncPlugin({ keys: ['user:login'] }));
     history = this.registerPlugin(historyPlugin());
   }
 
@@ -353,7 +353,7 @@ describe('ALEventBus Standard Plugins', () => {
     expect(consoleSpy).toHaveBeenCalled();
   });
 
-  it('should support syncPlugin synchronizing events', () => {
+  it('should support crossTabSyncPlugin synchronizing events', () => {
     // Standard register and run synchronizing events test
     expect(bus.sync).toBeDefined();
     bus.emit('user:login', { userId: '1', username: 'john' });

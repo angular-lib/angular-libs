@@ -3,7 +3,7 @@ import { ALEventBusPlugin, IALEventBus } from '../event-bus.models';
 /**
  * Configuration options for the Cross-Tab Synchronization Plugin.
  */
-export interface SyncPluginOptions {
+export interface CrossTabSyncPluginOptions {
   /** 
    * The channel namespace to coordinate with. 
    * @default 'al-event-bus-sync'
@@ -25,20 +25,20 @@ export interface SyncPluginOptions {
  *
  * @example
  * ```ts
- * import { syncPlugin } from '@angular-libs/event-bus';
+ * import { crossTabSyncPlugin } from '@angular-libs/event-bus';
  *
  * @Injectable({ providedIn: 'root' })
  * export class AppEventBus extends ALEventBus<AppEventMap> {
  *   constructor() {
  *     super();
  *     this.registerPlugin(
- *       syncPlugin({ keys: ['user:logged-out', 'cart:updated'] })
+ *       crossTabSyncPlugin({ keys: ['user:logged-out', 'cart:updated'] })
  *     );
  *   }
  * }
  * ```
  */
-export function syncPlugin(options: SyncPluginOptions = {}): ALEventBusPlugin {
+export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALEventBusPlugin {
   const channelName = options.channelName ?? 'al-event-bus-sync';
   const keys = options.keys;
   let busInstance: IALEventBus<any> | null = null;

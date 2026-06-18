@@ -1,7 +1,7 @@
 import { Component, inject, Injectable, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ALEventBus } from '@angular-libs/event-bus';
-import { debouncePlugin, historyPlugin, loggerPlugin, syncPlugin } from '@angular-libs/event-bus';
+import { debouncePlugin, historyPlugin, loggerPlugin, crossTabSyncPlugin } from '@angular-libs/event-bus';
 
 interface DemoEventMap {
   'chat:message': { username: string; text: string };
@@ -20,7 +20,7 @@ export class DemoEventBus extends ALEventBus<DemoEventMap> {
 
     // Register passive plugins
     this.registerPlugin(loggerPlugin());
-    this.registerPlugin(syncPlugin({ keys: ['chat:message'] }));
+    this.registerPlugin(crossTabSyncPlugin({ keys: ['chat:message'] }));
     this.registerPlugin(debouncePlugin([{ key: 'input:keystroke', delay: 400 }]));
   }
 }
