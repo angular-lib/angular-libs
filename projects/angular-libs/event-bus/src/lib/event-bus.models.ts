@@ -1,4 +1,4 @@
-import { DestroyRef, Signal } from '@angular/core';
+import { DestroyRef } from '@angular/core';
 import { TransformedEvents } from './event-bus.internal';
 
 /**

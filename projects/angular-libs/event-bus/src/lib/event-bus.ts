@@ -16,7 +16,6 @@ import {
   type CombineLatestSource,
   type BusEvent,
   type SubscriptionOptions,
-  type TransformOptions,
   type IALEventBus,
   type ALEventBusPlugin,
   type EmitOptions,
@@ -34,7 +33,6 @@ type ValueWithDefault<TValue, TDefault> = TDefault extends TValue ? TValue : TVa
  * - For connecting events to component state or templates, prefer `onToSignal` which returns a reactive `Signal`.
  * - For side-effects in component initialization contexts, call `on` directly. It automatically detects and binds to the surrounding `DestroyRef` to auto-unsubscribe.
  * - For executing side effects reacting to events outside an injection context (e.g. inside an async method), use `on` or `once` with a callback. If you don't want them to leak, remember to capture the returned unsubscribe function or pass `{ unsubscribeOn: 'manual' }`.
- * - Event emissions are synchronous. Do not `await` the `emit()` method.
  *
  * @example
  * ```typescript
@@ -150,9 +148,17 @@ export class ALEventBus<
 
   /**
    * Unsubscribes all listeners from the event bus.
-   * **AI Hint:** Generally avoid using this in consuming components. It is primarily used
-   * internally on `ngOnDestroy` of the service, or for complete app resets (e.g., testing).
-   * In component code, rely on the `unsubscribeOn` param within `.on()` instead.
+   * 
+   * **AI Hint & Best Practices:** 
+   * - Generally avoid calling this method in consuming components.
+   * - It is primarily used internally on `ngOnDestroy` of the service, or for complete cleanups during testing.
+   * - In component code, rely on the `unsubscribeOn` option within `.on()` instead.
+   * 
+   * @example
+   * ```typescript
+   * // Unsubscribe absolutely everyone from everything (typically in tests)
+   * eventBus.unsubscribeAll();
+   * ```
    */
   unsubscribeAll(): void {
     const allTeardowns: (() => void)[] = [];
@@ -164,10 +170,19 @@ export class ALEventBus<
   }
 
   /**
-   * Unsubscribes from all subscriptions for a given event.
-   * **AI Hint:** Prefer using the automatic `unsubscribeOn` token or the individual
-   * cleanup function returned by `.on()`. This method terminates *all* listeners across
-   * the app for a specific event key, which could unintentionally break other features.
+   * Unsubscribes from all subscription callbacks registered for a specific event.
+   * 
+   * **AI Hint & Best Practices:**
+   * - Prefer using the automatic/injection-context automatic `unsubscribeOn` or capturing the individual unsubscribe function returned by `.on()`.
+   * - This method terminates *all* listeners across the entire application for the specified event key, which could unexpectedly break separate component listeners.
+   * 
+   * @example
+   * ```typescript
+   * // Unsubscribe all listeners registered to the 'user:login' event
+   * eventBus.unsubscribe('user:login');
+   * ```
+   * 
+   * @param key The event key/type.
    */
   unsubscribe<K extends keyof TEventMap>(key: K): void {
     const keyStr = String(key);
@@ -179,12 +194,20 @@ export class ALEventBus<
   }
 
   /**
-   * Resets the stored payload for a single event so it behaves as "not emitted".
-   * Does not remove any subscription effects. Use `unsubscribe` or `unsubscribeAll`
-   * to remove listeners.
-   * **AI Hint:** Useful when you need to explicitly clear sensitive or outdated state
-   * (e.g., clearing auth data on user logout) so that future components calling
-   * `onToSignal` or `latest` correctly receive `undefined`.
+   * Resets the cached/stored payload for a single event so it behaves as "not emitted".
+   * Future calls to `latest` or `onToSignal` will yield `undefined` (or the fallback `defaultValue`) until the next emission.
+   * 
+   * **Best Practices & Use Cases:**
+   * - Does not tear down active subscription effects or listeners. Use `unsubscribe` or `unsubscribeAll` to remove listeners.
+   * - Excellent for purging sensitive or stale state (e.g., clearing auth/user metadata on user logout).
+   * 
+   * @example
+   * ```typescript
+   * // Reset the cached 'user:login' data so future reads are undefined
+   * eventBus.resetEvent('user:login');
+   * ```
+   * 
+   * @param key The event key/type to reset.
    */
   resetEvent<K extends keyof TEventMap>(key: K): void {
     const keyStr = String(key);
@@ -198,9 +221,17 @@ export class ALEventBus<
   }
 
   /**
-   * Resets the stored payloads for all events so they behave as "not emitted".
-   * Does not remove any subscription effects. Use `unsubscribeAll` to remove listeners.
-   * **AI Hint:** Generally used when resetting the entire app state (e.g., during logout).
+   * Resets the cached/stored payloads for all events so they behave as "not emitted".
+   * 
+   * **Best Practices:**
+   * - Does not tear down active subscription effects or listeners; use `unsubscribeAll` to remove listeners.
+   * - Broadly used during deep application resets (e.g., global logout flow, clean slate redirects).
+   * 
+   * @example
+   * ```typescript
+   * // Clear state for all events in the event bus
+   * eventBus.resetAllEvents();
+   * ```
    */
   resetAllEvents(): void {
     this.events.forEach((sig) => {
@@ -220,13 +251,27 @@ export class ALEventBus<
   }
 
   /**
-   * Emits an event to the bus with the specified payload.
-   * This immediately updates the underlying Signal, triggering any active `effect`s (from `.on()`)
-   * and updating any computed state (from `.onToSignal()`).
-   *
-   * **AI Hint:** Event emissions are synchronous. Do not `await` this method. Payloads are passed by reference, so do not mutate the payload inside callbacks.
-   *
-   * @param args Arguments containing the predefined event key, its payload (optional if void/undefined), and options (optional headers).
+   * Emits an event to the bus with the specified payload (and optional headers).
+   * This synchronously and immediately updates the underlying Signal, updating any derived streams, and executing subscriber callbacks.
+   * 
+   * **AI Instructions & Best Practices:**
+   * - Event emissions are fully synchronous. Do not try to `await` this method.
+   * - Payloads are passed by reference. Do not mutate the payload object inside a callback as it affects other subscribers.
+   * - For events defined with a `void` or `undefined` payload, the payload argument can be entirely omitted.
+   * 
+   * @example
+   * ```typescript
+   * // 1. Emitting an event with a payload
+   * eventBus.emit('user:login', { userId: '123' });
+   * 
+   * // 2. Emitting an event with custom headers
+   * eventBus.emit('user:login', { userId: '123' }, { headers: { source: 'auth-guard' } });
+   * 
+   * // 3. Emitting a void event (no payload needed)
+   * eventBus.emit('user:logout');
+   * ```
+   * 
+   * @param args Arguments matching the predefined event shape. Contains the event key, its payload (if any), and optional metadata headers.
    */
   emit<K extends keyof TEventMap>(
     ...args: TEventMap[K] extends void | undefined
@@ -255,7 +300,7 @@ export class ALEventBus<
           return;
         }
         if (result !== undefined) {
-          payload = result;
+          payload = result as TEventMap[K];
         }
       }
     }
@@ -283,9 +328,24 @@ export class ALEventBus<
   }
 
   /**
-   * Gets the latest event for a given key.
-   * Useful for synchronously reading the last emitted value.
-   * If the event has never been emitted or was reset, returns `undefined`.
+   * Synchronously retrieves the latest event envelope (payload, timestamp, and optional headers) for the specified key.
+   * If the event has never been emitted, or was explicitly reset, returns `undefined`.
+   * 
+   * **Best Practices:**
+   * - Perfect for one-off synchronous validation checks where you don't need a reactive stream.
+   * 
+   * @example
+   * ```typescript
+   * // Synchronously fetch the last emitted login event envelope
+   * const lastEvent = eventBus.latest('user:login');
+   * if (lastEvent) {
+   *   console.log('Last logged in user ID:', lastEvent.payload.userId);
+   *   console.log('Timestamp:', lastEvent.timestamp);
+   * }
+   * ```
+   * 
+   * @param key The event key to query.
+   * @returns The `BusEvent` wrapper object, or `undefined`.
    */
   latest<K extends keyof TEventMap>(
     key: K,
@@ -298,23 +358,33 @@ export class ALEventBus<
 
   /**
    * Creates a reactive Angular Signal that updates whenever the specified event is emitted.
-   * **AI Instructions:** This is the preferred way to consume events for use in modern Angular templates
-   * or as derived state using `computed`. It returns `undefined` until the first emission (or `options.defaultValue` if provided).
-   * You can optionally apply a transformation function.
+   * 
+   * **AI Instructions & Best Practices:** 
+   * - This is the preferred, idiomatic way to consume events inside modern Angular templates or as derived state using `computed()`.
+   * - By default, it returns `undefined` until the first event is emitted.
+   * - Use the `defaultValue` option to supply a synchronous fallback value before the first emission.
+   * - Use the `transform` option to refine or map the payload directly within the reactive stream.
+   *
+   * @example
+   * ```typescript
+   * // 1. Basic usage - returns Signal<UserData | undefined>
+   * currentUser = this.eventBus.onToSignal('user:login');
+   * 
+   * // 2. With default fallback value - returns Signal<boolean>
+   * isLoggedIn = this.eventBus.onToSignal('user:login', {
+   *   defaultValue: false,
+   *   transform: (user) => !!user
+   * });
+   * 
+   * // 3. With a transformation helper - returns Signal<string | undefined>
+   * username = this.eventBus.onToSignal('user:login', {
+   *   transform: (user) => user.name.toUpperCase()
+   * });
+   * ```
    *
    * @param key The event key to listen to.
-   * @param options An optional object to transform the payload and/or provide a default fallback value.
-   * @returns A Signal containing the latest event payload (or transformed payload).
-   */
-  /**
-   * Creates a reactive Angular Signal that updates whenever the specified event is emitted.
-   * **AI Instructions:** This is the preferred way to consume events for use in modern Angular templates
-   * or as derived state using `computed`. It returns `undefined` until the first emission (or `options.defaultValue` if provided).
-   * You can optionally apply a transformation function.
-   *
-   * @param key The event key to listen to.
-   * @param options An optional object to transform the payload and/or provide a default fallback value.
-   * @returns A Signal containing the latest event payload (or transformed payload).
+   * @param options Configuration for mapping/transforming the payload and/or defining a fallback default value.
+   * @returns A reactive Signal yielding the latest event payload or transformed value.
    */
   onToSignal<
     K extends keyof TEventMap,
@@ -340,13 +410,40 @@ export class ALEventBus<
   }
 
   /**
-   * Creates a reactive Angular ResourceRef that triggers an asynchronous loader whenever the event is emitted.
-   * Leverages the modern Resource API to handle loading state, error states, and automatic request cancelation
+   * Creates a reactive Angular `ResourceRef` that triggers an asynchronous loader whenever the specified event is emitted.
+   * Leverages Angular's modern Resource API to expertly handle loading/error states and auto-cancellation
    * (via `AbortSignal`) when multiple events are emitted rapidly.
+   * 
+   * **AI Instructions & Best Practices:** 
+   * - This is the perfect pattern for connecting events directly to asynchronous operations (such as HTTP requests, DB queries, etc.).
+   * - Returning `undefined` from the params initially blocks loading until the event fires at least once, unless a standard `defaultValue` is specified.
+   * - You can pre-process the event payload with a standard sync transformation helper before passing it to the async loader.
+   *
+   * @example
+   * ```typescript
+   * // 1. Basic usage without transform:
+   * // The event payload is { userId: string }, so `params` inside loader has the same shape.
+   * userProfileResource = this.eventBus.onToResource('user:login', {
+   *   loader: async ({ params, abortSignal }) => {
+   *     const res = await fetch(`/api/users/${params.userId}`, { signal: abortSignal });
+   *     return res.json();
+   *   }
+   * });
+   * 
+   * // 2. Advanced usage with a transform function:
+   * // The payload is mapped from `doc` to the string `doc.id`, so `params` inside loader is just that string.
+   * documentResource = this.eventBus.onToResource('doc:selected', {
+   *   defaultValue: null,
+   *   transform: (doc) => doc.id,
+   *   loader: async ({ params: docId, abortSignal }) => {
+   *     return this.docService.fetchDetails(docId, abortSignal);
+   *   }
+   * });
+   * ```
    *
    * @param key The event key.
-   * @param options Object detailing the async loader, initial default value, and an optional transform function.
-   * @returns A ResourceRef representing the async operation's status and resolved value.
+   * @param options Configuration detailing the async loader, initial default fallback value, and an optional transform function.
+   * @returns A ResourceRef representing the status and resolved async value.
    */
   onToResource<
     K extends keyof TEventMap,
@@ -366,8 +463,8 @@ export class ALEventBus<
   ): ResourceRef<ValueWithDefault<TResponse, TDefault>> {
     const keyStr = String(key);
 
-    return resource({
-      defaultValue: options.defaultValue as TResponse | undefined,
+    return resource<TResponse | TDefault, { payload: TTransformed } | undefined>({
+      defaultValue: options.defaultValue as TResponse | TDefault,
       params: () => {
         const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(keyStr)();
         if (value === this.NOT_EMITTED) {
@@ -389,14 +486,39 @@ export class ALEventBus<
   }
 
   /**
-   * Subscribes to an event and fires a callback function when the event occurs.
-   * **AI Instructions:** Use this when a side-effect needs to respond to events.
-   * By default, if this method is called within an Angular injection context (e.g. within a component or service constructor or field initialization),
-   * it automatically resolves `DestroyRef` contextually and registers auto-unsubscription, protecting against memory leaks without extra boilerplate.
-   * Under other execution profiles (like dynamic async handlers), capture the returned unsubscribe function or specify alternative termination conditions.
+   * Subscribes a callback to receive emissions for a specified event key.
+   * 
+   * **AI Instructions & Best Practices:**
+   * - Use this when responding to events with side effects (e.g., launching dialogs, showing toast notifications, updating global analytic logs).
+   * - **Zero-Boilerplate Memory Management**: If called inside an active Angular injection context (e.g., within constructor, field-initializers, or factory functions),
+   *   it automatically retrieves `DestroyRef` and safely registers auto-unsubscription under the hood.
+   * - If created outside an injection context (e.g., in a late dynamically loaded component function), capture the returned `() => void` unsubscribe function or supply an explicit `unsubscribeOn` token in `options` to avoid memory leaks.
+   *
+   * @example
+   * ```typescript
+   * // 1. Inside component constructor - auto-unsubscribes when component is destroyed
+   * constructor() {
+   *   this.eventBus.on('user:login', {
+   *     callback: (event) => console.log('Welcome back', event.payload.userId)
+   *   });
+   * }
+   * 
+   * // 2. Using an explicit transform and custom header options
+   * this.eventBus.on('user:login', {
+   *   transform: (user) => user.email,
+   *   callback: (event) => console.log('Transformed email payload:', event.payload)
+   * });
+   * 
+   * // 3. Late/dynamic manual cleanup setup
+   * const unsubscribe = this.eventBus.on('theme:changed', {
+   *   unsubscribeOn: 'manual', // Silences potential leak warnings in dev mode
+   *   callback: (evt) => applyNewTheme(evt.payload)
+   * });
+   * // Call unsubscribe() manually when done!
+   * ```
    *
    * @param key The event key.
-   * @param options Object detailing the callback, optional transform function, and memory management token.
+   * @param options Subscription configuration including the callback, optional payload transform, and/or unsubscription strategies.
    * @returns A cleanup function to manually unsubscribe.
    */
   on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
@@ -493,11 +615,24 @@ export class ALEventBus<
   }
 
   /**
-   * Subscribes to an event for exactly one emission and then automatically unsubscribes.
-   * Useful for initialization routines or one-off responses.
+   * Subscribes a callback to receive exactly ONE emission for a specified event key, and then automatically unsubscribes.
+   * 
+   * **Best Practices:**
+   * - Perfect for one-time initialization routines, lazy setups, or transient feedback routines.
+   * 
+   * @example
+   * ```typescript
+   * // Fire a callback the very first time the user logs in
+   * this.eventBus.once('user:login', {
+   *   callback: (event) => {
+   *     console.log('App successfully initialised for user', event.payload.userId);
+   *   }
+   * });
+   * ```
+   * 
    * @param key The event key.
-   * @param options Object detailing the callback and optional memory token.
-   * @returns A manual cleanup function if it needs to be cancelled before the event fires.
+   * @param options Subscription configuration including the callback, payload transform, and optional unsubscription strategies.
+   * @returns A manual cleanup function if the listener needs to be terminated before the event fires.
    */
   once<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
@@ -526,12 +661,27 @@ export class ALEventBus<
   }
 
   /**
-   * Combines the latest payloads of multiple events into a single reactive Signal.
-   * Useful when deriving state that depends on multiple events simultaneously.
-   * Returns `undefined` until every source event has emitted at least once.
+   * Combines the latest payloads of multiple events into a single, synchronously updated reactive Signal.
+   * 
+   * **AI Instructions & Best Practices:**
+   * - Useful when deriving state that depends on multiple events simultaneously.
+   * - Under the hood, this compiles the events into a tuple of transformed values.
+   * - Yields `undefined` until *every* specified source event has emitted at least once.
+   * 
+   * @example
+   * ```typescript
+   * // Combine multiple sources into one reactive Signal
+   * connectionState = this.eventBus.combineLatestToSignal([
+   *   { key: 'network:ping', transform: (p) => p.latency },
+   *   { key: 'user:session' }
+   * ]);
+   * 
+   * // connectionState() is undefined until both events emit.
+   * // Afterwards, it returns a precise tuple: [number, SessionData]
+   * ```
    *
-   * @param sources An array of `CombineLatestSource` containing event keys and optional transforms.
-   * @returns A mapped Array payload wrapped in a Signal.
+   * @param sources A read-only array of `CombineLatestSource` objects detailing target event keys and optional transforms.
+   * @returns A reactive Signal yielding the tuple of mapped event payloads, or `undefined`.
    */
   combineLatestToSignal<const TSources extends readonly CombineLatestSource[]>(
     sources: TSources,
@@ -552,12 +702,30 @@ export class ALEventBus<
   }
 
   /**
-   * Subscribes to the combination of the latest values of multiple events.
-   * Fired only when all combined sources have emitted at least once.
-   * Useful when side effects depend on multi-event state.
+   * Subscribes to the combination of the latest values of multiple events and executes a callback side-effect.
+   * 
+   * **Best Practices:**
+   * - The callback triggers only after *all* combined source events have emitted at least once.
+   * - After that threshold, any subsequent emission from *any* of the sources triggers the callback with the latest state of all combined events.
+   * 
+   * @example
+   * ```typescript
+   * const unsubscribe = this.eventBus.combineLatest({
+   *   sources: [
+   *     { key: 'user:login' },
+   *     { key: 'config:loaded', transform: (c) => c.features }
+   *   ],
+   *   callback: ([loginEvent, configEvent]) => {
+   *     console.log('User logged in AND configuration was loaded!');
+   *     this.initFeaturesForUser(loginEvent.payload.userId, configEvent.payload);
+   *   }
+   * });
+   * 
+   * // Call unsubscribe() to clean up all underlying subscriptions
+   * ```
    *
-   * @param options Configuration for multiple sources and the callback function.
-   * @returns A manual unsubscribe function that destroys all internal effects for this subscription.
+   * @param options Configuration detailing target sources and the trigger callback function.
+   * @returns A manual unsubscribe function that tears down all internally managed subscriptions.
    */
   combineLatest<const TSources extends readonly CombineLatestSource[]>(
     options: CombineLatestOptions<TSources>,
