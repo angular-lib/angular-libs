@@ -50,6 +50,15 @@ export interface CombineLatestOptions<
 > {
   sources: TSources;
   callback: (events: TransformedEvents<TSources>) => void | Promise<void>;
+  /**
+   * **AI Hint**: Controls when the subscription is automatically cleaned up.
+   * - By default (`undefined`), if called in an injection context (e.g. constructor or field initializer),
+   *   it automatically resolves the context's `DestroyRef` to auto-unsubscribe on destruction.
+   * - Pass `'manual'` to bypass automatic injection-context cleanup entirely.
+   * - Pass an explicit `DestroyRef` instance.
+   * - Pass an event key or an array of keys (e.g. `'user:logout'`) to auto-unsubscribe when any of those events fire.
+   */
+  unsubscribeOn?: DestroyRef | 'manual' | string | string[];
 }
 
 export interface BusEvent<TPayload, THeaders extends Record<string, any> = Record<string, any>> {

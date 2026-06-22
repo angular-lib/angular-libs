@@ -283,10 +283,12 @@ export class ALEventBus<
     let options: EmitOptions<THeaders> | undefined = undefined;
 
     if (args.length === 2) {
-      if (args[1] && typeof args[1] === 'object' && 'headers' in args[1]) {
-        options = args[1] as EmitOptions<THeaders>;
+      const arg1 = args[1];
+      const hasOtherKeys = arg1 && typeof arg1 === 'object' && Object.keys(arg1).some((k) => k !== 'headers');
+      if (arg1 && typeof arg1 === 'object' && 'headers' in arg1 && !hasOtherKeys) {
+        options = arg1 as EmitOptions<THeaders>;
       } else {
-        payload = args[1] as TEventMap[K];
+        payload = arg1 as TEventMap[K];
       }
     } else if (args.length === 3) {
       payload = args[1] as TEventMap[K];
@@ -730,7 +732,7 @@ export class ALEventBus<
   combineLatest<const TSources extends readonly CombineLatestSource[]>(
     options: CombineLatestOptions<TSources>,
   ): () => void {
-    const { sources, callback } = options;
+    const { sources, callback, unsubscribeOn } = options;
 
     const checkAndTrigger = () => {
       const values = sources.map((s) => this.getSignal(s.key)());
@@ -768,6 +770,7 @@ export class ALEventBus<
     const unsubscribes = sources.map((source) =>
       this.on(source.key as any, {
         callback: () => checkAndTrigger(),
+        unsubscribeOn,
       }),
     );
 

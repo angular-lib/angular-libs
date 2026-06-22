@@ -16,6 +16,7 @@ interface TestEventMap {
   'user:login': { userId: string; username: string };
   'theme:changed': 'light' | 'dark';
   'simple:event': void;
+  'request:completed': { headers: Record<string, string>; body: string };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -111,6 +112,22 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(latest).toBeDefined();
     expect(latest?.payload).toEqual({ userId: '123', username: 'alice' });
     expect(latest?.key).toBe('user:login');
+  });
+
+  it('should not greedily parse a payload containing a headers key as options', () => {
+    expect(eventBus.latest('request:completed')).toBeUndefined();
+
+    const payloadData = {
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"status":"ok"}'
+    };
+
+    eventBus.emit('request:completed', payloadData);
+
+    const latest = eventBus.latest('request:completed');
+    expect(latest).toBeDefined();
+    expect(latest?.payload).toEqual(payloadData);
+    expect(latest?.headers).toBeUndefined(); // Headers should be undefined since we did not supply options
   });
 
   it('should support callback based subscriptions via on() and print warning but suppress if manual', () => {
