@@ -45,6 +45,10 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
   let channel: BroadcastChannel | null = null;
   const SYNC_HEADER = '__TAB_SYNC_FLAG__';
 
+  // Guards against re-broadcasting a reset that we ourselves just applied because it arrived
+  // from another tab (which would otherwise cause an infinite ping-pong between tabs).
+  let isApplyingRemoteReset = false;
+
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     channel = new BroadcastChannel(channelName);
   }
@@ -55,12 +59,27 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
       if (!channel) return;
 
       channel.onmessage = (event) => {
-        const { key, payload, headers } = event.data;
-        if (busInstance) {
-          // Re-emit on the local bus, with the SYNC_HEADER to avoid broadcast echoing loops
-          const nextHeaders = { ...headers, [SYNC_HEADER]: true };
-          busInstance.emit(key, payload, { headers: nextHeaders });
+        if (!busInstance) return;
+        const data = event.data;
+
+        if (data?.type === 'reset') {
+          isApplyingRemoteReset = true;
+          try {
+            if (data.key === undefined) {
+              busInstance.resetAllEvents();
+            } else {
+              busInstance.resetEvent(data.key);
+            }
+          } finally {
+            isApplyingRemoteReset = false;
+          }
+          return;
         }
+
+        const { key, payload, headers } = data;
+        // Re-emit on the local bus, with the SYNC_HEADER to avoid broadcast echoing loops
+        const nextHeaders = { ...headers, [SYNC_HEADER]: true };
+        busInstance.emit(key, payload, { headers: nextHeaders });
       };
     },
     onAfterEmit(key, payload, emitOptions) {
@@ -76,10 +95,16 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
       }
 
       channel.postMessage({
+        type: 'emit',
         key: keyStr,
         payload,
         headers: emitOptions?.headers,
       });
+    },
+    onReset(key?: string) {
+      if (!channel || isApplyingRemoteReset) return;
+      if (keys && key !== undefined && !keys.includes(key)) return;
+      channel.postMessage({ type: 'reset', key });
     },
     onDestroy() {
       if (channel) {

@@ -107,6 +107,22 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
       }
       redoStack.length = 0; // Clear redo on any new emission
     },
+    onReset(key?: string) {
+      if (key === undefined) {
+        // Full reset - clear everything so undo/redo can't resurrect stale data.
+        undoStack.length = 0;
+        redoStack.length = 0;
+        return;
+      }
+      if (keys && !keys.includes(key)) return;
+      // Remove only the entries tracking the reset key, leaving other keys' history intact.
+      for (let i = undoStack.length - 1; i >= 0; i--) {
+        if (undoStack[i].key === key) undoStack.splice(i, 1);
+      }
+      for (let i = redoStack.length - 1; i >= 0; i--) {
+        if (redoStack[i].key === key) redoStack.splice(i, 1);
+      }
+    },
     undo(): boolean {
       if (undoStack.length <= 1 || !busInstance) return false;
 

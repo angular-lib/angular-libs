@@ -139,6 +139,14 @@ export interface ALEventBusPlugin<TEventMap extends {} = any, THeaders extends R
   onUnsubscribe?(key: string, subscriptionId: string): void;
 
   /**
+   * Called when a single event's stored payload is reset via `resetEvent(key)`, or when ALL events
+   * are reset via `resetAllEvents()` (in which case `key` is `undefined`).
+   * **AI Hint:** Use this to keep plugin-local state (e.g. history stacks, cross-tab broadcasts)
+   * consistent with the bus - a reset does NOT automatically notify plugins otherwise.
+   */
+  onReset?(key?: string): void;
+
+  /**
    * Called when the event bus instance is destroyed.
    */
   onDestroy?(): void;

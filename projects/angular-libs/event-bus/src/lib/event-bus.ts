@@ -315,6 +315,7 @@ export class ALEventBus<
       // ensure future getSignal reads behave like NOT_EMITTED
       this.events.set(keyStr, signal(this.NOT_EMITTED));
     }
+    this.runOnReset(keyStr);
   }
 
   /**
@@ -334,6 +335,22 @@ export class ALEventBus<
     this.events.forEach((sig) => {
       (sig as WritableSignal<any>).set(this.NOT_EMITTED);
     });
+    this.runOnReset(undefined);
+  }
+
+  /**
+   * Internal helper: Invokes `onReset` for every registered plugin, isolating failures.
+   * **AI Hint:** Do NOT call externally.
+   */
+  private runOnReset(key: string | undefined): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onReset) continue;
+      try {
+        plugin.onReset(key);
+      } catch (e) {
+        console.error(`[ALEventBus] Plugin onReset hook threw for key "${key ?? '(all)'}".`, e);
+      }
+    }
   }
 
   /**
