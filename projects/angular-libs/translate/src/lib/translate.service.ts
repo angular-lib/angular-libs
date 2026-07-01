@@ -48,18 +48,25 @@ export abstract class ALTranslateFormatter {
   abstract format(text: string, params?: Record<string, unknown>): string;
 }
 
+/** Escapes RegExp special characters so a translation param key can be safely embedded in a pattern. */
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * The default formatter, responsible for replacing `{{ key }}` or `{{key}}` with values.
  */
 @Injectable({ providedIn: 'root' })
 export class DefaultTranslateFormatter implements ALTranslateFormatter {
   format(text: string, params?: Record<string, unknown>): string {
-    if (!params) return text;
-    let result = text;
-    for (const [k, v] of Object.entries(params)) {
-      result = result.replaceAll(`{{${k}}}`, String(v)).replaceAll(`{{ ${k} }}`, String(v));
-    }
-    return result;
+    if (!params || Object.keys(params).length === 0) return text;
+
+    // Create a combined regex for all keys in a single pass to prevent recursive
+    // interpolation (where a value containing a placeholder triggers a second replacement).
+    const keys = Object.keys(params).map(escapeRegExp).join('|');
+    const pattern = new RegExp(`\\{\\{\\s*(${keys})\\s*\\}\\}`, 'g');
+
+    return text.replace(pattern, (_, key) => String(params[key]));
   }
 }
 
@@ -163,6 +170,10 @@ export class ALTranslate<TSchema extends TranslationSchema = any> {
 
   /** Internal helper to trigger onLangChange hooks */
   private triggerLangChange(lang: string) {
+    // A key missing in the previous language may or may not be missing in the new one -
+    // always re-warn per language so genuinely missing keys aren't silently swallowed.
+    this.warnedKeys.clear();
+
     for (const plugin of this.plugins) {
       if (plugin.onLangChange) {
         try {

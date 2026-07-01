@@ -34,6 +34,25 @@ describe('ALTranslate & TranslatePipe', () => {
     expect(pipe.transform('COUNT', { count: 5 })).toBe('You have 5 items');
   });
 
+  it('should interpolate params regardless of mixed/single-sided placeholder spacing', () => {
+    service.setDictionary({
+      A: 'Hello {{name}}!',
+      B: 'Hello {{ name }}!',
+      C: 'Hello {{ name}}!',
+      D: 'Hello {{name }}!',
+    });
+    expect(pipe.transform('A', { name: 'World' })).toBe('Hello World!');
+    expect(pipe.transform('B', { name: 'World' })).toBe('Hello World!');
+    expect(pipe.transform('C', { name: 'World' })).toBe('Hello World!');
+    expect(pipe.transform('D', { name: 'World' })).toBe('Hello World!');
+  });
+
+  it('should insert param values verbatim, even when they contain special $ replacement patterns', () => {
+    service.setDictionary({ GREETING: 'Hello {{ name }}!' });
+    expect(pipe.transform('GREETING', { name: '$&$&' })).toBe('Hello $&$&!');
+    expect(pipe.transform('GREETING', { name: '$$' })).toBe('Hello $$!');
+  });
+
   it('should merge dictionaries without overwriting', () => {
     service.setDictionary({ A: '1' });
     service.addToDictionary({ B: '2' });
@@ -53,6 +72,27 @@ describe('ALTranslate & TranslatePipe', () => {
     expect(pipe.transform('MISSING_KEY')).toBe('MISSING_KEY');
     expect(warnCalled).toBe(true);
     expect(warnMessage).toBe('[ALTranslate] Missing translation for key: "MISSING_KEY"');
+
+    console.warn = originalWarn;
+  });
+
+  it('should re-warn about a still-missing key after a language change (warnedKeys reset per language)', async () => {
+    const warnCalls: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (msg: string) => { warnCalls.push(msg); };
+
+    // 1st language: key is missing, should warn once
+    expect(pipe.transform('MISSING_KEY')).toBe('MISSING_KEY');
+    expect(pipe.transform('MISSING_KEY')).toBe('MISSING_KEY');
+    expect(warnCalls.length).toBe(1);
+
+    // Switch language - key is still missing there too, so it should warn again
+    // (previously the warnedKeys Set was never cleared, silencing this).
+    service.setLoader(async () => ({}));
+    await service.loadLanguage('fr');
+
+    expect(pipe.transform('MISSING_KEY')).toBe('MISSING_KEY');
+    expect(warnCalls.length).toBe(2);
 
     console.warn = originalWarn;
   });
