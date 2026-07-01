@@ -152,3 +152,56 @@ describe('DialogService Global Configuration', () => {
     expect(removeSpy).toHaveBeenCalledWith('fullscreenchange', registeredHandler);
   });
 });
+
+describe('DialogService Dialog Hierarchy (parent/child dialogs)', () => {
+  beforeAll(() => {
+    HTMLDialogElement.prototype.show = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = true;
+    });
+    HTMLDialogElement.prototype.showModal = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = true;
+    });
+    HTMLDialogElement.prototype.close = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = false;
+      this.dispatchEvent(new Event('close'));
+    });
+  });
+
+  it('should cascade-close nested child dialogs when the parent closes', async () => {
+    TestBed.configureTestingModule({
+      providers: [DialogService],
+    });
+    const service = TestBed.inject(DialogService);
+
+    const parentRef = service.open(TestComponent);
+    const childRef = service.open(TestComponent, { parent: parentRef, modal: false });
+    const grandchildRef = service.open(TestComponent, { parent: childRef, modal: false });
+
+    expect(parentRef.children).toContain(childRef);
+    expect(childRef.children).toContain(grandchildRef);
+
+    await parentRef.close();
+
+    expect(parentRef.dialogEl.open).toBe(false);
+    expect(childRef.dialogEl.open).toBe(false);
+    expect(grandchildRef.dialogEl.open).toBe(false);
+    expect(childRef.closeSource).toBe('parent-closed');
+    expect(grandchildRef.closeSource).toBe('parent-closed');
+  });
+
+  it('should detach a child from its parent once the child itself closes', async () => {
+    TestBed.configureTestingModule({
+      providers: [DialogService],
+    });
+    const service = TestBed.inject(DialogService);
+
+    const parentRef = service.open(TestComponent);
+    const childRef = service.open(TestComponent, { parent: parentRef, modal: false });
+
+    await childRef.close();
+
+    expect(parentRef.children).not.toContain(childRef);
+
+    await parentRef.close();
+  });
+});

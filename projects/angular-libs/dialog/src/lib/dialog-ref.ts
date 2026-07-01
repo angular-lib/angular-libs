@@ -72,6 +72,17 @@ export class DialogRef<TResult = any, TComponent = any> {
   public injector!: Injector;
 
   /**
+   * The parent {@link DialogRef} this dialog was opened with via {@link DialogOptions.parent}, if any.
+   */
+  public parent?: DialogRef<any, any>;
+
+  /**
+   * Child dialogs registered against this dialog via {@link DialogOptions.parent}.
+   * Automatically closed (cascading, recursively) whenever this dialog closes.
+   */
+  public readonly children: DialogRef<any, any>[] = [];
+
+  /**
    * Optional hook to prevent or delay closing.
    *
    * Return `false` to abort the close. Return `true` or `void` to allow it.
@@ -169,6 +180,20 @@ export class DialogRef<TResult = any, TComponent = any> {
 
     this.result = result;
     this.closeSource = source;
+
+    // Cascade-close any dialogs registered as children of this one (recursively, since a
+    // child may itself have children). Best-effort: a child that aborts its own close via
+    // `beforeClose` simply stays open rather than blocking this dialog's close.
+    if (this.children.length > 0) {
+      await Promise.allSettled(
+        [...this.children].map((child) =>
+          child.close(undefined, 'parent-closed').catch((err) => {
+            console.error('[DialogRef] Error cascading close to child dialog:', err);
+          }),
+        ),
+      );
+    }
+
     this.dialogEl.close();
   }
 
@@ -179,6 +204,15 @@ export class DialogRef<TResult = any, TComponent = any> {
   _finishClose() {
     this.dialogEl?.removeEventListener('click', this.onDialogClick);
     this.resizeObserver?.disconnect();
+
+    // Detach from the parent's child list so closed dialogs don't leak stale references.
+    if (this.parent) {
+      const index = this.parent.children.indexOf(this);
+      if (index > -1) {
+        this.parent.children.splice(index, 1);
+      }
+    }
+
     this.resolveClosed(this);
   }
 

@@ -139,9 +139,16 @@ import type { ComponentInputs, DialogComponent } from '../dialog.types';
  *     closeButtonText: 'Cancel'
  *   }
  * });
+ *
+ * // 3. Get a strongly-typed close result by supplying the TResult type argument explicitly:
+ * const dialogRef = dialogService.open<DefaultDialogComponent<unknown, 'confirmed' | 'cancelled'>>(
+ *   DefaultDialogComponent,
+ *   { inputs: { title: 'Confirm', primaryButtonText: 'Yes' } },
+ * );
+ * const { result } = await dialogRef.closed; // typed as 'confirmed' | 'cancelled' | undefined
  * ```
  */
-export class DefaultDialogComponent<TComponent = any> implements DialogComponent<any> {
+export class DefaultDialogComponent<TComponent = any, TResult = unknown> implements DialogComponent<TResult> {
   /** Optional title displayed prominently in the header. */
   title = input<string>();
 
@@ -202,7 +209,7 @@ export class DefaultDialogComponent<TComponent = any> implements DialogComponent
   /** Event emitted when the secondary action button is clicked. */
   secondaryAction = output<void>();
 
-  dialogRef = inject(DialogRef, { optional: true }) as any;
+  dialogRef = inject(DialogRef, { optional: true }) as DialogRef<TResult, DefaultDialogComponent<TComponent, TResult>>;
 
   protected isNonModal = this.dialogRef?.options.modal === false;
 
@@ -231,8 +238,12 @@ export class DefaultDialogComponent<TComponent = any> implements DialogComponent
     return this.dialogRef ? isFullscreen(this.dialogRef) : false;
   }
 
-  close() {
-    this.dialogRef?.close();
+  /**
+   * Closes the dialog, optionally passing a typed result back to the caller.
+   * The result type comes from the `TResult` type argument supplied to `DefaultDialogComponent`.
+   */
+  close(result?: TResult) {
+    this.dialogRef?.close(result);
   }
 
   minimize(event: MouseEvent) {

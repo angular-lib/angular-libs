@@ -157,6 +157,23 @@ export interface DialogOptions<TComponent = unknown> extends DialogConfigBase {
    */
   injector?: Injector;
   /**
+   * Marks this dialog as a child of the given {@link DialogRef}.
+   *
+   * When the parent dialog closes (through any close path — manual, backdrop, escape, or
+   * programmatic), all of its registered children are automatically closed first, recursively.
+   * The cascaded children are closed with `'parent-closed'` as their {@link CloseSource}.
+   *
+   * Useful for wizards, nested popovers, or any dialog that should never outlive its opener.
+   *
+   * @example
+   * ```ts
+   * const parentRef = dialogService.open(SettingsDialogComponent);
+   * dialogService.open(ColorPickerDialogComponent, { parent: parentRef, modal: false });
+   * // Closing parentRef (in any way) automatically closes the color picker too.
+   * ```
+   */
+  parent?: DialogRef<any, any>;
+  /**
    * Optional plugins to extend dialog behavior (e.g. dragging, snapping).
    * Each plugin's `setup` is called after the component is mounted and may return a cleanup function.
    *

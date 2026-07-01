@@ -220,6 +220,13 @@ export class DialogService {
     // 2. Instantiate our updated DialogRef, which stores the result in memory (not in the DOM)
     const dialogRef = new DialogRef<InferDialogResult<TComponent>, TComponent>(dialogEl, mergedOptions);
 
+    // Register the parent/child hierarchy (if any) so the parent can cascade-close this
+    // dialog automatically when it closes.
+    if (mergedOptions.parent) {
+      dialogRef.parent = mergedOptions.parent;
+      mergedOptions.parent.children.push(dialogRef);
+    }
+
     // Bring clicked/focused non-modal dialogs to the front dynamically by tracking focus/cliques
     if (mergedOptions.modal === false) {
       dialogEl.addEventListener('focusin', () => {
