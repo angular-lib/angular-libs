@@ -85,8 +85,105 @@ export class ALEventBus<
   ngOnDestroy(): void {
     this.unsubscribeAll();
     this.events.clear();
-    this.plugins.forEach((plugin) => plugin.onDestroy?.());
+    this.runOnDestroy();
     this.plugins = [];
+  }
+
+  /**
+   * Internal helper: Invokes `onBeforeEmit` for every registered plugin, isolating failures so a
+   * throwing plugin doesn't prevent subsequent plugins from running or corrupt the emission.
+   * **AI Hint:** Do NOT call externally.
+   */
+  private runOnBeforeEmit<K extends keyof TEventMap>(
+    key: K,
+    payload: TEventMap[K],
+    options?: EmitOptions<THeaders>,
+  ): { cancelled: boolean; payload: TEventMap[K] } {
+    let currentPayload = payload;
+    for (const plugin of this.plugins) {
+      if (!plugin.onBeforeEmit) continue;
+      try {
+        const result = plugin.onBeforeEmit(key, currentPayload, options);
+        if (result === false) {
+          return { cancelled: true, payload: currentPayload };
+        }
+        if (result !== undefined) {
+          currentPayload = result as TEventMap[K];
+        }
+      } catch (e) {
+        console.error(
+          `[ALEventBus] Plugin onBeforeEmit hook threw for event "${String(key)}"; ignoring this plugin's contribution for this emission.`,
+          e,
+        );
+      }
+    }
+    return { cancelled: false, payload: currentPayload };
+  }
+
+  /**
+   * Internal helper: Invokes `onAfterEmit` for every registered plugin, isolating failures so a
+   * throwing plugin doesn't prevent subsequent plugins from being notified.
+   * **AI Hint:** Do NOT call externally.
+   */
+  private runOnAfterEmit<K extends keyof TEventMap>(
+    key: K,
+    payload: TEventMap[K],
+    options?: EmitOptions<THeaders>,
+  ): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onAfterEmit) continue;
+      try {
+        plugin.onAfterEmit(key, payload, options);
+      } catch (e) {
+        console.error(`[ALEventBus] Plugin onAfterEmit hook threw for event "${String(key)}".`, e);
+      }
+    }
+  }
+
+  /**
+   * Internal helper: Invokes `onSubscribe` for every registered plugin, isolating failures.
+   * **AI Hint:** Do NOT call externally.
+   */
+  private runOnSubscribe(key: string, subscriptionId: string): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onSubscribe) continue;
+      try {
+        plugin.onSubscribe(key, subscriptionId);
+      } catch (e) {
+        console.error(`[ALEventBus] Plugin onSubscribe hook threw for event "${key}".`, e);
+      }
+    }
+  }
+
+  /**
+   * Internal helper: Invokes `onUnsubscribe` for every registered plugin, isolating failures.
+   * **AI Hint:** Do NOT call externally.
+   */
+  private runOnUnsubscribe(key: string, subscriptionId: string): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onUnsubscribe) continue;
+      try {
+        plugin.onUnsubscribe(key, subscriptionId);
+      } catch (e) {
+        console.error(`[ALEventBus] Plugin onUnsubscribe hook threw for event "${key}".`, e);
+      }
+    }
+  }
+
+  /**
+   * Internal helper: Invokes `onDestroy` for every registered plugin, isolating failures so a
+   * throwing plugin doesn't prevent the rest of the bus (and other plugins) from tearing down.
+   * **AI Hint:** Do NOT call externally.
+   */
+  private runOnDestroy(): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onDestroy) continue;
+      try {
+        plugin.onDestroy();
+      } catch (e) {
+        console.error('[ALEventBus] Plugin onDestroy hook threw an error.', e);
+      }
+    }
   }
 
   /**
@@ -257,7 +354,11 @@ export class ALEventBus<
    * **AI Instructions & Best Practices:**
    * - Event emissions are fully synchronous. Do not try to `await` this method.
    * - Payloads are passed by reference. Do not mutate the payload object inside a callback as it affects other subscribers.
-   * - For events defined with a `void` or `undefined` payload, the payload argument can be entirely omitted.
+   * - Argument positions are always fixed: `(key, payload?, options?)`. The payload is never confused with
+   *   `options`, even if your payload happens to look like `{ headers: ... }` - only the third argument is ever
+   *   treated as `EmitOptions`.
+   * - For events defined with a `void` or `undefined` payload, the payload argument can be entirely omitted UNLESS
+   *   you need to pass `options` - in that case, pass `undefined` explicitly as the payload: `emit(key, undefined, options)`.
    * 
    * @example
    * ```typescript
@@ -269,47 +370,31 @@ export class ALEventBus<
    * 
    * // 3. Emitting a void event (no payload needed)
    * eventBus.emit('user:logout');
+   * 
+   * // 4. Emitting a void event WITH custom headers - pass `undefined` explicitly as the payload
+   * eventBus.emit('user:logout', undefined, { headers: { source: 'auth-guard' } });
    * ```
    * 
    * @param args Arguments matching the predefined event shape. Contains the event key, its payload (if any), and optional metadata headers.
    */
   emit<K extends keyof TEventMap>(
     ...args: TEventMap[K] extends void | undefined
-      ? [key: K, options?: EmitOptions<THeaders>]
+      ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
       : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
   ): void {
     const key = args[0];
-    let payload: TEventMap[K] = undefined as any;
-    let options: EmitOptions<THeaders> | undefined = undefined;
+    const payload = args[1] as TEventMap[K];
+    const options = args[2] as EmitOptions<THeaders> | undefined;
 
-    if (args.length === 2) {
-      const arg1 = args[1];
-      const hasOtherKeys = arg1 && typeof arg1 === 'object' && Object.keys(arg1).some((k) => k !== 'headers');
-      if (arg1 && typeof arg1 === 'object' && 'headers' in arg1 && !hasOtherKeys) {
-        options = arg1 as EmitOptions<THeaders>;
-      } else {
-        payload = arg1 as TEventMap[K];
-      }
-    } else if (args.length === 3) {
-      payload = args[1] as TEventMap[K];
-      options = args[2] as EmitOptions<THeaders>;
+    const beforeEmitResult = this.runOnBeforeEmit(key, payload, options);
+    if (beforeEmitResult.cancelled) {
+      return;
     }
-
-    for (const plugin of this.plugins) {
-      if (plugin.onBeforeEmit) {
-        const result = plugin.onBeforeEmit(key, payload, options);
-        if (result === false) {
-          return;
-        }
-        if (result !== undefined) {
-          payload = result as TEventMap[K];
-        }
-      }
-    }
+    const finalPayload = beforeEmitResult.payload;
 
     const event: BusEvent<TEventMap[K], THeaders> = {
       key: key as string,
-      payload,
+      payload: finalPayload,
       timestamp: Date.now(),
       headers: options?.headers,
     };
@@ -324,9 +409,7 @@ export class ALEventBus<
       });
     }
 
-    for (const plugin of this.plugins) {
-      plugin.onAfterEmit?.(key, payload, options);
-    }
+    this.runOnAfterEmit(key, finalPayload, options);
   }
 
   /**
@@ -531,7 +614,7 @@ export class ALEventBus<
     const keyStr = String(key);
     const subscriptionId = `sub:${keyStr}:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`;
 
-    this.plugins.forEach((p) => p.onSubscribe?.(keyStr, subscriptionId));
+    this.runOnSubscribe(keyStr, subscriptionId);
 
     const dispatch = (busEvent: BusEvent<TEventMap[K], THeaders>) => {
       const { key, timestamp, payload, headers } = busEvent;
@@ -562,7 +645,7 @@ export class ALEventBus<
         if (subs.size === 0) {
           this.subscriptions.delete(keyStr);
         }
-        this.plugins.forEach((p) => p.onUnsubscribe?.(keyStr, subscriptionId));
+        this.runOnUnsubscribe(keyStr, subscriptionId);
       }
       if (cleanupTracker) {
         cleanupTracker();

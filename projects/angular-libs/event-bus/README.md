@@ -60,7 +60,7 @@ export class ExampleComponent {
 
 ## API
 
-- `emit(key, payload)`: Emits an event with a given key and payload.
+- `emit(key, payload, options?)`: Emits an event with a given key, payload, and optional metadata `options` (e.g. `headers`). Argument positions are always fixed - the payload is never confused with `options`, even if it happens to look like `{ headers: ... }`. For `void`-typed events, `payload` can be omitted entirely (`emit(key)`), or pass `undefined` explicitly if you also need to supply `options` (`emit(key, undefined, options)`).
 - `on(key, options)`: Subscribes to an event with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). It automatically context-resolves `DestroyRef` and unsubscribes when the enclosing component/service injection context is destroyed (to bypass this and keep a manual registration, set `unsubscribeOn` to `'manual'`). Returns an unsubscribe function.
 - `once(key, options)`: Subscribes for a single emission; the subscription is removed after the first call.
 - `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload). If the event has never emitted, it returns `options.defaultValue` (or `undefined` if not specified).

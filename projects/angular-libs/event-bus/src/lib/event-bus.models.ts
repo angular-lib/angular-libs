@@ -86,7 +86,7 @@ export interface EmitOptions<THeaders extends Record<string, any> = Record<strin
 export interface IALEventBus<TEventMap extends {}, THeaders extends Record<string, any> = Record<string, any>> {
   emit<K extends keyof TEventMap>(
     ...args: TEventMap[K] extends void | undefined
-      ? [key: K, options?: EmitOptions<THeaders>]
+      ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
       : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
   ): void;
   latest<K extends keyof TEventMap>(key: K): BusEvent<TEventMap[K], THeaders> | undefined;

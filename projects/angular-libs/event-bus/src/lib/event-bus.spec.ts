@@ -114,20 +114,26 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(latest?.key).toBe('user:login');
   });
 
-  it('should not greedily parse a payload containing a headers key as options', () => {
+  it('should never confuse a payload for options, even when the payload is shaped like { headers }', () => {
     expect(eventBus.latest('request:completed')).toBeUndefined();
 
     const payloadData = {
       headers: { 'Content-Type': 'application/json' },
       body: '{"status":"ok"}'
     };
-
     eventBus.emit('request:completed', payloadData);
 
     const latest = eventBus.latest('request:completed');
     expect(latest).toBeDefined();
     expect(latest?.payload).toEqual(payloadData);
     expect(latest?.headers).toBeUndefined(); // Headers should be undefined since we did not supply options
+
+    // Payloads shaped EXACTLY like `{ headers }` (no other keys) are also always treated as the
+    // payload now - argument position is the only thing that determines payload vs. options.
+    const headersOnlyPayload = { headers: { traceId: 'abc' } };
+    eventBus.emit('request:completed', headersOnlyPayload as any);
+    expect(eventBus.latest('request:completed')?.payload).toEqual(headersOnlyPayload);
+    expect(eventBus.latest('request:completed')?.headers).toBeUndefined();
   });
 
   it('should support callback based subscriptions via on() and print warning but suppress if manual', () => {
@@ -267,6 +273,16 @@ describe('ALEventBus Basic/Core Functionality', () => {
     // Secondary emit should not trigger subscription execution
     expect(received.length).toBe(1);
   });
+
+  it('should support emitting a void event with options by passing an explicit undefined payload', () => {
+    const received: BusEvent<void>[] = [];
+    eventBus.on('simple:event', { callback: (event) => { received.push(event); } });
+
+    eventBus.emit('simple:event', undefined, { headers: { source: 'test' } });
+
+    expect(received.length).toBe(1);
+    expect(received[0].headers).toEqual({ source: 'test' });
+  });
 });
 
 describe('ALEventBus Plugin Support', () => {
@@ -344,6 +360,72 @@ describe('ALEventBus Plugin Support', () => {
 
     expect(eventBus.testPlugin.unsubscribeCalls.length).toBe(1);
     expect(eventBus.testPlugin.unsubscribeCalls[0]).toEqual({ key: 'simple:event', subId });
+  });
+});
+
+describe('ALEventBus Plugin Hook Error Isolation', () => {
+  function createThrowingPlugin(): ALEventBusPlugin<TestEventMap> {
+    return {
+      onBeforeEmit() { throw new Error('boom: onBeforeEmit'); },
+      onAfterEmit() { throw new Error('boom: onAfterEmit'); },
+      onSubscribe() { throw new Error('boom: onSubscribe'); },
+      onUnsubscribe() { throw new Error('boom: onUnsubscribe'); },
+      onDestroy() { throw new Error('boom: onDestroy'); },
+    };
+  }
+
+  @Injectable()
+  class MixedPluginEventBus extends ALEventBus<TestEventMap> {
+    healthyPlugin = this.registerPlugin(createTestPlugin());
+    throwingPlugin = this.registerPlugin(createThrowingPlugin());
+  }
+
+  let eventBus: MixedPluginEventBus;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [MixedPluginEventBus] });
+    eventBus = TestBed.inject(MixedPluginEventBus);
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    errorSpy.mockRestore();
+  });
+
+  it('should still emit and notify the healthy plugin when another plugin throws in onBeforeEmit/onAfterEmit', () => {
+    eventBus.emit('theme:changed', 'dark');
+
+    expect(eventBus.latest('theme:changed')?.payload).toBe('dark');
+    expect(eventBus.healthyPlugin.beforeEmitCalls.length).toBe(1);
+    expect(eventBus.healthyPlugin.afterEmitCalls.length).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('onBeforeEmit'),
+      expect.any(Error),
+    );
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('onAfterEmit'),
+      expect.any(Error),
+    );
+  });
+
+  it('should still notify the healthy plugin when another plugin throws in onSubscribe/onUnsubscribe', () => {
+    const unsubscribe = eventBus.on('simple:event', { callback: () => {} });
+
+    expect(eventBus.healthyPlugin.subscribeCalls.length).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onSubscribe'), expect.any(Error));
+
+    unsubscribe();
+
+    expect(eventBus.healthyPlugin.unsubscribeCalls.length).toBe(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onUnsubscribe'), expect.any(Error));
+  });
+
+  it('should still destroy the healthy plugin when another plugin throws in onDestroy', () => {
+    eventBus.ngOnDestroy();
+
+    expect(eventBus.healthyPlugin.destroyCalled).toBe(true);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onDestroy'), expect.any(Error));
   });
 });
 
