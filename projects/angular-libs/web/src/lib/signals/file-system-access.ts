@@ -130,7 +130,14 @@ export function fileSystemSignal(): FileSystemSignal {
       }
 
       const writable = await handle.createWritable();
-      await writable.write(content);
+      try {
+        await writable.write(content);
+      } catch (writeErr) {
+        // Abort the writable so the underlying temp-file resource isn't left open/locked
+        // when the write itself fails partway through.
+        await writable.abort().catch(() => {});
+        throw writeErr;
+      }
       await writable.close();
 
       const file = await handle.getFile();

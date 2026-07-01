@@ -69,7 +69,11 @@ export function bluetoothSignal(): BluetoothSignal {
 
   let activeDevice: any = null;
 
-  const handleDisconnected = () => {
+  // Bound to the specific device it was registered on (via closure), so a disconnect event
+  // from a device that is no longer the active one is safely ignored instead of being
+  // misattributed to whatever device happens to be active at the time it fires.
+  const handleDisconnected = (device: any) => () => {
+    if (device !== activeDevice) return;
     state.set({
       supported,
       device: activeDevice,
@@ -78,6 +82,8 @@ export function bluetoothSignal(): BluetoothSignal {
       error: null,
     });
   };
+
+  let removeActiveDeviceListener: (() => void) | null = null;
 
   const requestDevice = async (options?: any): Promise<any> => {
     if (!supported) {
@@ -90,9 +96,15 @@ export function bluetoothSignal(): BluetoothSignal {
 
     try {
       const device = await bluetooth.requestDevice(options);
+
+      // Detach from whatever device was previously active so it doesn't leak or keep
+      // receiving disconnect events after being replaced.
+      removeActiveDeviceListener?.();
       activeDevice = device;
 
-      device.addEventListener('gattserverdisconnected', handleDisconnected);
+      const onDisconnected = handleDisconnected(device);
+      device.addEventListener('gattserverdisconnected', onDisconnected);
+      removeActiveDeviceListener = () => device.removeEventListener('gattserverdisconnected', onDisconnected);
 
       const isGattConnected = device.gatt ? device.gatt.connected : false;
 
@@ -106,6 +118,7 @@ export function bluetoothSignal(): BluetoothSignal {
 
       return device;
     } catch (err: any) {
+      activeDevice = null;
       state.set({
         supported,
         device: null,
@@ -119,7 +132,8 @@ export function bluetoothSignal(): BluetoothSignal {
 
   const disconnect = () => {
     if (activeDevice) {
-      activeDevice.removeEventListener('gattserverdisconnected', handleDisconnected);
+      removeActiveDeviceListener?.();
+      removeActiveDeviceListener = null;
       if (activeDevice.gatt && activeDevice.gatt.connected) {
         activeDevice.gatt.disconnect();
       }
