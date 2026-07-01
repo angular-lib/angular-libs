@@ -7,6 +7,7 @@ import {
   Injector,
   inject,
   signal,
+  DestroyRef,
   type WritableSignal,
 } from '@angular/core';
 import { DialogRef } from './dialog-ref';
@@ -64,6 +65,9 @@ export class DialogService {
     // (now former) fullscreen element is relocated back to <body>.
     if (typeof document !== 'undefined') {
       document.addEventListener('fullscreenchange', this.handleGlobalFullscreenChange);
+      inject(DestroyRef).onDestroy(() => {
+        document.removeEventListener('fullscreenchange', this.handleGlobalFullscreenChange);
+      });
     }
   }
 

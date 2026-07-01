@@ -82,4 +82,35 @@ describe('autoClosePlugin', () => {
       ref.close();
     }
   });
+
+  it('should be able to resume the countdown after a rejected auto-close attempt', async () => {
+    TestBed.configureTestingModule({
+      providers: [DialogService],
+    });
+    const service = TestBed.inject(DialogService);
+
+    const ref = service.open(TestAutoCloseComponent, {
+      plugins: [autoClosePlugin({ duration: 50, pauseOnHover: true })],
+    });
+
+    let rejectClose = true;
+    ref.beforeClose = () => !rejectClose;
+
+    try {
+      // The first auto-close attempt fires but is rejected, so the dialog stays open.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(ref.dialogEl.open).toBe(true);
+
+      // Allow future close attempts, then trigger a restart of the countdown.
+      rejectClose = false;
+      ref.dialogEl.dispatchEvent(new MouseEvent('mouseleave'));
+
+      // The countdown must actually restart (not be stuck as "already running") for this to close.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(ref.dialogEl.open).toBe(false);
+      expect(ref.closeSource).toBe('auto-close');
+    } finally {
+      ref.close();
+    }
+  });
 });

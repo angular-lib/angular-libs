@@ -41,6 +41,9 @@ export function autoClosePlugin(options: AutoCloseOptions = {}): DialogPlugin {
       const startTimer = () => {
         if (timeoutId) return;
         timeoutId = setTimeout(() => {
+          // Reset before attempting to close so a rejected close (e.g. via `beforeClose`
+          // returning `false`) doesn't leave the timer permanently stuck as "active".
+          timeoutId = null;
           dialogRef.close(undefined, 'auto-close');
         }, duration);
       };

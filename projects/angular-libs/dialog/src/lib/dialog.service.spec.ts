@@ -134,4 +134,21 @@ describe('DialogService Global Configuration', () => {
       ref.close();
     }
   });
+
+  it('should remove the global fullscreenchange listener when the service is destroyed', () => {
+    const addSpy = vi.spyOn(document, 'addEventListener');
+    const removeSpy = vi.spyOn(document, 'removeEventListener');
+
+    TestBed.configureTestingModule({
+      providers: [DialogService],
+    });
+    TestBed.inject(DialogService);
+
+    expect(addSpy).toHaveBeenCalledWith('fullscreenchange', expect.any(Function));
+    const registeredHandler = addSpy.mock.calls.find((call) => call[0] === 'fullscreenchange')?.[1];
+
+    TestBed.resetTestingModule();
+
+    expect(removeSpy).toHaveBeenCalledWith('fullscreenchange', registeredHandler);
+  });
 });
