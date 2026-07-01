@@ -5,6 +5,7 @@ import { entityPlugin } from './plugins/entity.plugin';
 import { historyPlugin } from './plugins/history.plugin';
 import { persistPlugin } from './plugins/persist.plugin';
 import { indexedDBPlugin } from './plugins/indexeddb.plugin';
+import { resourcePlugin } from './plugins/resource.plugin';
 
 interface TestUser {
   id: number;
@@ -119,6 +120,48 @@ describe('ALStore Basic Functionality', () => {
   });
 });
 
+describe('ALStore Plugin Hook Error Isolation', () => {
+  it('should isolate a throwing onBeforeUpdate/onAfterUpdate hook so other plugins still run', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const afterUpdateCalls: unknown[] = [];
+    const throwingPlugin = {
+      onBeforeUpdate: () => {
+        throw new Error('boom (onBeforeUpdate)');
+      },
+      onAfterUpdate: () => {
+        throw new Error('boom (onAfterUpdate)');
+      },
+    };
+    const healthyPlugin = {
+      onBeforeUpdate: (_key: keyof TestState, _prev: any, value: any) => value,
+      onAfterUpdate: (key: keyof TestState, _prev: any, value: any) => {
+        afterUpdateCalls.push([key, value]);
+      },
+    };
+
+    @Injectable()
+    class FaultyPluginStore extends ALStore<TestState> {
+      constructor() {
+        super(initialTestState);
+        this.registerPlugin(throwingPlugin);
+        this.registerPlugin(healthyPlugin);
+      }
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [FaultyPluginStore] });
+    const faultyStore = TestBed.inject(FaultyPluginStore);
+
+    expect(() => faultyStore.set('theme', 'dark')).not.toThrow();
+    expect(faultyStore.get('theme')).toBe('dark');
+    expect(afterUpdateCalls).toEqual([['theme', 'dark']]);
+    expect(errorSpy).toHaveBeenCalledTimes(2);
+
+    errorSpy.mockRestore();
+  });
+});
+
 describe('ALStore Entity Plugin', () => {
   let store: TestStore;
 
@@ -171,6 +214,34 @@ describe('ALStore Entity Plugin', () => {
     users.remove((u) => u.name === 'Diana');
     expect(users.total()).toBe(0);
   });
+
+  it('should warn once (dev mode) when an entity resolves to an undefined/null ID', () => {
+    @Injectable()
+    class NoIdFieldStore extends ALStore<{ items: { label: string }[] }> {
+      itemsAdapter = this.registerPlugin(entityPlugin('items'));
+
+      constructor() {
+        super({ items: [] });
+      }
+    }
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [NoIdFieldStore] });
+    const noIdStore = TestBed.inject(NoIdFieldStore);
+
+    // Neither entity has an `id` property, and no `idField`/`selectId` was configured, so both
+    // resolve to the same `undefined` ID and silently collide (addOne treats the second as a dup).
+    noIdStore.itemsAdapter.addOne({ label: 'first' });
+    noIdStore.itemsAdapter.addOne({ label: 'second' });
+
+    expect(noIdStore.itemsAdapter.total()).toBe(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[entityPlugin]'));
+
+    warnSpy.mockRestore();
+  });
 });
 
 describe('ALStore History Plugin', () => {
@@ -201,6 +272,32 @@ describe('ALStore History Plugin', () => {
 
     history.redo();
     expect(store.get('document')).toBe('Version 2');
+  });
+
+  it('should not throw when the tracked value cannot be structurally cloned (e.g. contains a function)', () => {
+    @Injectable()
+    class NonCloneableStore extends ALStore<{ payload: any }> {
+      payloadHistory = this.registerPlugin(historyPlugin('payload'));
+
+      constructor() {
+        super({ payload: null });
+      }
+    }
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [NonCloneableStore] });
+    const nonCloneableStore = TestBed.inject(NonCloneableStore);
+
+    const withFunction = { onClick: () => {} };
+
+    expect(() => nonCloneableStore.set('payload', withFunction)).not.toThrow();
+    expect(nonCloneableStore.get('payload')).toBe(withFunction);
+    expect(nonCloneableStore.payloadHistory.canUndo()).toBe(true);
+    expect(warnSpy).toHaveBeenCalled();
+
+    warnSpy.mockRestore();
   });
 });
 
@@ -375,5 +472,83 @@ describe('ALStore IndexedDB Plugin', () => {
 
     expect(storeInstance.idb.isReady()).toBe(true);
     expect(storeInstance.get('theme')).toBe('dark');
+  });
+});
+
+describe('ALStore Resource Plugin', () => {
+  interface ProfileState {
+    profile: { name: string } | null;
+  }
+  const initialProfileState: ProfileState = { profile: null };
+
+  it('should patch the store when the loader resolves and expose isLoading/value/reload', async () => {
+    let resolveLoader!: (value: { name: string }) => void;
+    const loader = vi.fn(
+      () =>
+        new Promise<{ name: string }>((resolve) => {
+          resolveLoader = resolve;
+        })
+    );
+
+    @Injectable()
+    class ProfileStore extends ALStore<ProfileState> {
+      profileResource = this.registerPlugin(resourcePlugin('profile', { loader }));
+
+      constructor() {
+        super(initialProfileState);
+      }
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [ProfileStore] });
+    const store = TestBed.inject(ProfileStore);
+
+    expect(store.profileResource.isLoading()).toBe(true);
+    expect(store.get('profile')).toBeNull();
+
+    await vi.waitFor(() => {
+      expect(loader).toHaveBeenCalled();
+    });
+    resolveLoader({ name: 'Ava' });
+
+    await vi.waitFor(() => {
+      expect(store.get('profile')).toEqual({ name: 'Ava' });
+    });
+
+    expect(store.profileResource.value()).toEqual({ name: 'Ava' });
+    expect(store.profileResource.isLoading()).toBe(false);
+  });
+
+  it('should re-run the loader and patch the store again when reload() is called', async () => {
+    let callCount = 0;
+    const loader = vi.fn(async () => {
+      callCount++;
+      return { name: `call-${callCount}` };
+    });
+
+    @Injectable()
+    class ProfileStore extends ALStore<ProfileState> {
+      profileResource = this.registerPlugin(resourcePlugin('profile', { loader }));
+
+      constructor() {
+        super(initialProfileState);
+      }
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [ProfileStore] });
+    const store = TestBed.inject(ProfileStore);
+
+    await vi.waitFor(() => {
+      expect(store.get('profile')).toEqual({ name: 'call-1' });
+    });
+
+    store.profileResource.reload();
+
+    await vi.waitFor(() => {
+      expect(store.get('profile')).toEqual({ name: 'call-2' });
+    });
+
+    expect(loader).toHaveBeenCalledTimes(2);
   });
 });

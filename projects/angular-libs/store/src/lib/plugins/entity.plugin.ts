@@ -1,4 +1,4 @@
-import { computed, Signal } from '@angular/core';
+import { computed, isDevMode, Signal } from '@angular/core';
 import { EntityAdapter, EntityAdapterOptions, Update } from '../interfaces/entity.plugin';
 import { IALStore } from '../interfaces/ial-store';
 import { ALStorePlugin } from '../interfaces/al-store-plugin';
@@ -46,12 +46,31 @@ export function entityPlugin<
   options: EntityAdapterOptions<StoreState[Key] extends Array<infer U> ? U : any, ID> = {} as any,
 ): ALStorePlugin<StoreState> & EntityAdapter<StoreState[Key] extends Array<infer U> ? U : any, ID> {
   type T = StoreState[Key] extends Array<infer U> ? U : Record<string, any>;
-  const selectId: (entity: T) => ID =
+  const rawSelectId: (entity: T) => ID =
     options.selectId ||
     (options.idField
       ? (entity: T) => entity[options.idField as keyof T] as unknown as ID
       : (entity: any) => entity.id as ID);
   const sortComparer = options.sortComparer;
+
+  // Guard against silently colliding entities: if no `selectId`/`idField` resolves a usable ID
+  // (e.g. entities are missing an `id` property and no `idField`/`selectId` was configured),
+  // every affected entity would resolve to the same `undefined` ID and silently overwrite one
+  // another. Warn once (in dev mode) the first time this happens, rather than failing silently.
+  let warnedMissingId = false;
+  const selectId = (entity: T): ID => {
+    const id = rawSelectId(entity);
+    if (isDevMode() && (id === undefined || id === null) && !warnedMissingId) {
+      warnedMissingId = true;
+      const idFieldName = options.idField ? String(options.idField) : 'id';
+      console.warn(
+        `[entityPlugin] Resolved an entity ID of "${id}" for key "${String(key)}". Ensure entities ` +
+          `have a valid "${idFieldName}" property, or provide a custom "selectId" option. Entities ` +
+          `with undefined/null IDs will silently collide and overwrite one another.`,
+      );
+    }
+    return id;
+  };
 
   let storeRef: IALStore<StoreState>;
 

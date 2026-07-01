@@ -209,16 +209,52 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
 
   private internalSet<K extends keyof T>(key: K, value: T[K]): void {
     const prevValue = this.get(key);
-    let finalValue = value;
-    for (const plugin of this.plugins) {
-      if (plugin.onBeforeUpdate) {
-        finalValue = plugin.onBeforeUpdate(key, prevValue, finalValue);
-      }
-    }
+    const finalValue = this.runOnBeforeUpdate(key, prevValue, value);
     this.state[key] = finalValue;
     this.updateSignal(key, finalValue);
+    this.runOnAfterUpdate(key, prevValue, finalValue);
+  }
+
+  /**
+   * Runs every plugin's `onBeforeUpdate` hook for the given key, threading the (possibly
+   * transformed) value through each plugin in registration order.
+   *
+   * A plugin that throws is isolated: its error is logged and its contribution to `finalValue`
+   * is discarded, but every other registered plugin still runs for this update.
+   */
+  private runOnBeforeUpdate<K extends keyof T>(key: K, prevValue: T[K], value: T[K]): T[K] {
+    let finalValue = value;
     for (const plugin of this.plugins) {
-      plugin.onAfterUpdate?.(key, prevValue, finalValue);
+      if (!plugin.onBeforeUpdate) continue;
+      try {
+        const result = plugin.onBeforeUpdate(key, prevValue, finalValue);
+        if (result !== undefined) {
+          finalValue = result;
+        }
+      } catch (e) {
+        console.error(
+          `[ALStore] Plugin onBeforeUpdate threw for key "${String(key)}"; ignoring this plugin's contribution for this update.`,
+          e,
+        );
+      }
+    }
+    return finalValue;
+  }
+
+  /**
+   * Runs every plugin's `onAfterUpdate` hook for the given key.
+   *
+   * A plugin that throws is isolated: its error is logged, but every other registered plugin
+   * still runs for this update.
+   */
+  private runOnAfterUpdate<K extends keyof T>(key: K, prevValue: T[K], newValue: T[K]): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onAfterUpdate) continue;
+      try {
+        plugin.onAfterUpdate(key, prevValue, newValue);
+      } catch (e) {
+        console.error(`[ALStore] Plugin onAfterUpdate threw for key "${String(key)}".`, e);
+      }
     }
   }
 
@@ -268,12 +304,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
     if (key !== undefined) {
       const prevValue = this.get(key);
       const initialVal = this.initialState?.[key];
-      let finalValue = initialVal;
-      for (const plugin of this.plugins) {
-        if (plugin.onBeforeUpdate) {
-          finalValue = plugin.onBeforeUpdate(key, prevValue, finalValue);
-        }
-      }
+      const finalValue = this.runOnBeforeUpdate(key, prevValue, initialVal);
       delete this.state[key];
       if (finalValue !== initialVal) {
         this.state[key] = finalValue as any;
@@ -282,9 +313,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
       if (finalValue !== initialVal) {
         this.updateSignal(key, finalValue);
       }
-      for (const plugin of this.plugins) {
-        plugin.onAfterUpdate?.(key, prevValue, finalValue);
-      }
+      this.runOnAfterUpdate(key, prevValue, finalValue);
     } else {
       const prevSnapshot = this.snapshot();
       this.state = {};
@@ -292,12 +321,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
       for (const k of keysArray) {
         const prevValue = prevSnapshot[k];
         const initialVal = this.initialState?.[k];
-        let finalValue = initialVal;
-        for (const plugin of this.plugins) {
-          if (plugin.onBeforeUpdate) {
-            finalValue = plugin.onBeforeUpdate(k, prevValue, finalValue);
-          }
-        }
+        const finalValue = this.runOnBeforeUpdate(k, prevValue, initialVal);
         if (finalValue !== initialVal) {
           this.state[k] = finalValue as any;
         }
@@ -305,9 +329,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
         if (finalValue !== initialVal) {
           this.updateSignal(k, finalValue);
         }
-        for (const plugin of this.plugins) {
-          plugin.onAfterUpdate?.(k, prevValue, finalValue);
-        }
+        this.runOnAfterUpdate(k, prevValue, finalValue);
       }
     }
   }

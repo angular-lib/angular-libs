@@ -1,7 +1,25 @@
-import { computed, signal, Signal, untracked } from '@angular/core';
+import { computed, isDevMode, signal, Signal, untracked } from '@angular/core';
 import { HistoryAdapter, HistoryAdapterOptions } from '../interfaces/history.plugin';
 import { IALStore } from '../interfaces/ial-store';
 import { ALStorePlugin } from '../interfaces/al-store-plugin';
+
+/**
+ * Attempts a deep clone via `structuredClone`, falling back to the original reference if the
+ * value can't be structurally cloned (e.g. it contains functions, `WeakMap`/`WeakSet`, or other
+ * non-cloneable types). This trades perfect undo/redo snapshot isolation for never throwing on
+ * unsupported values - the tracked value is still pushed onto the history stack, it just won't
+ * be an independent copy in that edge case.
+ */
+function safeClone<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch (e) {
+    if (isDevMode()) {
+      console.warn('[historyPlugin] Value could not be structurally cloned; falling back to the original reference.', e);
+    }
+    return value;
+  }
+}
 
 /**
  * Creates a functional history plugin for tracking the undo/redo states of a specific key inside a state store.
@@ -54,7 +72,7 @@ export function historyPlugin<
   return {
     onInit(store) {
       storeRef = store;
-      previousValue = structuredClone(store.get(key));
+      previousValue = safeClone(store.get(key));
     },
 
     onAfterUpdate(k, prevVal, newVal) {
@@ -73,7 +91,7 @@ export function historyPlugin<
       if (!hydrated) {
         // While hydrating, discard changes from entering history stack
         // and keep shifting the baseline value so it correctly aligns on completion
-        previousValue = structuredClone(currentValue);
+        previousValue = safeClone(currentValue);
         return;
       }
 
@@ -92,7 +110,7 @@ export function historyPlugin<
       }
 
       isRestoring = false;
-      previousValue = structuredClone(currentValue);
+      previousValue = safeClone(currentValue);
     },
 
     canUndo: computed(() => undoStack().length > 0),
@@ -108,7 +126,7 @@ export function historyPlugin<
         const rStack = redoStack();
 
         // Push current value into the redo stack
-        redoStack.set([...rStack, structuredClone(current) as T]);
+        redoStack.set([...rStack, safeClone(current) as T]);
 
         // Pop the previous value from the undo stack
         const previous = past[past.length - 1];
@@ -129,7 +147,7 @@ export function historyPlugin<
         const past = undoStack();
 
         // Push current value securely back into the undo stack
-        undoStack.set([...past, structuredClone(current) as T]);
+        undoStack.set([...past, safeClone(current) as T]);
 
         // Pop the next value from the redo stack
         const next = rStack[rStack.length - 1];
