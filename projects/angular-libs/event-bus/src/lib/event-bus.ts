@@ -76,6 +76,13 @@ export class ALEventBus<
 > implements IALEventBus<TEventMap, THeaders>, OnDestroy {
   private readonly NOT_EMITTED = Symbol('NOT_EMITTED');
   private events = new Map<string, WritableSignal<any>>();
+  /**
+   * Reentrancy guard to prevent stack overflows and preserve event order.
+   * If an event is emitted WHILE another dispatch is in progress (e.g., from a plugin hook),
+   * it is queued and processed immediately after the current dispatch finishes.
+   */
+  private isEmitting = false;
+  private eventQueue: { key: any; payload: any; options: any }[] = [];
   private subscriptions = new Map<
     string,
     Map<string, { dispatch: (event: BusEvent<any, THeaders>) => void; unsubscribe: () => void }>
@@ -400,9 +407,40 @@ export class ALEventBus<
       : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
   ): void {
     const key = args[0];
-    const payload = args[1] as TEventMap[K];
-    const options = args[2] as EmitOptions<THeaders> | undefined;
+    const payload = args[1];
+    const options = args[2];
 
+    // If we're already in a dispatch cycle, queue this emission to prevent infinite recursion
+    // (stack overflow) and ensure deterministic execution order for nested calls.
+    if (this.isEmitting) {
+      this.eventQueue.push({ key, payload, options });
+      return;
+    }
+
+    this.isEmitting = true;
+    try {
+      this.processEmit(key, payload as TEventMap[K], options as EmitOptions<THeaders> | undefined);
+
+      // Drain the queue of any nested emissions triggered during the main dispatch cycle.
+      while (this.eventQueue.length > 0) {
+        const next = this.eventQueue.shift()!;
+        this.processEmit(
+          next.key,
+          next.payload as TEventMap[typeof next.key],
+          next.options as EmitOptions<THeaders> | undefined
+        );
+      }
+    } finally {
+      this.isEmitting = false;
+    }
+  }
+
+  /** Internal core emission logic */
+  private processEmit<K extends keyof TEventMap>(
+    key: K,
+    payload: TEventMap[K],
+    options?: EmitOptions<THeaders>
+  ): void {
     const beforeEmitResult = this.runOnBeforeEmit(key, payload, options);
     if (beforeEmitResult.cancelled) {
       return;
@@ -413,7 +451,7 @@ export class ALEventBus<
       key: key as string,
       payload: finalPayload,
       timestamp: Date.now(),
-      headers: options?.headers,
+      headers: (options as EmitOptions<THeaders> | undefined)?.headers,
     };
     this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string).set(event);
 
@@ -426,7 +464,7 @@ export class ALEventBus<
       });
     }
 
-    this.runOnAfterEmit(key, finalPayload, options);
+    this.runOnAfterEmit(key, finalPayload, options as EmitOptions<THeaders>);
   }
 
   /**
