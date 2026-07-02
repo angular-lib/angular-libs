@@ -58,6 +58,7 @@ export interface NfcSignal {
 export function nfcSignal(): NfcSignal {
   let doc: Document | null = null;
   let destroyRef: DestroyRef | null = null;
+  const abortController = new AbortController();
 
   try {
     doc = inject(DOCUMENT);
@@ -135,7 +136,8 @@ export function nfcSignal(): NfcSignal {
         readerInstance = new ndefReaderClass();
       }
 
-      await readerInstance.scan();
+      await readerInstance.scan({ signal: abortController.signal });
+
       state.set({
         supported,
         reading: true,
@@ -146,6 +148,9 @@ export function nfcSignal(): NfcSignal {
       readerInstance.addEventListener('reading', handleReading);
       readerInstance.addEventListener('readingerror', handleReadingError);
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return;
+      }
       const parsedErr = err instanceof Error ? err : new Error(String(err));
       state.update((prev) => ({
         ...prev,
@@ -168,7 +173,7 @@ export function nfcSignal(): NfcSignal {
         readerInstance = new ndefReaderClass();
       }
 
-      await readerInstance.write(message, options);
+      await readerInstance.write(message, { ...options, signal: abortController.signal });
     } catch (err: any) {
       const parsedErr = err instanceof Error ? err : new Error(String(err));
       state.update((prev) => ({ ...prev, error: parsedErr }));
@@ -178,6 +183,7 @@ export function nfcSignal(): NfcSignal {
 
   if (destroyRef) {
     destroyRef.onDestroy(() => {
+      abortController.abort();
       if (readerInstance) {
         readerInstance.removeEventListener('reading', handleReading);
         readerInstance.removeEventListener('readingerror', handleReadingError);

@@ -46,6 +46,7 @@ export interface BluetoothSignal {
 export function bluetoothSignal(): BluetoothSignal {
   let doc: Document | null = null;
   let destroyRef: DestroyRef | null = null;
+  const abortController = new AbortController();
 
   try {
     doc = inject(DOCUMENT);
@@ -95,7 +96,10 @@ export function bluetoothSignal(): BluetoothSignal {
     state.update((prev) => ({ ...prev, loading: true, error: null }));
 
     try {
-      const device = await bluetooth.requestDevice(options);
+      const device = await bluetooth.requestDevice({
+        ...options,
+        signal: abortController.signal,
+      });
 
       // Detach from whatever device was previously active so it doesn't leak or keep
       // receiving disconnect events after being replaced.
@@ -118,6 +122,9 @@ export function bluetoothSignal(): BluetoothSignal {
 
       return device;
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        return;
+      }
       activeDevice = null;
       state.set({
         supported,
@@ -150,6 +157,7 @@ export function bluetoothSignal(): BluetoothSignal {
 
   if (destroyRef) {
     destroyRef.onDestroy(() => {
+      abortController.abort();
       disconnect();
     });
   }
