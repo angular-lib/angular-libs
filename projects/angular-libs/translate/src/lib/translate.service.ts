@@ -66,7 +66,10 @@ export class DefaultTranslateFormatter implements ALTranslateFormatter {
     const keys = Object.keys(params).map(escapeRegExp).join('|');
     const pattern = new RegExp(`\\{\\{\\s*(${keys})\\s*\\}\\}`, 'g');
 
-    return text.replace(pattern, (_, key) => String(params[key]));
+    return text.replace(pattern, (_, key) => {
+      const value = Object.prototype.hasOwnProperty.call(params, key) ? params[key] : undefined;
+      return value !== undefined ? String(value) : `{{${key}}}`;
+    });
   }
 }
 
