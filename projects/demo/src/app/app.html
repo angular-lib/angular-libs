@@ -49,6 +49,13 @@
           <span class="nav-label">Web Utility</span>
         }
       </a>
+
+      <a routerLink="/shortcut" routerLinkActive="active" class="nav-item" title="Shortcuts">
+        <span class="nav-icon">⌨️</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Shortcuts</span>
+        }
+      </a>
     </nav>
     
     <div class="sidebar-footer">

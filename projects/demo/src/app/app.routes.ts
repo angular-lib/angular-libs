@@ -4,6 +4,7 @@ import { EventBusDemoComponent } from './demos/event-bus-demo.component';
 import { StoreDemoComponent } from './demos/store-demo.component';
 import { TranslateDemoComponent } from './demos/translate-demo.component';
 import { WebDemoComponent } from './demos/web-demo.component';
+import { ShortcutDemoComponent } from './demos/shortcut-demo.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'dialog', pathMatch: 'full' },
@@ -12,4 +13,5 @@ export const routes: Routes = [
   { path: 'store', component: StoreDemoComponent },
   { path: 'translate', component: TranslateDemoComponent },
   { path: 'web', component: WebDemoComponent },
+  { path: 'shortcut', component: ShortcutDemoComponent },
 ];

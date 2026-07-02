@@ -6,6 +6,7 @@
     "paths": {
       "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
       "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],
+      "@angular-libs/shortcut": ["./dist/angular-libs/shortcut"],
       "@angular-libs/store": ["./projects/angular-libs/store/src/public-api.ts"],
       "@angular-libs/translate": ["./projects/angular-libs/translate/src/public-api.ts"],
       "@angular-libs/web": ["./projects/angular-libs/web/src/public-api.ts"]
@@ -63,6 +64,12 @@
     },
     {
       "path": "./projects/demo/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/angular-libs/shortcut/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/angular-libs/shortcut/tsconfig.spec.json"
     }
   ]
 }

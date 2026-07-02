@@ -196,6 +196,32 @@
           "builder": "@angular/build:unit-test"
         }
       }
+    },
+    "@angular-libs/shortcut": {
+      "projectType": "library",
+      "root": "projects/angular-libs/shortcut",
+      "sourceRoot": "projects/angular-libs/shortcut/src",
+      "prefix": "lib",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/angular-libs/shortcut/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/angular-libs/shortcut/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "projects/angular-libs/shortcut/tsconfig.spec.json"
+          }
+        }
+      }
     }
   }
 }
