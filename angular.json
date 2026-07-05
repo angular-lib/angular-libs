@@ -2,7 +2,7 @@
   "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
   "version": 1,
   "cli": {
-    "packageManager": "npm"
+    "packageManager": "bun"
   },
   "newProjectRoot": "projects",
   "projects": {
@@ -219,6 +219,32 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/angular-libs/shortcut/tsconfig.spec.json"
+          }
+        }
+      }
+    },
+    "@angular-libs/socket": {
+      "projectType": "library",
+      "root": "projects/angular-libs/socket",
+      "sourceRoot": "projects/angular-libs/socket/src",
+      "prefix": "lib",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/angular-libs/socket/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/angular-libs/socket/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "projects/angular-libs/socket/tsconfig.spec.json"
           }
         }
       }

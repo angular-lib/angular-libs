@@ -1,0 +1,36 @@
+{
+  "name": "@angular-libs/socket",
+  "version": "0.0.1",
+  "description": "A signal-first, lightweight WebSocket client library for Angular applications with offline outbox storage, channel/topic multiplexing, and auto-reconnect.",
+  "author": "Angular-Libs",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angular-lib/angular-libs.git",
+    "directory": "projects/angular-libs/socket"
+  },
+  "keywords": [
+    "angular",
+    "signals",
+    "websocket",
+    "socket",
+    "multiplex",
+    "outbox",
+    "offline-sync",
+    "reconnect",
+    "heartbeat",
+    "reactive",
+    "typescript"
+  ],
+  "peerDependencies": {
+    "@angular/common": ">=18.0.0",
+    "@angular/core": ">=18.0.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false
+}

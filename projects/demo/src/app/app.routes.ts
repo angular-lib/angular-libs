@@ -5,6 +5,7 @@ import { StoreDemoComponent } from './demos/store-demo.component';
 import { TranslateDemoComponent } from './demos/translate-demo.component';
 import { WebDemoComponent } from './demos/web-demo.component';
 import { ShortcutDemoComponent } from './demos/shortcut-demo.component';
+import { SocketDemoComponent } from './demos/socket-demo.component';
 
 export const routes: Routes = [
   { path: '', redirectTo: 'dialog', pathMatch: 'full' },
@@ -14,4 +15,5 @@ export const routes: Routes = [
   { path: 'translate', component: TranslateDemoComponent },
   { path: 'web', component: WebDemoComponent },
   { path: 'shortcut', component: ShortcutDemoComponent },
+  { path: 'socket', component: SocketDemoComponent },
 ];

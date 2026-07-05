@@ -56,6 +56,13 @@
           <span class="nav-label">Shortcuts</span>
         }
       </a>
+
+      <a routerLink="/socket" routerLinkActive="active" class="nav-item" title="Socket Studio">
+        <span class="nav-icon">📡</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Socket Studio</span>
+        }
+      </a>
     </nav>
     
     <div class="sidebar-footer">
