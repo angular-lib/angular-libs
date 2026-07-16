@@ -2,7 +2,7 @@
  * Public API Surface of event-bus
  */
 
-export { ALEventBus, createEventBusHooks } from './lib/event-bus';
+export * from './lib/event-bus';
 export * from './lib/plugins';
 export type {
   TransformOptions,

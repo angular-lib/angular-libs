@@ -1,6 +1,6 @@
-import { Injectable, runInInjectionContext } from '@angular/core';
+import { Injectable, runInInjectionContext, EnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ALEventBus } from './event-bus';
+import { ALEventBus, createEventBusHooks } from './event-bus';
 import { ALEventBusPlugin, BusEvent } from './event-bus.models';
 import { MockComponent, TestEventMap, TestEventBus, createTestPlugin } from './testing/event-bus-test-helpers';
 
@@ -416,5 +416,88 @@ describe('ALEventBus Plugin Hook Error Isolation', () => {
   it('should still reset without throwing when another plugin throws in onReset', () => {
     expect(() => eventBus.resetAllEvents()).not.toThrow();
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onReset'), expect.any(Error));
+  });
+});
+
+describe('createEventBusHooks() DX Functional Hooks', () => {
+  const { onEvent, onceEvent, emitEvent, useEventSignal } = createEventBusHooks<TestEventMap>(TestEventBus);
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [TestEventBus],
+    });
+  });
+
+  it('should support declarative hook onEvent and emitEvent under injection context', () => {
+    const received: BusEvent<{ userId: string; username: string }>[] = [];
+    const injector = TestBed.inject(EnvironmentInjector);
+
+    // run in injection context for injecting TestBed config
+    runInInjectionContext(injector, () => {
+      onEvent('user:login', (event) => {
+        received.push(event);
+      }, { unsubscribeOn: 'manual' });
+
+      emitEvent('user:login', { userId: '789', username: 'charlie' });
+    });
+
+    expect(received.length).toBe(1);
+    expect(received[0].payload).toEqual({ userId: '789', username: 'charlie' });
+  });
+
+  it('should support onceEvent which triggers once and unsubscribes', () => {
+    const received: string[] = [];
+    const injector = TestBed.inject(EnvironmentInjector);
+
+    runInInjectionContext(injector, () => {
+      onceEvent('theme:changed', (event) => {
+        received.push(event.payload);
+      }, { unsubscribeOn: 'manual' });
+
+      emitEvent('theme:changed', 'light');
+      emitEvent('theme:changed', 'dark');
+    });
+
+    expect(received).toEqual(['light']);
+  });
+
+  it('should support useEventSignal for component signal binding', () => {
+    const injector = TestBed.inject(EnvironmentInjector);
+
+    runInInjectionContext(injector, () => {
+      const sig = useEventSignal('theme:changed', { defaultValue: 'light' as const });
+      expect(sig()).toBe('light');
+
+      emitEvent('theme:changed', 'dark');
+      expect(sig()).toBe('dark');
+    });
+  });
+
+  it('should support combineEvents to react when multiple events emit', () => {
+    const injector = TestBed.inject(EnvironmentInjector);
+    const received: any[] = [];
+
+    runInInjectionContext(injector, () => {
+      const { combineEvents } = createEventBusHooks<TestEventMap>(TestEventBus);
+
+      combineEvents({
+        sources: [
+          { key: 'theme:changed' },
+          { key: 'user:login' }
+        ],
+        callback: ([themeEvent, loginEvent]) => {
+          received.push({
+            theme: themeEvent.payload,
+            user: loginEvent.payload.username
+          });
+        },
+        unsubscribeOn: 'manual'
+      });
+
+      emitEvent('theme:changed', 'dark');
+      emitEvent('user:login', { userId: '111', username: 'David' });
+    });
+
+    expect(received).toEqual([{ theme: 'dark', user: 'David' }]);
   });
 });

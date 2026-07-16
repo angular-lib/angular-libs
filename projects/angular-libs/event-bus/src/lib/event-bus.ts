@@ -10,6 +10,8 @@ import {
   resource,
   ResourceRef,
   isDevMode,
+  Type,
+  InjectionToken,
 } from '@angular/core';
 import {
   type CombineLatestOptions,
@@ -916,4 +918,106 @@ export class ALEventBus<
       unsubscribes.forEach((unsub) => unsub());
     };
   }
+}
+
+/**
+ * Creates highly declarative, functional hook helpers for a specific ALEventBus implementation.
+ * Layering functional wrappers on top of the robust core class gives you the absolute best of both worlds:
+ * zero-boilerplate developer experience in your components with zero high-risk core refactoring.
+ *
+ * @param eventBusToken The InjectionToken or Class reference of your custom Event Bus (e.g. AppEventBus).
+ * @returns An object containing type-safe, low-boilerplate hook functions: `onEvent`, `onceEvent`, `emitEvent`, and `useEventSignal`.
+ * 
+ * @example
+ * ```typescript
+ * // In your events.ts:
+ * @Injectable({ providedIn: 'root' })
+ * export class AppEventBus extends ALEventBus<AppEventMap> {}
+ * 
+ * export const { onEvent, onceEvent, emitEvent, useEventSignal } = createEventBusHooks(AppEventBus);
+ * 
+ * // In your component:
+ * @Component({ ... })
+ * export class MyComponent {
+ *   // Reactive Signal directly in field initializer
+ *   isLoggedIn = useEventSignal('user:login', { defaultValue: false, transform: u => !!u });
+ * 
+ *   constructor() {
+ *     // Simple callback, automatically disposed!
+ *     onEvent('user:logout', () => {
+ *       console.log('User signed out.');
+ *     });
+ *   }
+ * }
+ * ```
+ */
+export function createEventBusHooks<
+  TEventMap extends Record<string, any>,
+  THeaders extends Record<string, any> = Record<string, any>
+>(
+  eventBusToken: Type<ALEventBus<TEventMap, THeaders>> | InjectionToken<ALEventBus<TEventMap, THeaders>>
+) {
+  return {
+    onEvent: <K extends keyof TEventMap, TTransformed = TEventMap[K]>(
+      key: K,
+      callback: (event: BusEvent<TTransformed, THeaders>) => void,
+      options?: Omit<SubscriptionOptions<TEventMap[K], TTransformed, THeaders>, 'callback'>
+    ): () => void => {
+      const bus = inject(eventBusToken);
+      return bus.on(key, { ...(options || {}), callback } as any);
+    },
+
+    onceEvent: <K extends keyof TEventMap, TTransformed = TEventMap[K]>(
+      key: K,
+      callback: (event: BusEvent<TTransformed, THeaders>) => void,
+      options?: Omit<SubscriptionOptions<TEventMap[K], TTransformed, THeaders>, 'callback'>
+    ): () => void => {
+      const bus = inject(eventBusToken);
+      return bus.once(key, { ...(options || {}), callback } as any);
+    },
+
+    emitEvent: <K extends keyof TEventMap>(
+      ...args: TEventMap[K] extends void | undefined
+        ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
+        : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
+    ): void => {
+      const bus = inject(eventBusToken);
+      (bus.emit as any)(...args);
+    },
+
+    useEventSignal: <K extends keyof TEventMap, TTransformed = TEventMap[K], TDefault = undefined>(
+      key: K,
+      options?: {
+        transform?: (payload: TEventMap[K]) => TTransformed;
+        defaultValue?: TDefault;
+      }
+    ): Signal<ValueWithDefault<TTransformed, TDefault>> => {
+      const bus = inject(eventBusToken);
+      return bus.onToSignal(key, options);
+    },
+
+    combineEvents: <const TSources extends readonly CombineLatestSource[]>(
+      options: {
+        sources: TSources;
+        callback: (events: {
+          -readonly [I in keyof TSources]: BusEvent<
+            TSources[I] extends CombineLatestSource<any, infer TTransformed>
+              ? unknown extends TTransformed
+                ? TSources[I] extends { key: infer K }
+                  ? K extends keyof TEventMap
+                    ? TEventMap[K]
+                    : any
+                  : any
+                : TTransformed
+              : any,
+            THeaders
+          >;
+        }) => void | Promise<void>;
+        unsubscribeOn?: DestroyRef | 'manual' | string | string[];
+      }
+    ): () => void => {
+      const bus = inject(eventBusToken);
+      return bus.combineLatest(options as any);
+    }
+  };
 }
