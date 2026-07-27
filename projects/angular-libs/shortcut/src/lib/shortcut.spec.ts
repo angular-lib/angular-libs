@@ -6,6 +6,10 @@ import { Component, ElementRef, runInInjectionContext, EnvironmentInjector, view
 import { inputSuppressorPlugin } from './plugins/input-suppressor.plugin';
 import { twicePlugin } from './plugins/twice.plugin';
 import { rebindPlugin } from './plugins/rebind.plugin';
+import { chordPlugin } from './plugins/chord.plugin';
+import { commandPalettePlugin } from './plugins/command-palette.plugin';
+import { contextGuardPlugin } from './plugins/context-guard.plugin';
+import { visualHintsPlugin } from './plugins/visual-hints.plugin';
 
 @Component({
   template: `
@@ -530,5 +534,134 @@ describe('ALShortcutService & ALShortcutDirective', () => {
     document.dispatchEvent(event);
 
     expect(triggered).toBe(true);
+  });
+
+  it('should support programmatically triggering actions via service.trigger()', () => {
+    let saveCount = 0;
+    const unsub = service.register({
+      shortcut: 'ctrl+s',
+      action: () => { saveCount++; },
+      description: 'Save Document',
+    });
+
+    const result = service.trigger('ctrl+s');
+    expect(result).toBe(true);
+    expect(saveCount).toBe(1);
+
+    // Trigger via descriptor object
+    const shortcuts = service.getShortcuts();
+    expect(shortcuts.length).toBeGreaterThan(0);
+    const saveShortcut = shortcuts.find(s => s.description === 'Save Document');
+    expect(saveShortcut).toBeDefined();
+
+    const resultDescriptor = service.trigger(saveShortcut!);
+    expect(resultDescriptor).toBe(true);
+    expect(saveCount).toBe(2);
+
+    unsub();
+  });
+
+  it('should support chordPlugin for multi-key sequences', () => {
+    const chord = service.registerPlugin(chordPlugin({ timeoutMs: 1000 }));
+    let chordRun = false;
+
+    const unsub = chord.register('g d', () => {
+      chordRun = true;
+    }, { description: 'Go to Definition' });
+
+    expect(chord.getChords()).toEqual([
+      { sequence: 'g d', description: 'Go to Definition' }
+    ]);
+
+    // Key sequence: 'g' then 'd'
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+
+    expect(chordRun).toBe(true);
+
+    // Test teardown
+    unsub();
+    chordRun = false;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g' }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'd' }));
+    expect(chordRun).toBe(false);
+  });
+
+  it('should support commandPalettePlugin toggling and shortcuts lookup', () => {
+    const palette = service.registerPlugin(commandPalettePlugin({ triggerShortcut: 'ctrl+shift+p' }));
+    let saveTriggered = false;
+
+    const unsubSave = service.register({
+      shortcut: 'ctrl+s',
+      action: () => { saveTriggered = true; },
+      description: 'Save Workspace File'
+    });
+
+    expect(palette.visible()).toBe(false);
+
+    palette.open();
+    expect(palette.visible()).toBe(true);
+
+    const available = palette.getShortcuts();
+    expect(available.some(item => item.description === 'Save Workspace File')).toBe(true);
+
+    palette.close();
+    expect(palette.visible()).toBe(false);
+
+    unsubSave();
+  });
+
+  it('should support contextGuardPlugin to dynamically block or whitelist shortcuts', () => {
+    const guard = service.registerPlugin(contextGuardPlugin());
+    let actionCount = 0;
+
+    const unsub = service.register({
+      shortcut: 'ctrl+s',
+      action: () => { actionCount++; },
+      preventDefault: false
+    });
+
+    guard.addRule('modal-active', { type: 'block', shortcuts: ['ctrl+s'] });
+
+    // When context is inactive, ctrl+s works
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
+    expect(actionCount).toBe(1);
+
+    // Activate 'modal-active' context
+    guard.setContext('modal-active', true);
+    expect(guard.isContextActive('modal-active')).toBe(true);
+    expect(guard.getActiveContexts()).toEqual(['modal-active']);
+
+    // ctrl+s should be blocked now
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
+    expect(actionCount).toBe(1);
+
+    // Deactivate context
+    guard.setContext('modal-active', false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true }));
+    expect(actionCount).toBe(2);
+
+    unsub();
+  });
+
+  it('should support visualHintsPlugin link hinting mode', () => {
+    const hints = service.registerPlugin(visualHintsPlugin({ triggerShortcut: 'ctrl+g' }));
+
+    const btn = document.createElement('button');
+    btn.textContent = 'Action Button';
+    document.body.appendChild(btn);
+
+    let clicked = false;
+    btn.addEventListener('click', () => { clicked = true; });
+
+    expect(hints.isActive()).toBe(false);
+
+    hints.startHinting();
+    expect(hints.isActive()).toBe(true);
+
+    hints.stopHinting();
+    expect(hints.isActive()).toBe(false);
+
+    btn.remove();
   });
 });

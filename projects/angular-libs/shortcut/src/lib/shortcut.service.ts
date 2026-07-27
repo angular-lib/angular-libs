@@ -101,13 +101,13 @@ export class ALShortcutService implements OnDestroy {
   /**
    * Returns a list of registered shortcuts for programmatic inspection.
    */
-  getShortcuts(): { shortcut: string; priority: number; hasElementScope: boolean; description?: string; type: 'keydown' | 'keyup' }[] {
-    const results: { shortcut: string; priority: number; hasElementScope: boolean; description?: string; type: 'keydown' | 'keyup' }[] = [];
-    this.registeredShortcuts.forEach((list, shortcut) => {
-      let finalShortcut = shortcut;
+  getShortcuts(): { shortcut: string; defaultShortcut: string; priority: number; hasElementScope: boolean; description?: string; type: 'keydown' | 'keyup' }[] {
+    const results: { shortcut: string; defaultShortcut: string; priority: number; hasElementScope: boolean; description?: string; type: 'keydown' | 'keyup' }[] = [];
+    this.registeredShortcuts.forEach((list, defaultShortcut) => {
+      let finalShortcut = defaultShortcut;
       for (const plugin of this.plugins) {
         if (plugin.onGetDisplayShortcut) {
-          const display = plugin.onGetDisplayShortcut(shortcut);
+          const display = plugin.onGetDisplayShortcut(defaultShortcut);
           if (display !== undefined) {
             finalShortcut = display;
           }
@@ -119,6 +119,7 @@ export class ALShortcutService implements OnDestroy {
       list.forEach(item => {
         results.push({
           shortcut: finalShortcut,
+          defaultShortcut: defaultShortcut,
           priority: item.priority ?? 0,
           hasElementScope: !!item.element,
           description: item.description,
@@ -127,6 +128,80 @@ export class ALShortcutService implements OnDestroy {
       });
     });
     return results;
+  }
+
+  /**
+   * Programmatically trigger/execute registered shortcut actions for a given shortcut key or descriptor.
+   * @param target The shortcut string (e.g. 'ctrl+s') or a descriptor object from `getShortcuts()`.
+   * @param customEvent Optional KeyboardEvent to pass to the action callback.
+   * @returns `true` if a matching action was triggered, `false` otherwise.
+   */
+  trigger(
+    target: string | { shortcut?: string; defaultShortcut?: string; description?: string; priority?: number; type?: 'keydown' | 'keyup' },
+    customEvent?: KeyboardEvent
+  ): boolean {
+    const keyString = typeof target === 'string'
+      ? target
+      : (target.defaultShortcut || target.shortcut || '');
+    if (!keyString) return false;
+
+    let normalised = this.normaliseShortcut(keyString);
+    let list = this.registeredShortcuts.get(normalised);
+
+    // If not found directly, check if target is a display shortcut that maps to a default shortcut
+    if (!list || list.length === 0) {
+      for (const [defKey] of this.registeredShortcuts.entries()) {
+        let displayKey = defKey;
+        for (const plugin of this.plugins) {
+          if (plugin.onGetDisplayShortcut) {
+            const display = plugin.onGetDisplayShortcut(defKey);
+            if (display !== undefined) displayKey = display;
+          }
+        }
+        if (this.normaliseShortcut(displayKey) === normalised) {
+          normalised = defKey;
+          list = this.registeredShortcuts.get(normalised);
+          break;
+        }
+      }
+    }
+
+    if (!list || list.length === 0) return false;
+
+    let matchedItems = list;
+    if (typeof target === 'object') {
+      if (target.description !== undefined || target.priority !== undefined || target.type !== undefined) {
+        const filtered = list.filter(item =>
+          (target.description === undefined || item.description === target.description) &&
+          (target.priority === undefined || (item.priority ?? 0) === target.priority) &&
+          (target.type === undefined || (item.type ?? 'keydown') === target.type)
+        );
+        if (filtered.length > 0) {
+          matchedItems = filtered;
+        }
+      }
+    }
+
+    const matchedKey = typeof target === 'object' ? (target.shortcut || keyString) : keyString;
+    const event = customEvent || new KeyboardEvent('keydown', {
+      key: matchedKey.split('+').pop() || '',
+      ctrlKey: matchedKey.includes('ctrl'),
+      metaKey: matchedKey.includes('meta'),
+      altKey: matchedKey.includes('alt'),
+      shiftKey: matchedKey.includes('shift'),
+      bubbles: true,
+      cancelable: true,
+    });
+
+    for (const item of matchedItems) {
+      this.latestTriggerDetail.set({ shortcut: normalised, event, target: null });
+      item.action(event);
+      for (const plugin of this.plugins) {
+        plugin.onAfterExecute?.(normalised, event, null);
+      }
+    }
+
+    return true;
   }
 
   private handleKeyEvent(event: KeyboardEvent): void {

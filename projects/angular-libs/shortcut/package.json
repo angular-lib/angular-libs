@@ -1,6 +1,30 @@
 {
   "name": "@angular-libs/shortcut",
   "version": "0.0.1",
+  "description": "A highly simplified, zoneless, signal-based keyboard shortcut manager for Angular with extensible functional plugins.",
+  "keywords": [
+    "angular",
+    "shortcuts",
+    "keyboard",
+    "hotkeys",
+    "signals",
+    "zoneless",
+    "command-palette",
+    "vimium"
+  ],
+  "license": "MIT",
+  "author": "Angular-Libs",
+  "homepage": "https://github.com/angular-lib/angular-libs/tree/main/projects/angular-libs/shortcut",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/angular-lib/angular-libs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/angular-lib/angular-libs/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "peerDependencies": {
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0"

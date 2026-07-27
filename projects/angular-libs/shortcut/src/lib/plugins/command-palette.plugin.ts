@@ -52,40 +52,11 @@ export function commandPalettePlugin(
 
   function handleCommandTrigger(item: any): void {
     if (!serviceRef) return;
-    
-    // Simulate event triggers or execute action directly
-    // Since we want to let the standard handler run, let's find the matching registration.
-    // We can also trigger the registered action directly, let's invoke it using a Mock KeyboardEvent.
     try {
-      const mockEvent = new KeyboardEvent('keydown', {
-        key: item.shortcut.split('+').pop() || '',
-        code: '',
-        ctrlKey: item.shortcut.includes('ctrl'),
-        metaKey: item.shortcut.includes('meta'),
-        altKey: item.shortcut.includes('alt'),
-        shiftKey: item.shortcut.includes('shift'),
-        bubbles: true,
-        cancelable: true
-      });
-      
-      // Look up and invoke action directly for precise control
-      // Fetch private map safely or just find the item since getShortcuts returned the descriptor.
-      // Wait, we can find the matching registration in serviceRef:
-      const registered = (serviceRef as any).registeredShortcuts?.get(item.shortcut);
-      if (registered && registered.length > 0) {
-        // Look up the exact registration entry that matches description, priority, and triggered type 
-        // to avoid duplicate key mismatch/collisions.
-        const actionEntry = registered.find((entry: any) => 
-          entry.description === item.description && 
-          (entry.priority ?? 0) === (item.priority ?? 0) &&
-          (entry.type ?? 'keydown') === (item.type ?? 'keydown')
-        ) || registered[0];
-        actionEntry.action(mockEvent);
-      }
+      serviceRef.trigger(item);
     } catch (e) {
       console.error('Failed to trigger action:', e);
     }
-    
     closePalette();
   }
 
