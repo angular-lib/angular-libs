@@ -14,6 +14,8 @@ export interface NetworkSignalState {
   rtt: number | null;
   /** Indicates whether the user has toggled a low-data bandwidth preference on the browser/system level. */
   saveData: boolean | null;
+  /** Derived boolean indicating slow/restricted connection (e.g. 2g, 3g, saveData active, or downlink < 1 Mbps). */
+  isLowBandwidth: boolean;
 }
 
 /**
@@ -53,9 +55,8 @@ export function networkSignal(): Signal<NetworkSignalState> {
   // Fallbacks for different vendor prefixes of Connection
   const connection = navigator?.connection || navigator?.mozConnection || navigator?.webkitConnection;
 
-  const getInitialState = (): NetworkSignalState => {
-    const isOnline = navigator?.onLine ?? true;
-    if (!connection) {
+  const buildState = (isOnline: boolean, conn: any): NetworkSignalState => {
+    if (!conn) {
       return {
         supported: false,
         online: isOnline,
@@ -63,16 +64,36 @@ export function networkSignal(): Signal<NetworkSignalState> {
         effectiveType: null,
         rtt: null,
         saveData: null,
+        isLowBandwidth: false,
       };
     }
+
+    const downlink = conn.downlink ?? null;
+    const effectiveType = conn.effectiveType ?? null;
+    const rtt = conn.rtt ?? null;
+    const saveData = conn.saveData ?? null;
+
+    const isLowBandwidth =
+      saveData === true ||
+      effectiveType === 'slow-2g' ||
+      effectiveType === '2g' ||
+      effectiveType === '3g' ||
+      (downlink !== null && downlink < 1.0);
+
     return {
       supported: true,
       online: isOnline,
-      downlink: connection.downlink ?? null,
-      effectiveType: connection.effectiveType ?? null,
-      rtt: connection.rtt ?? null,
-      saveData: connection.saveData ?? null,
+      downlink,
+      effectiveType,
+      rtt,
+      saveData,
+      isLowBandwidth,
     };
+  };
+
+  const getInitialState = (): NetworkSignalState => {
+    const isOnline = navigator?.onLine ?? true;
+    return buildState(isOnline, connection);
   };
 
   const state = signal<NetworkSignalState>(getInitialState());
@@ -80,25 +101,7 @@ export function networkSignal(): Signal<NetworkSignalState> {
   if (win) {
     const updateConnection = () => {
       const isOnline = navigator?.onLine ?? true;
-      if (!connection) {
-        state.set({
-          supported: false,
-          online: isOnline,
-          downlink: null,
-          effectiveType: null,
-          rtt: null,
-          saveData: null,
-        });
-        return;
-      }
-      state.set({
-        supported: true,
-        online: isOnline,
-        downlink: connection.downlink ?? null,
-        effectiveType: connection.effectiveType ?? null,
-        rtt: connection.rtt ?? null,
-        saveData: connection.saveData ?? null,
-      });
+      state.set(buildState(isOnline, connection));
     };
 
     win.addEventListener('online', updateConnection);

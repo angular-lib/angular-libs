@@ -1,14 +1,22 @@
-import { Directive, HostListener, Output, EventEmitter, signal, HostBinding } from '@angular/core';
+import { Directive, signal, input, output } from '@angular/core';
+
+export interface FileRejection {
+  file: File;
+  reason: 'type' | 'size';
+}
 
 /**
  * A standalone directive to easily enable drag-and-drop file areas in any component.
- * Tracks custom active drag hover states reactively via Signals.
+ * Tracks custom active drag hover states reactively via Signals, supports accept & size filters.
  *
  * @example
  * ```html
  * <div
  *   alFileDrop
- *   (fileDrop)="onFilesUploaded($event)"
+ *   accept=".csv,.xlsx"
+ *   [maxFileSize]="5000000"
+ *   (filesDropped)="onFilesUploaded($event)"
+ *   (fileRejected)="onRejected($event)"
  *   class="drop-zone"
  *   [class.active]="fileDropDir.isOver()"
  *   #fileDropDir="alFileDrop"
@@ -21,41 +29,96 @@ import { Directive, HostListener, Output, EventEmitter, signal, HostBinding } fr
   selector: '[alFileDrop]',
   exportAs: 'alFileDrop',
   standalone: true,
+  host: {
+    '[class.al-file-drop-over]': 'isOver()',
+    '(dragover)': 'onDragOver($event)',
+    '(dragleave)': 'onDragLeave($event)',
+    '(drop)': 'onDrop($event)',
+  },
 })
 export class AlFileDropDirective {
+  /** Optional file type / extension filter, e.g. '.csv,.xlsx' or 'image/*,application/pdf'. */
+  readonly accept = input<string>();
+
+  /** Optional maximum allowed file size in bytes. */
+  readonly maxFileSize = input<number>();
+
   /** Reactive state indicating if files are currently hovering above the target DOM drop zones. */
   readonly isOver = signal<boolean>(false);
 
   /** Emits the matching native FileList object when items are successfully dropped. */
-  @Output() readonly fileDrop = new EventEmitter<FileList>();
+  readonly fileDrop = output<FileList>();
 
-  @HostBinding('class.al-file-drop-over') get dragOverStatus() {
-    return this.isOver();
-  }
+  /** Emits array of validated File objects. */
+  readonly filesDropped = output<File[]>();
 
-  @HostListener('dragover', ['$event'])
-  onDragOver(event: DragEvent) {
+  /** Emits array of rejected files with failure reason ('type' or 'size'). */
+  readonly fileRejected = output<FileRejection[]>();
+
+  protected onDragOver(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
     this.isOver.set(true);
   }
 
-  @HostListener('dragleave', ['$event'])
-  onDragLeave(event: DragEvent) {
+  protected onDragLeave(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
     this.isOver.set(false);
   }
 
-  @HostListener('drop', ['$event'])
-  onDrop(event: DragEvent) {
+  protected onDrop(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
     this.isOver.set(false);
 
-    const files = event.dataTransfer?.files;
-    if (files && files.length > 0) {
-      this.fileDrop.emit(files);
+    const rawFileList = event.dataTransfer?.files;
+    if (!rawFileList || rawFileList.length === 0) {
+      return;
     }
+
+    const rawFiles = Array.from(rawFileList);
+    const acceptedFiles: File[] = [];
+    const rejectedFiles: FileRejection[] = [];
+
+    const acceptFilter = this.accept();
+    const maxFileSizeFilter = this.maxFileSize();
+
+    for (const file of rawFiles) {
+      if (acceptFilter && !this.isFileTypeAccepted(file, acceptFilter)) {
+        rejectedFiles.push({ file, reason: 'type' });
+      } else if (maxFileSizeFilter && file.size > maxFileSizeFilter) {
+        rejectedFiles.push({ file, reason: 'size' });
+      } else {
+        acceptedFiles.push(file);
+      }
+    }
+
+    if (rejectedFiles.length > 0) {
+      this.fileRejected.emit(rejectedFiles);
+    }
+
+    if (acceptedFiles.length > 0) {
+      this.filesDropped.emit(acceptedFiles);
+      this.fileDrop.emit(rawFileList);
+    }
+  }
+
+  private isFileTypeAccepted(file: File, accept: string): boolean {
+    if (!accept || !accept.trim()) return true;
+    const acceptTypes = accept.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+    const fileName = file.name.toLowerCase();
+    const fileType = file.type.toLowerCase();
+
+    return acceptTypes.some((type) => {
+      if (type.startsWith('.')) {
+        return fileName.endsWith(type);
+      }
+      if (type.endsWith('/*')) {
+        const baseType = type.replace('/*', '');
+        return fileType.startsWith(baseType + '/');
+      }
+      return fileType === type;
+    });
   }
 }

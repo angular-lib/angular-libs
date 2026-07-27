@@ -1,156 +1,225 @@
 # @angular-libs/web
 
-A powerful, light-weight utility library designed to wrap native, modern browser/hardware Web APIs cleanly and reactively using **Angular Signals** and Directives.
+A modern, lightweight Angular utility library that wraps native Browser and Hardware Web APIs reactively using **Angular Signals** and standalone **Directives**.
 
-## 🚀 Key Features & Reactive Signals
+## 🚀 Features
 
-The library exports multiple lightweight reactive custom signals and directives matching modern hardware and system-wide Web interfaces.
-
-### 📁 1. File System Access (`fileSystemSignal`)
-Access the sandboxed or native desktop file system to read, write, and select local storage documents directly from secure browser tabs.
-* **Usage**:
-  ```typescript
-  import { fileSystemSignal } from '@angular-libs/web';
-
-  const fs = fileSystemSignal();
-  
-  // Choose & load local text details
-  await fs.open({ readAsText: true });
-  console.log(fs.state().content);
-
-  // Write changes back directly onto physical file handle
-  await fs.save('Hello physical disk!');
-  ```
-
-### ⚡ 2. Web Bluetooth Peripheral Controller (`bluetoothSignal`)
-Discover, pair, secure, and stream hardware indicators from standard adjacent Bluetooth Low Energy (BLE) transponders natively.
-* **Usage**:
-  ```typescript
-  import { bluetoothSignal } from '@angular-libs/web';
-
-  const bt = bluetoothSignal();
-
-  // Requests scanning and pairing dialogue
-  await bt.requestDevice({ acceptAllDevices: true });
-  console.log('Connected:', bt.state().connected);
-  ```
-
-### 📡 3. Web NFC Tag Reader/Writer (`nfcSignal`)
-Listen for nearby NFC tag alignment, read record formats, handle NDEF buffers, and queue written records.
-* **Usage**:
-  ```typescript
-  import { nfcSignal } from '@angular-libs/web';
-
-  const nfc = nfcSignal();
-
-  // Start scanning
-  await nfc.scan();
-
-  // Write tag content payloads
-  await nfc.write('Metadata payloads here');
-  ```
+- ⚡ **Angular Signals First**: Modern reactive wrappers built natively around Angular Signals.
+- 🧹 **Automatic Cleanup**: Powered by Angular's `DestroyRef` to automatically remove event listeners when components unmount.
+- 🧩 **Standalone Directives**: Ready-to-use Angular directives for common UI interactions (Outside Clicks, Drag & Drop Files).
+- 📱 **Hardware & Web APIs**: Access Device Battery, Geolocation, Web Bluetooth, NFC, Motion, Resize Observer, File System Access, and more.
+- 📦 **Tree-shakeable**: Import only the signals and directives you need.
 
 ---
 
-## 🛠 Complete Implementation List
+## 📦 Installation
 
-Every signal follows consistent, lightweight lifecycles with built-in `DestroyRef` automatic listener cleanups to prevent resource leaks:
-
-*   🔋 **`batterySignal`**: Real-time battery level percentage, charging status metrics, and remaining drain time estimations.
-*   💡 **`ambientLightSignal`**: Detect lux levels dynamically in the immediate proximity.
-*   🏃 **`accelerometerSignal`**: Access local physical displacement x, y, and z forces.
-*   🔄 **`gyroscopeSignal`**: Rotational velocities and tilt alignments.
-*   📱 **`deviceOrientationSignal`**: Device gyroscope positioning variables (iOS/Safari motion permission layers included).
-*   📂 **`fileSystemSignal`**: Create, read, and write permissions for local physical disk volumes.
-*   📡 **`nfcSignal`**: Web NDEF NFC operations.
-*   ⚡ **`bluetoothSignal`**: Web bluetooth communication protocols.
-*   📐 **`resizeObserverSignal`**: Deep reactive tracking of element boundary sizes, logical box proportions, and layout dimensions natively.
-
-## Current Features
-This library provides reactive wrappers (such as signals and directives) around native browser APIs:
-- **Directives:**
-  - File Drop (`file-drop.directive.ts`)
-- **Signals:**
-  - Accelerometer (`accelerometer.ts`)
-  - Ambient Light (`ambient-light.ts`)
-  - Battery Status (`battery.ts`)
-  - Bluetooth (`bluetooth.ts`)
-  - Clipboard (`clipboard.ts`)
-  - Device Orientation (`device-orientation.ts`)
-  - Geolocation (`geolocation.ts`)
-  - Gyroscope (`gyroscope.ts`)
-  - Idle Detection (`idle.ts`)
-  - Keyboard State (`keyboard-state.ts`)
-  - Media Devices (`media-devices.ts`)
-  - Network Status (`network.ts`)
-  - NFC (`nfc.ts`)
-  - Performance (`performance.ts`)
-  - Permission (`permission.ts`)
-  - Picture-in-Picture (`picture-in-picture.ts`)
-  - Resize Observer (`resize.ts`)
-  - Screen Orientation (`screen-orientation.ts`)
-  - Vibrate (`vibrate.ts`)
+```bash
+npm install @angular-libs/web
+```
 
 ---
 
-## 20 Feature Ideas for @angular-libs/web
+## 💡 Quick Examples
 
-1. **Web Share API (`injectShare` / `ShareDirective`)**
-   - Easily share text, URLs, or files using the client's native system sharing dialog.
+### 🖱️ Click Outside Directive (`alClickOutside`)
 
-2. **Web Speech API - Speech Synthesis (`injectSpeechSynthesis`)**
-   - Control text-to-speech dynamically with reactive signals for voice, speed, pitch, volume, and playback state (playing, paused, stopped).
+Dismiss dropdowns, context menus, or modals when users click outside the host element.
 
-3. **Web Speech API - Speech Recognition (`injectSpeechRecognition`)**
-   - Convert spoken audio into real-time text streams using reactive signal outputs for transcribed words and recording state.
+```typescript
+import { Component, signal } from '@angular/core';
+import { AlClickOutsideDirective } from '@angular-libs/web';
 
-4. **EyeDropper API (`injectEyeDropper`)**
-   - Sample colors directly from any pixel on the user's screen using the browser's native magnifier tool.
+@Component({
+  selector: 'app-dropdown',
+  standalone: true,
+  imports: [AlClickOutsideDirective],
+  template: `
+    <button #toggleBtn (click)="isOpen.set(!isOpen())">Toggle Menu</button>
 
-5. **Intersection Observer API (`injectIntersection` / `IntersectionDirective`)**
-   - Track visibility and viewport intersection of HTML elements natively for lazy-loading or dynamic animations.
+    @if (isOpen()) {
+      <div 
+        class="dropdown-menu"
+        alClickOutside 
+        [alClickOutsideIgnore]="[toggleBtn]" 
+        (alClickOutside)="isOpen.set(false)"
+      >
+        <p>Dropdown Content</p>
+      </div>
+    }
+  `,
+})
+export class DropdownComponent {
+  readonly isOpen = signal(false);
+}
+```
 
-6. **Resize Observer API (`injectResize` / `ResizeDirective`)**
-   - Reactive signal monitoring of element size alterations, perfect for container queries and custom responsive components.
+---
 
-7. **Mutation Observer API (`injectMutation` / `MutationDirective`)**
-   - Listen to changes inside the DOM tree (child additions/removals, attribute manipulations) reactively.
+### 📁 Drag & Drop File Directive (`alFileDrop`)
 
-8. **Page Visibility API (`injectPageVisibility`)**
-   - Determine if the current browser tab is in the foreground or hidden/background to pause expensive operations.
+Enable file drop zones with reactive hover states, size validation, and file extension filtering.
 
-9. **Gamepad API (`injectGamepad`)**
-   - Map physical button presses and joystick movements from game controllers connected via USB or Bluetooth.
+```typescript
+import { Component } from '@angular/core';
+import { AlFileDropDirective, FileRejection } from '@angular-libs/web';
 
-10. **Device Memory API (`injectDeviceMemory`)**
-    - Retrieve client device memory (RAM) sizes to dynamically optimize memory usage and application workloads.
+@Component({
+  selector: 'app-uploader',
+  standalone: true,
+  imports: [AlFileDropDirective],
+  template: `
+    <div
+      alFileDrop
+      [accept]="'.png,.jpg,.pdf'"
+      [maxFileSize]="5_000_000"
+      (filesDropped)="onFiles($event)"
+      (fileRejected)="onRejected($event)"
+      #fileDrop="alFileDrop"
+      class="drop-zone"
+      [class.active]="fileDrop.isOver()"
+    >
+      @if (fileDrop.isOver()) {
+        <p>Drop files now!</p>
+      } @else {
+        <p>Drag files here...</p>
+      }
+    </div>
+  `,
+})
+export class UploaderComponent {
+  onFiles(files: File[]) {
+    console.log('Accepted files:', files);
+  }
 
-11. **Reactive Local / Session Storage (`injectLocalStorage` / `injectSessionStorage`)**
-    - Angular signals synchronized bidirectionally with Web Storage API key-value stores.
+  onRejected(rejections: FileRejection[]) {
+    console.warn('Rejected files:', rejections);
+  }
+}
+```
 
-12. **Screen Wake Lock API (`injectWakeLock`)**
-    - Keep the active display from going to sleep or dimming during video player usage, slideshow presentations, or recipe views.
+---
 
-13. **Audio Context API (`injectAudioContext`)**
-    - Utility signals for recording microphone audio, audio analysis data, or generating synthetic browser audio.
+### 📂 File System Access API (`fileSystemSignal`)
 
-14. **IndexedDB API Wrapper (`injectIndexedDB`)**
-    - Signal-based or Promise-based reactive transactions for reading and writing large, persistent data payloads locally.
+Read, edit, and write files on the client's local disk directly using native browser handles.
 
-15. **Broadcast Channel API (`injectBroadcastChannel`)**
-    - Reactively communicate messages and status updates across different active browser tabs or windows under the same origin.
+```typescript
+import { Component } from '@angular/core';
+import { fileSystemSignal } from '@angular-libs/web';
 
-16. **Contact Picker API (`injectContactPicker`)**
-    - Query and select contacts from the user's native address book on supported mobile/desktop browsers.
+@Component({
+  selector: 'app-editor',
+  standalone: true,
+  template: `
+    <button (click)="openFile()">Open File</button>
+    <button (click)="saveFile()">Save File</button>
+    <p>File content: {{ fs.state().content }}</p>
+  `,
+})
+export class EditorComponent {
+  readonly fs = fileSystemSignal();
 
-17. **WebOTP API (`injectWebOTP`)**
-    - Read one-time passcodes from incoming SMS notifications to streamline authentication flows on supported devices.
+  async openFile() {
+    await this.fs.open({ readAsText: true });
+  }
 
-18. **Network Quality API (`injectNetworkQuality`)**
-    - Dive deeper into connection specs like download speeds (`downlink`), round-trip time (`rtt`), and battery/network data saving modes (`saveData`).
+  async saveFile() {
+    await this.fs.save('Updated file text content');
+  }
+}
+```
 
-19. **Badge API (`injectBadge`)**
-    - Read, update, or clear home screen / taskbar badge counts directly for Progressive Web Applications (PWAs).
+---
 
-20. **Virtual Keyboard API (`injectVirtualKeyboard`)**
-    - Control and listen to virtual on-screen keyboard overlaps and visibility boundaries on touchscreen layouts.
+### 📐 Resize Observer Signal (`resizeObserverSignal`)
+
+Monitor element size changes reactively with signals.
+
+```typescript
+import { Component, ElementRef, viewChild } from '@angular/core';
+import { resizeObserverSignal } from '@angular-libs/web';
+
+@Component({
+  selector: 'app-card',
+  standalone: true,
+  template: `
+    <div #container class="card">
+      <p>Width: {{ cardSize().width }}px</p>
+      <p>Height: {{ cardSize().height }}px</p>
+    </div>
+  `,
+})
+export class CardComponent {
+  readonly container = viewChild.required<ElementRef<HTMLElement>>('container');
+  readonly cardSize = resizeObserverSignal(this.container);
+}
+```
+
+---
+
+### 🔋 Battery Status Signal (`batterySignal`)
+
+Monitor battery level, charging state, and discharge times reactively.
+
+```typescript
+import { Component } from '@angular/core';
+import { batterySignal } from '@angular-libs/web';
+
+@Component({
+  selector: 'app-battery-indicator',
+  standalone: true,
+  template: `
+    @let battery = batteryState();
+    <p>Battery Level: {{ battery.level * 100 }}%</p>
+    <p>Charging: {{ battery.charging ? 'Yes' : 'No' }}</p>
+  `,
+})
+export class BatteryIndicatorComponent {
+  readonly batteryState = batterySignal();
+}
+```
+
+---
+
+## 🛠 Complete Feature Overview
+
+### 🧩 Directives
+
+| Directive | Export Name | Selector | Description |
+| :--- | :--- | :--- | :--- |
+| `AlClickOutsideDirective` | `alClickOutside` | `[alClickOutside]` | Detects clicks outside the host element with element/selector ignore list support. |
+| `AlFileDropDirective` | `alFileDrop` | `[alFileDrop]` | Drag-and-drop file target with reactive signal hover state, size filter, and accept filter. |
+
+---
+
+### 📡 Reactive API Signals
+
+| Signal API | Function Name | Description |
+| :--- | :--- | :--- |
+| 🏃 **Accelerometer** | `accelerometerSignal()` | Tracks physical x, y, and z motion forces. |
+| 💡 **Ambient Light** | `ambientLightSignal()` | Measures ambient light lux levels in real time. |
+| 🔋 **Battery** | `batterySignal()` | Real-time battery percentage, charging state, and discharge timers. |
+| ⚡ **Bluetooth** | `bluetoothSignal()` | BLE device scanning, pairing, and connection management. |
+| 📋 **Clipboard** | `clipboardSignal()` | Read and write text to the system clipboard reactively. |
+| 📱 **Device Orientation** | `deviceOrientationSignal()` | Physical device pitch, roll, and compass heading angles. |
+| 📂 **File System Access** | `fileSystemSignal()` | Native local file picking, reading, editing, and saving. |
+| 📍 **Geolocation** | `geolocationSignal()` | GPS coordinates, heading, altitude, and speed tracking. |
+| 🔄 **Gyroscope** | `gyroscopeSignal()` | Angular velocity along x, y, and z axes. |
+| 💤 **Idle Detection** | `idleSignal()` | Detect user inactivity and screen lock states. |
+| ⌨️ **Keyboard State** | `keyboardStateSignal()` | Track active keyboard physical layout and press status. |
+| 🎥 **Media Devices** | `mediaDevicesSignal()` | Enumerate connected cameras, microphones, and audio output devices. |
+| 📶 **Network Status** | `networkSignal()` | Connection status (`online`/`offline`), effective connection type, and bandwidth estimates. |
+| 📡 **NFC** | `nfcSignal()` | Read and write NDEF payloads to nearby NFC tags. |
+| ⏱️ **Performance** | `performanceSignal()` | Page load timing benchmarks, memory usage, and navigation metrics. |
+| 🔑 **Permissions** | `permissionSignal()` | Query permissions (geolocation, camera, notifications) reactively. |
+| 📺 **Picture-in-Picture** | `pictureInPictureSignal()` | Manage video Picture-in-Picture window states. |
+| 📐 **Resize Observer** | `resizeObserverSignal()` | Observe target element dimensions and content box changes. |
+| 📱 **Screen Orientation** | `screenOrientationSignal()` | Screen orientation type (`portrait-primary`, `landscape`, etc.) and lock controls. |
+| 📳 **Vibration** | `vibrateSignal()` | Trigger tactile vibration patterns on supported mobile devices. |
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © Angular-Libs

@@ -31,6 +31,10 @@ export interface NfcSignal {
   scan(): Promise<void>;
   /** Writes dynamic message payloads onto targeted nearby NFC tags. */
   write(message: any, options?: any): Promise<void>;
+  /** Extracts and returns the text content from the current read NFC tag message. */
+  readText(): string | null;
+  /** Extracts and parses a JSON payload from the current read NFC tag message. */
+  readJson<T = any>(): T | null;
 }
 
 /**
@@ -181,6 +185,27 @@ export function nfcSignal(): NfcSignal {
     }
   };
 
+  const readText = (): string | null => {
+    const msg = state().message;
+    if (!msg || !msg.records || msg.records.length === 0) return null;
+    for (const record of msg.records) {
+      if (typeof record.data === 'string' && record.data.length > 0) {
+        return record.data;
+      }
+    }
+    return null;
+  };
+
+  const readJson = <T = any>(): T | null => {
+    const text = readText();
+    if (!text) return null;
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      return null;
+    }
+  };
+
   if (destroyRef) {
     destroyRef.onDestroy(() => {
       abortController.abort();
@@ -195,5 +220,7 @@ export function nfcSignal(): NfcSignal {
     state: state.asReadonly(),
     scan,
     write,
+    readText,
+    readJson,
   };
 }

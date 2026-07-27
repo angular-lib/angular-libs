@@ -3,5 +3,6 @@
  */
 
 export * from './lib/signals';
-export * from './lib/directives';
+export { AlClickOutsideDirective, type ClickOutsideIgnoreTarget } from './lib/directives/click-outside.directive';
+export { AlFileDropDirective, type FileRejection } from './lib/directives/file-drop.directive';
 

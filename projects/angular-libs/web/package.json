@@ -1,9 +1,43 @@
 {
   "name": "@angular-libs/web",
   "version": "0.0.1",
+  "description": "Reactive Angular Signal wrappers and directives for modern Browser and Hardware Web APIs (Geolocation, Battery, Bluetooth, NFC, File System, ResizeObserver, ClickOutside, FileDrop, and more).",
+  "author": "Angular-Libs",
+  "license": "MIT",
+  "homepage": "https://github.com/angular-lib/web/tree/main/projects/angular-libs/web",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/angular-lib/web.git",
+    "directory": "projects/angular-libs/web"
+  },
+  "bugs": {
+    "url": "https://github.com/angular-lib/web/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "angular",
+    "signals",
+    "web-api",
+    "directives",
+    "hardware",
+    "file-system-access",
+    "bluetooth",
+    "nfc",
+    "battery",
+    "geolocation",
+    "resize-observer",
+    "click-outside",
+    "file-drop",
+    "device-orientation",
+    "idle-detection",
+    "clipboard",
+    "network"
+  ],
   "peerDependencies": {
-    "@angular/common": "^22.0.0",
-    "@angular/core": "^22.0.0"
+    "@angular/common": ">=18.0.0",
+    "@angular/core": ">=18.0.0"
   },
   "dependencies": {
     "tslib": "^2.3.0"

@@ -14,11 +14,19 @@ export interface BatterySignalState {
   dischargingTime: number;
   /** Level value spanning from 0 to 1. */
   level: number;
+  /** Derived boolean indicating if the battery level is below threshold and not actively charging. */
+  isLowBattery: boolean;
+}
+
+export interface BatterySignalOptions {
+  /** Low battery threshold ratio (0 to 1). Defaults to 0.15 (15%). */
+  lowBatteryThreshold?: number;
 }
 
 /**
  * Tracks browser battery levels and charging metrics reactively.
  *
+ * @param options Configurations for low battery alert threshold.
  * @returns A Readonly Signal containing the battery status options.
  *
  * @example
@@ -28,15 +36,18 @@ export interface BatterySignalState {
  *     @if (battery().supported) {
  *       <p>Battery level: {{ battery().level * 100 }}%</p>
  *       <p>Charging status: {{ battery().charging ? 'Charging' : 'Unplugged' }}</p>
+ *       @if (battery().isLowBattery) {
+ *         <p class="alert">Warning: Low Battery! Save your work.</p>
+ *       }
  *     }
  *   `
  * })
  * export class BatteryComponent {
- *   battery = batterySignal();
+ *   battery = batterySignal({ lowBatteryThreshold: 0.20 });
  * }
  * ```
  */
-export function batterySignal(): Signal<BatterySignalState> {
+export function batterySignal(options?: BatterySignalOptions): Signal<BatterySignalState> {
   let doc: Document | null = null;
   let destroyRef: DestroyRef | null = null;
 
@@ -51,6 +62,8 @@ export function batterySignal(): Signal<BatterySignalState> {
   const navigator = win?.navigator as any;
   const supported = !!(navigator && 'getBattery' in navigator);
 
+  const lowThreshold = options?.lowBatteryThreshold ?? 0.15;
+
   const state = signal<BatterySignalState>({
     supported,
     loading: supported,
@@ -58,19 +71,25 @@ export function batterySignal(): Signal<BatterySignalState> {
     chargingTime: 0,
     dischargingTime: 1.0,
     level: 1.0,
+    isLowBattery: false,
   });
 
   let battery: any = null;
 
   const updateState = () => {
     if (battery) {
+      const charging = battery.charging;
+      const level = battery.level;
+      const isLowBattery = !charging && level <= lowThreshold;
+
       state.set({
         supported: true,
         loading: false,
-        charging: battery.charging,
+        charging,
         chargingTime: battery.chargingTime,
         dischargingTime: battery.dischargingTime,
-        level: battery.level,
+        level,
+        isLowBattery,
       });
     }
   };
