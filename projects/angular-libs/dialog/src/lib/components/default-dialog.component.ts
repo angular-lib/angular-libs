@@ -224,7 +224,7 @@ export class DefaultDialogComponent<TComponent = any, TResult = unknown> impleme
     if (typeof document !== 'undefined') {
       const onFullscreenChange = () => this.isFullscreenState.set(this.isFullscreen());
       document.addEventListener('fullscreenchange', onFullscreenChange);
-      inject(DestroyRef).onDestroy(() =>
+      inject(DestroyRef, { optional: true })?.onDestroy(() =>
         document.removeEventListener('fullscreenchange', onFullscreenChange),
       );
     }

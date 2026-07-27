@@ -5,6 +5,7 @@ import {
   EnvironmentInjector,
   inject,
   Injector,
+  isDevMode,
   resource,
   ResourceRef,
   runInInjectionContext,
@@ -46,7 +47,24 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
   url: () => string | null | undefined,
   options: CreateWebSocketOptions<TSend, TReceive> = {},
 ): SocketClient<TSend, TReceive> {
-  const destroyRef = inject(DestroyRef);
+  let destroyRef: DestroyRef | null = null;
+  if (options.injector) {
+    destroyRef = options.injector.get(DestroyRef, null);
+  } else {
+    try {
+      destroyRef = inject(DestroyRef, { optional: true });
+    } catch {
+      // Called outside an injection context without an explicit options.injector
+    }
+  }
+
+  if (isDevMode() && !destroyRef) {
+    console.warn(
+      `[createWebSocket] Could not resolve DestroyRef. Automatic socket teardown will not occur.\n` +
+      `To enable automatic teardown, call createWebSocket() within an active injection context ` +
+      `(such as a constructor or field initializer) or pass an explicit 'injector' option.`
+    );
+  }
   const serializer = options.serializer ?? defaultSerializer;
   const deserializer = options.deserializer ?? defaultDeserializer<TReceive>;
   const reconnect = {
@@ -379,7 +397,7 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    destroyRef.onDestroy(() => {
+    destroyRef?.onDestroy(() => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     });
@@ -395,7 +413,7 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
     onCleanup(() => untracked(() => shutdown(undefined, undefined, false)));
   });
 
-  destroyRef.onDestroy(() => shutdown());
+  destroyRef?.onDestroy(() => shutdown());
 
   const client: SocketClient<TSend, TReceive> = {
     status: currentStatus.asReadonly(),

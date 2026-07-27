@@ -81,7 +81,7 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
   // Robust Angular Injection Context Capture
   let destroyRef: DestroyRef | null = null;
   try {
-    destroyRef = inject(DestroyRef);
+    destroyRef = inject(DestroyRef, { optional: true });
   } catch (e) {
     // Fail-safe if plugin instantiates outside of creation context (e.g. dynamic injection contexts)
   }

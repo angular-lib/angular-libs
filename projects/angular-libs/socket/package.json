@@ -1,6 +1,6 @@
 {
   "name": "@angular-libs/socket",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A signal-first, lightweight WebSocket client library for Angular applications with offline outbox storage, channel/topic multiplexing, and auto-reconnect.",
   "author": "Angular-Libs",
   "license": "MIT",

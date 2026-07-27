@@ -1,4 +1,4 @@
-import { Signal } from '@angular/core';
+import { Signal, Injector } from '@angular/core';
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'error';
 
@@ -73,7 +73,10 @@ export interface WebSocketPlugin<TSend = any, TReceive = any> {
 export interface WebSocketResourceOptions<TSend = any, TReceive = any> {
   deserializer?: (event: MessageEvent) => TReceive;
   serializer?: (payload: TSend) => WebSocketSendData;
-  
+
+  /** Optional custom Angular Injector to resolve tokens and DestroyRef when initialized outside a creation context. */
+  injector?: Injector;
+
   /** Heartbeat interval in milliseconds. Set to 0 to disable. Defaults to 30000. */
   heartbeatInterval?: number;
   heartbeatPayload?: any;

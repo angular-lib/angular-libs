@@ -94,7 +94,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
   private signals = new Map<keyof T, WritableSignal<any>>();
   private plugins: ALStorePlugin<T>[] = [];
   private channel?: BroadcastChannel;
-  private destroyRef = inject(DestroyRef);
+  private destroyRef: DestroyRef | null = null;
 
   /**
    * Registers a plugin to extend the store functionality.
@@ -149,12 +149,17 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
   }
 
   constructor(initialState?: T, config?: ALStoreConfig) {
+    try {
+      this.destroyRef = inject(DestroyRef, { optional: true });
+    } catch {
+      // Soft fallback if instantiated outside an active injection context
+    }
     this.initialState = initialState || ({} as T);
     const { syncChannel } = config || {};
     if (syncChannel && typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       this.channel = new BroadcastChannel(syncChannel);
 
-      this.destroyRef.onDestroy(() => {
+      this.destroyRef?.onDestroy(() => {
         this.channel?.close();
       });
 
