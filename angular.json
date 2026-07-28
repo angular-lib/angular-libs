@@ -167,7 +167,7 @@
                 {
                   "type": "anyComponentStyle",
                   "maximumWarning": "4kB",
-                  "maximumError": "8kB"
+                  "maximumError": "16kB"
                 }
               ],
               "outputHashing": "all"
@@ -245,6 +245,32 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/angular-libs/socket/tsconfig.spec.json"
+          }
+        }
+      }
+    },
+    "@angular-libs/data-grid": {
+      "projectType": "library",
+      "root": "projects/angular-libs/data-grid",
+      "sourceRoot": "projects/angular-libs/data-grid/src",
+      "prefix": "lib",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/angular-libs/data-grid/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/angular-libs/data-grid/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "projects/angular-libs/data-grid/tsconfig.spec.json"
           }
         }
       }

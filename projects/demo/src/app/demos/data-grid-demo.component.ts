@@ -1,0 +1,576 @@
+import { Component, resource, signal, viewChild } from '@angular/core';
+import { form, min, required } from '@angular/forms/signals';
+import {
+  DataGrid,
+  DataGridCellDirective,
+  applyCellEdit,
+  applyRowEdit,
+  createGrid,
+  type CellEditEvent,
+  type ColumnOrGroupDef,
+  type DataGridContextMenuContext,
+  type DataGridContextMenuItem,
+  type DataGridState,
+  type DataGridToolbarSlotItem,
+  type PasteEvent,
+  type RowEditContext,
+  type RowEditEvent,
+  type RowReorderEvent,
+  serializeGridState,
+  parseGridState,
+} from '@angular-libs/data-grid';
+import {
+  aggregateRowPlugin,
+  defaultGridPlugins,
+  flashCellsPlugin,
+  notesPlugin,
+  rowDragPlugin,
+  rowGroupPlugin,
+  sideBarPlugin,
+  noteKey,
+  type Note,
+  type NotesMap,
+} from '@angular-libs/data-grid/plugins';
+import { sampleStatusPlugin } from './plugins/sample-status.plugin';
+
+interface Employee {
+  id: number;
+  name: string;
+  role: string;
+  department: string;
+  salary: number;
+  active: boolean;
+}
+
+function emptyEmployee(): Employee {
+  return { id: 0, name: '', role: '', department: '', salary: 0, active: false };
+}
+
+function seedEmployees(count: number): Employee[] {
+  const roles = ['Engineer', 'Designer', 'PM', 'Support', 'Sales'];
+  const departments = ['Platform', 'Product', 'Growth', 'Ops'];
+  const names = [
+    'Ada Lovelace',
+    'Grace Hopper',
+    'Alan Turing',
+    'Katherine Johnson',
+    'Claude Shannon',
+    'Barbara Liskov',
+    'Donald Knuth',
+    'Margaret Hamilton',
+  ];
+
+  return Array.from({ length: count }, (_, i) => ({
+    id: i + 1,
+    name: `${names[i % names.length]} ${Math.floor(i / names.length) + 1}`,
+    role: roles[i % roles.length]!,
+    department: departments[i % departments.length]!,
+    salary: 70_000 + ((i * 1373) % 80_000),
+    active: i % 7 !== 0,
+  }));
+}
+
+const STATE_KEY = 'al-data-grid-demo-state';
+
+@Component({
+  selector: 'app-data-grid-demo',
+  imports: [DataGrid, DataGridCellDirective],
+  template: `
+    <section class="demo">
+      <header class="demo__header">
+        <div>
+          <h2>Data Grid</h2>
+          <p>
+            Held plugins via <code>createGrid</code> + host-owned Signal Form
+            (<code>[rowForm]</code>).
+          </p>
+        </div>
+        <div class="demo__controls">
+          <label>
+            Rows
+            <select [value]="rowCount()" (change)="setRowCount($any($event.target).value)">
+              <option value="50">50</option>
+              <option value="500">500</option>
+              <option value="5000">5,000</option>
+            </select>
+          </label>
+          <label class="check">
+            <input type="checkbox" [checked]="paginate()" (change)="paginate.set($any($event.target).checked)" />
+            Pagination
+          </label>
+          <label class="check">
+            <input type="checkbox" [checked]="sideBar.enabled()" (change)="sideBar.setEnabled($any($event.target).checked)" />
+            Tool panels
+          </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="fullRowEdit()"
+              (change)="fullRowEdit.set($any($event.target).checked)"
+            />
+            Full-row edit
+          </label>
+          <button type="button" class="btn" (click)="saveState()">Save state</button>
+          <button type="button" class="btn" (click)="restoreState()">Restore</button>
+          <span class="meta">{{ selectedIds().length }} selected · last: {{ lastAction() }}</span>
+        </div>
+      </header>
+
+      @if (editSession(); as session) {
+        <aside
+          class="demo__form-status"
+          [class.demo__form-status--invalid]="employeeForm().invalid()"
+          data-testid="al-dg-demo-form-status"
+        >
+          <strong>Editing #{{ session.rowId }}</strong>
+          <span>{{ employeeForm().valid() ? 'valid' : 'invalid' }}</span>
+          <span>dirty: {{ employeeForm().dirty() }}</span>
+          <span>name: {{ employeeForm.name().value() || '—' }}</span>
+          @for (err of employeeForm().errors(); track err.kind + (err.message ?? '')) {
+            <span class="err">{{ err.message ?? err.kind }}</span>
+          }
+          @for (err of employeeForm.name().errors(); track err.kind + (err.message ?? '')) {
+            <span class="err">name: {{ err.message ?? err.kind }}</span>
+          }
+          @for (err of employeeForm.salary().errors(); track err.kind + (err.message ?? '')) {
+            <span class="err">salary: {{ err.message ?? err.kind }}</span>
+          }
+        </aside>
+      }
+
+      <div class="demo__grid">
+        <al-data-grid
+          #gridRef
+          [controller]="grid"
+          [data]="rows()"
+          [(selectedIds)]="selectedIds"
+          [pagination]="paginate()"
+          [pageSize]="25"
+          [virtual]="!paginate()"
+          [rowHeight]="36"
+          [columnReorder]="true"
+          [contextMenu]="true"
+          [contextMenuItems]="menuItems"
+          [toolbarActions]="flashToolbar"
+          [editMode]="fullRowEdit() ? 'fullRow' : 'cell'"
+          [rowForm]="employeeForm"
+          [(rowEditSession)]="editSession"
+          [rowClass]="rowClass"
+          (cellEdit)="onEdit($event)"
+          (rowEdit)="onRowEdit($event)"
+          (rowReorder)="onReorder($event)"
+          (paste)="onPaste($event)"
+          (stateChange)="onStateChange($event)"
+        >
+          <ng-template alGridCell="role" let-value="value">
+            <span class="role">{{ value }}</span>
+          </ng-template>
+        </al-data-grid>
+      </div>
+    </section>
+  `,
+  styles: `
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .demo {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1 1 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .demo__header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      align-items: end;
+      flex: 0 0 auto;
+    }
+
+    .demo__header h2 {
+      margin: 0 0 4px;
+      font-size: 1.35rem;
+    }
+
+    .demo__header p {
+      margin: 0;
+      color: #6b7280;
+    }
+
+    .demo__header code {
+      font-size: 0.9em;
+      background: #f3f4f6;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+
+    .demo__controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .demo__controls label {
+      display: inline-flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .demo__controls .check {
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+      margin-top: 16px;
+    }
+
+    .demo__controls select,
+    .btn {
+      min-width: 96px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .meta {
+      font-size: 13px;
+      color: #374151;
+      margin-top: 16px;
+    }
+
+    .demo__form-status {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 14px;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #99f6e4;
+      background: #f0fdfa;
+      font-size: 13px;
+      color: #134e4a;
+      flex: 0 0 auto;
+    }
+
+    .demo__form-status--invalid {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: #7f1d1d;
+    }
+
+    .demo__form-status .err {
+      color: #b91c1c;
+    }
+
+    .demo__grid {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    al-data-grid {
+      height: 100%;
+      min-height: 0;
+      --al-dg-accent: #0f766e;
+      --al-dg-header-bg: #f0fdfa;
+      --al-dg-row-selected: #ccfbf1;
+      --al-dg-row-hover: #ecfdf5;
+    }
+
+    .role {
+      font-weight: 600;
+      color: #0f766e;
+    }
+
+    :host ::ng-deep .row-inactive {
+      opacity: 0.55;
+    }
+  `,
+})
+export class DataGridDemoComponent {
+  readonly gridRef = viewChild<DataGrid<Employee>>('gridRef');
+
+  readonly rowCount = signal(500);
+  readonly paginate = signal(false);
+  readonly fullRowEdit = signal(true);
+  readonly selectedIds = signal<Array<string | number>>([]);
+  readonly rows = signal(seedEmployees(500));
+  readonly lastAction = signal('—');
+  readonly editSession = signal<RowEditContext<Employee> | null>(null);
+
+  /** Persistent Signal Forms model — always available to the host. */
+  readonly employeeModel = signal(emptyEmployee());
+  readonly employeeForm = form(this.employeeModel, (path) => {
+    required(path.name, { message: 'Name is required' });
+    min(path.salary, 1, { message: 'Salary must be > 0' });
+  });
+
+  readonly rowId = (row: Employee) => row.id;
+
+  /** Held plugins — adapters stay stable; toggle chrome via adapter APIs. */
+  readonly groups = rowGroupPlugin<Employee>({ columns: ['department'] });
+  readonly sideBar = sideBarPlugin<Employee>({
+    panels: ['columns', 'filters'],
+    position: 'right',
+    defaultPanel: 'filters',
+  });
+  private readonly drag = rowDragPlugin<Employee>();
+  private readonly aggregate = aggregateRowPlugin<Employee>();
+  private readonly sample = sampleStatusPlugin<Employee>();
+  /** Host-owned notes bag (simulates async API load). */
+  private readonly notesBackend = new Map<string, Note>([
+    [noteKey(2, 'name'), { text: 'Check salary band before review.' }],
+  ]);
+  readonly notesResource = resource({
+    loader: async (): Promise<NotesMap> => {
+      await new Promise((r) => setTimeout(r, 120));
+      return Object.fromEntries(this.notesBackend);
+    },
+  });
+  readonly notes = notesPlugin<Employee>({
+    notes: this.notesResource.value,
+    save: async ({ rowId, columnId, note }) => {
+      await new Promise((r) => setTimeout(r, 80));
+      const key = noteKey(rowId, columnId);
+      if (note === undefined) {
+        this.notesBackend.delete(key);
+      } else {
+        this.notesBackend.set(key, note);
+      }
+    },
+    reload: () => {
+      this.notesResource.reload();
+    },
+  });
+  readonly flash = flashCellsPlugin<Employee>();
+
+  /** Toolbar demo: flash selection, or a few sample cells when nothing is selected. */
+  readonly flashToolbar: readonly DataGridToolbarSlotItem[] = [
+    {
+      id: 'demo-flash-cells',
+      order: 85,
+      icon: '✧',
+      color: '#d97706',
+      ariaLabel: 'Flash cells',
+      title: 'Flash selected rows (or sample cells)',
+      actionClick: () => {
+        const selected = this.selectedIds();
+        if (selected.length) {
+          this.flash.flashCells({
+            rowIds: selected,
+            color: '#fbbf24',
+            duration: 1200,
+          });
+          this.lastAction.set(`flashed ${selected.length} row(s)`);
+          return;
+        }
+        this.flash.flashCells({
+          cells: [
+            { rowId: 1, columnId: 'salary' },
+            { rowId: 2, columnId: 'name' },
+            { rowId: 3, columnId: 'role' },
+          ],
+          color: '#34d399',
+          duration: 1200,
+        });
+        this.lastAction.set('flashed sample cells');
+      },
+    },
+  ];
+
+  readonly columns: ColumnOrGroupDef<Employee>[] = [
+    {
+      headerName: 'Identity',
+      children: [
+        { field: 'name', filter: true, pinned: 'left', width: 180, editable: true },
+        {
+          field: 'role',
+          filter: 'set',
+          flex: 1,
+          editable: true,
+          cellEditor: 'select',
+          cellEditorParams: {
+            values: ['Engineer', 'Designer', 'PM', 'Support', 'Sales'],
+          },
+        },
+      ],
+    },
+    {
+      headerName: 'Org',
+      children: [
+        {
+          field: 'department',
+          filter: 'set',
+          flex: 1,
+          editable: true,
+          cellEditor: 'select',
+          cellEditorParams: {
+            values: ['Platform', 'Product', 'Growth', 'Ops'],
+          },
+        },
+        {
+          field: 'salary',
+          editable: true,
+          filter: 'number',
+          type: 'number',
+          align: 'right',
+          width: 120,
+          aggFunc: 'sum',
+          valueFormatter: (value) =>
+            typeof value === 'number'
+              ? value.toLocaleString(undefined, {
+                  style: 'currency',
+                  currency: 'USD',
+                  maximumFractionDigits: 0,
+                })
+              : '',
+        },
+        {
+          field: 'active',
+          header: 'Active',
+          width: 90,
+          align: 'center',
+          type: 'boolean',
+          filter: 'boolean',
+          editable: true,
+        },
+      ],
+    },
+  ];
+
+  /** Compose plugins once — toggle sidebar with `sideBar.setEnabled`, not `setPlugins`. */
+  readonly grid = createGrid<Employee>({
+    columns: this.columns,
+    rowId: this.rowId,
+    selection: 'multi',
+    plugins: [
+      ...defaultGridPlugins<Employee>({ sideBar: false }),
+      this.drag,
+      this.aggregate,
+      this.groups,
+      this.sample,
+      this.notes,
+      this.flash,
+      this.sideBar,
+    ],
+  });
+
+  readonly rowClass = (row: Employee) => (row.active ? null : 'row-inactive');
+
+  readonly menuItems = (ctx: DataGridContextMenuContext<Employee>): DataGridContextMenuItem<Employee>[] => [
+    {
+      id: 'copy-name',
+      label: `Copy “${ctx.row.name}”`,
+      action: () => {
+        void navigator.clipboard?.writeText(ctx.row.name);
+        this.lastAction.set(`copied ${ctx.row.name}`);
+      },
+    },
+    {
+      id: 'edit-row',
+      label: 'Edit row',
+      action: () => {
+        this.gridRef()?.startRowEdit(ctx.row, ctx.rowId, ctx.rowIndex);
+        this.lastAction.set(`editing #${ctx.rowId}`);
+      },
+    },
+    {
+      id: 'toggle-active',
+      label: ctx.row.active ? 'Mark away' : 'Mark active',
+      separator: true,
+      action: () => {
+        this.rows.update((list) =>
+          list.map((row) => (row.id === ctx.rowId ? { ...row, active: !row.active } : row)),
+        );
+        this.lastAction.set(`toggled #${ctx.rowId}`);
+      },
+    },
+    {
+      id: 'export',
+      label: 'Export CSV',
+      action: () => {
+        this.gridRef()?.exportCsv();
+        this.lastAction.set('exported CSV');
+      },
+    },
+  ];
+
+  setRowCount(value: string): void {
+    const count = Number(value);
+    this.rowCount.set(count);
+    this.rows.set(seedEmployees(count));
+    this.selectedIds.set([]);
+  }
+
+  onEdit(event: CellEditEvent<Employee>): void {
+    this.rows.update((list) => applyCellEdit(list, event, (row) => row.id));
+    this.lastAction.set(`cell edit #${event.rowId}.${event.columnId}`);
+  }
+
+  onRowEdit(event: RowEditEvent<Employee>): void {
+    this.rows.update((list) => applyRowEdit(list, event, (row) => row.id));
+    this.lastAction.set(`row saved #${event.rowId}`);
+  }
+
+  onReorder(event: RowReorderEvent<Employee>): void {
+    this.rows.set([...event.rows]);
+    this.lastAction.set(`reordered ${event.fromIndex} → ${event.toIndex}`);
+  }
+
+  onPaste(event: PasteEvent<Employee>): void {
+    this.rows.update((list) => {
+      const next = [...list];
+      for (let i = 0; i < event.suggestedRows.length; i++) {
+        const suggested = event.suggestedRows[i]!;
+        const id = suggested.id;
+        const idx = next.findIndex((r) => r.id === id);
+        if (idx >= 0) {
+          next[idx] = suggested;
+        }
+      }
+      return next;
+    });
+    this.lastAction.set(`pasted ${event.matrix.length}×${event.columnIds.length}`);
+  }
+
+  onStateChange(_state: DataGridState): void {
+    // Host can persist continuously; demo saves explicitly.
+  }
+
+  saveState(): void {
+    const grid = this.gridRef();
+    if (!grid || typeof localStorage === 'undefined') {
+      return;
+    }
+    localStorage.setItem(STATE_KEY, serializeGridState(grid.getState()));
+  }
+
+  restoreState(): void {
+    const grid = this.gridRef();
+    if (!grid || typeof localStorage === 'undefined') {
+      return;
+    }
+    const raw = localStorage.getItem(STATE_KEY);
+    if (!raw) {
+      return;
+    }
+    const state = parseGridState(raw);
+    if (state) {
+      grid.setState(state);
+    }
+  }
+}

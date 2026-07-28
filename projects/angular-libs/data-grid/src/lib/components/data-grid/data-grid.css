@@ -1,0 +1,678 @@
+:host {
+  --al-dg-bg: #fff;
+  --al-dg-fg: #111827;
+  --al-dg-muted: #6b7280;
+  --al-dg-border: #e5e7eb;
+  --al-dg-header-bg: #f9fafb;
+  --al-dg-row-hover: #f3f4f6;
+  --al-dg-row-selected: #eff6ff;
+  --al-dg-stripe: #fafafa;
+  --al-dg-accent: #2563eb;
+  --al-dg-radius: 8px;
+  --al-dg-font:
+    ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  color: var(--al-dg-fg);
+  font-family: var(--al-dg-font);
+  font-size: 13px;
+  line-height: 1.35;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.al-data-grid__shell {
+  display: flex;
+  flex-direction: row;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  border: 1px solid var(--al-dg-border);
+  border-radius: var(--al-dg-radius);
+  overflow: hidden;
+  background: var(--al-dg-bg);
+}
+
+.al-data-grid__shell--sidebar-left {
+  flex-direction: row;
+}
+
+.al-data-grid__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Find-only toolbar shell + in-grid tool buttons (chrome owns its own copies). */
+.al-data-grid__toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--al-dg-border);
+  background: var(--al-dg-header-bg);
+}
+
+.al-data-grid__tool-btn {
+  border: 1px solid var(--al-dg-border);
+  background: var(--al-dg-bg);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.al-data-grid__tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.al-data-grid__tool-btn--primary {
+  background: var(--al-dg-accent);
+  border-color: var(--al-dg-accent);
+  color: #fff;
+}
+
+.al-data-grid__frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.al-data-grid__scroll {
+  flex: 1 1 0;
+  overflow: auto;
+  position: relative;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.al-data-grid__table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.al-data-grid__tfoot {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+}
+
+.al-data-grid__agg-row .al-data-grid__td--agg {
+  background: var(--al-dg-header-bg);
+  font-weight: 600;
+  border-top: 1px solid var(--al-dg-border);
+  box-shadow: 0 -4px 8px color-mix(in srgb, var(--al-dg-bg) 70%, transparent);
+}
+
+.al-data-grid__row--group {
+  background: var(--al-dg-header-bg);
+  cursor: pointer;
+}
+
+.al-data-grid__td--group {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.al-data-grid__group-toggle {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 6px 0 0;
+}
+
+.al-data-grid__group-count {
+  color: var(--al-dg-muted);
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.al-data-grid__th,
+.al-data-grid__td {
+  border-bottom: 1px solid var(--al-dg-border);
+  border-right: 1px solid var(--al-dg-border);
+  padding: 0 10px;
+  vertical-align: middle;
+  background: var(--al-dg-bg);
+  box-sizing: border-box;
+}
+
+.al-data-grid__th:last-child,
+.al-data-grid__td:last-child {
+  border-right: 0;
+}
+
+/*
+ * Vertical sticky headers (per-cell). Row tops stack:
+ * group 0 → leaf 36 → filter 36|72.
+ */
+.al-data-grid__th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 36px;
+  background: var(--al-dg-header-bg);
+  font-weight: 600;
+  text-align: left;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.al-data-grid__header-row--group .al-data-grid__th {
+  top: 0;
+  z-index: 5;
+}
+
+.al-data-grid__table--col-groups
+  .al-data-grid__header-row:not(.al-data-grid__header-row--group)
+  .al-data-grid__th {
+  top: 36px;
+}
+
+.al-data-grid__th--filter,
+.al-data-grid__filter-row .al-data-grid__th {
+  height: 34px;
+  font-weight: 400;
+  top: 36px;
+  z-index: 4;
+}
+
+.al-data-grid__table--col-groups .al-data-grid__filter-row .al-data-grid__th {
+  top: 72px;
+}
+
+.al-data-grid__th--select,
+.al-data-grid__td--select {
+  width: 40px;
+  text-align: center;
+  padding: 0;
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+
+.al-data-grid__th--drag,
+.al-data-grid__td--drag {
+  width: 36px;
+  text-align: center;
+  padding: 0;
+  cursor: grab;
+  color: var(--al-dg-muted, #6b7280);
+  user-select: none;
+  letter-spacing: -2px;
+  font-size: 12px;
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+
+/*
+ * Chrome columns always stick to the grid edges (AG Grid-style).
+ * Data `pinned` columns sit just inside them via pinnedLeft/RightOffset.
+ */
+.al-data-grid__table--row-drag .al-data-grid__th--select,
+.al-data-grid__table--row-drag .al-data-grid__td--select {
+  left: 36px;
+}
+
+.al-data-grid__th--drag,
+.al-data-grid__th--select {
+  z-index: 6;
+  background: var(--al-dg-header-bg);
+}
+
+.al-data-grid__header-row--group .al-data-grid__th--drag,
+.al-data-grid__header-row--group .al-data-grid__th--select {
+  z-index: 7;
+}
+
+.al-data-grid__filter-row .al-data-grid__th--drag,
+.al-data-grid__filter-row .al-data-grid__th--select {
+  z-index: 6;
+}
+
+.al-data-grid__th--row-edit,
+.al-data-grid__td--row-edit {
+  width: 132px;
+  min-width: 132px;
+  text-align: center;
+  position: sticky;
+  right: 0;
+  z-index: 3;
+}
+
+.al-data-grid__th--row-edit {
+  z-index: 6;
+  background: var(--al-dg-header-bg);
+}
+
+.al-data-grid__th--group {
+  text-align: center;
+  background: var(--al-dg-header-bg, #f9fafb);
+  border-bottom: 1px solid var(--al-dg-border, #e5e7eb);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--al-dg-muted, #6b7280);
+}
+
+.al-data-grid__th--group-spacer {
+  border-bottom-color: transparent;
+  background: var(--al-dg-header-bg);
+}
+
+.al-data-grid__set-filter {
+  font-size: 12px;
+  position: relative;
+}
+
+.al-data-grid__set-filter > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 2px 4px;
+  border: 1px solid var(--al-dg-border, #e5e7eb);
+  border-radius: 4px;
+  background: var(--al-dg-bg, #fff);
+}
+
+.al-data-grid__set-filter-list {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  top: 100%;
+  min-width: 140px;
+  max-height: 180px;
+  overflow: auto;
+  margin-top: 4px;
+  padding: 6px;
+  border: 1px solid var(--al-dg-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--al-dg-bg, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: none;
+  outline: 1px solid var(--al-dg-border, #e5e7eb);
+}
+
+.al-data-grid__set-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.al-data-grid__header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.al-data-grid__header-btn:disabled {
+  cursor: default;
+}
+
+.al-data-grid__sort {
+  color: var(--al-dg-accent);
+  font-size: 11px;
+}
+
+.al-data-grid__resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.al-data-grid__resize::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 3px;
+  width: 1px;
+  background: var(--al-dg-border);
+  opacity: 0.95;
+}
+
+.al-data-grid__th:hover .al-data-grid__resize::after,
+.al-data-grid__resize:hover::after {
+  background: var(--al-dg-accent);
+  width: 2px;
+  left: 2.5px;
+  opacity: 1;
+}
+
+.al-data-grid__filter-input,
+.al-data-grid__edit-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--al-dg-border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--al-dg-bg);
+  user-select: text;
+}
+
+.al-data-grid__edit-check {
+  cursor: pointer;
+}
+
+/* Cell editors fill the cell edge-to-edge (AG-style); text padding matches display. */
+.al-data-grid__td--editing {
+  padding: 0;
+  position: relative;
+}
+
+.al-data-grid__td--editing.al-data-grid__td--pinned-left,
+.al-data-grid__td--editing.al-data-grid__td--pinned-right {
+  position: sticky;
+}
+
+.al-data-grid__td--editing .al-data-grid__edit-input,
+.al-data-grid__td--editing .al-data-grid__editor-host {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0 10px;
+  padding-left: var(--al-dg-edit-pad-left, 10px);
+  box-sizing: border-box;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+  font: inherit;
+  color: inherit;
+}
+
+.al-data-grid__td--editing .al-data-grid__editor-host {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+}
+
+.al-data-grid__td--editing .al-data-grid__editor-host > * {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.al-data-grid__td--editing select.al-data-grid__edit-input {
+  cursor: pointer;
+}
+
+.al-data-grid__td--editing .al-data-grid__edit-check {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: max-content;
+  height: max-content;
+}
+
+/*
+ * Edit / focus chrome:
+ * - Full-row edit: one perimeter around contiguous `.td--editing` cells (CSS only).
+ * - Single-cell edit / focus / find: full outline on that cell.
+ */
+.al-data-grid__row--editing > .al-data-grid__td--editing {
+  --al-dg-edit-ring: var(--al-dg-accent, #2563eb);
+  border-bottom-color: transparent;
+  box-shadow:
+    inset 0 2px 0 0 var(--al-dg-edit-ring),
+    inset 0 -2px 0 0 var(--al-dg-edit-ring);
+}
+
+/* Left edge at the start of a contiguous editing run. */
+.al-data-grid__row--editing > .al-data-grid__td--editing:first-child,
+.al-data-grid__row--editing > .al-data-grid__td:not(.al-data-grid__td--editing) + .al-data-grid__td--editing {
+  box-shadow:
+    inset 0 2px 0 0 var(--al-dg-edit-ring),
+    inset 0 -2px 0 0 var(--al-dg-edit-ring),
+    inset 2px 0 0 0 var(--al-dg-edit-ring);
+}
+
+/* Right edge at the end of a contiguous editing run. */
+.al-data-grid__row--editing > .al-data-grid__td--editing:not(:has(+ .al-data-grid__td--editing)) {
+  border-right-color: transparent;
+  box-shadow:
+    inset 0 2px 0 0 var(--al-dg-edit-ring),
+    inset 0 -2px 0 0 var(--al-dg-edit-ring),
+    inset -2px 0 0 0 var(--al-dg-edit-ring);
+}
+
+/* Single editing cell (both start and end). */
+.al-data-grid__row--editing
+  > .al-data-grid__td--editing:first-child:not(:has(+ .al-data-grid__td--editing)),
+.al-data-grid__row--editing
+  > .al-data-grid__td:not(.al-data-grid__td--editing)
+  + .al-data-grid__td--editing:not(:has(+ .al-data-grid__td--editing)) {
+  border-right-color: transparent;
+  box-shadow:
+    inset 0 2px 0 0 var(--al-dg-edit-ring),
+    inset 0 -2px 0 0 var(--al-dg-edit-ring),
+    inset 2px 0 0 0 var(--al-dg-edit-ring),
+    inset -2px 0 0 0 var(--al-dg-edit-ring);
+}
+
+.al-data-grid__row:not(.al-data-grid__row--editing) .al-data-grid__td--editing,
+.al-data-grid__td--focused:not(.al-data-grid__td--find-active):not(.al-data-grid__td--editing),
+.al-data-grid__td--find-active,
+.al-data-grid__td--editing.al-data-grid__td--invalid {
+  outline: 2px solid var(--al-dg-accent, #2563eb);
+  outline-offset: -2px;
+  z-index: 1;
+  border-bottom-color: transparent;
+  border-right-color: transparent;
+}
+
+.al-data-grid__td--editing.al-data-grid__td--invalid {
+  outline-color: var(--al-dg-danger, #dc2626);
+}
+
+.al-data-grid__td--editing .al-data-grid__edit-input--invalid,
+.al-data-grid__td--editing.al-data-grid__td--invalid .al-data-grid__edit-input {
+  border: 0;
+  box-shadow: none;
+}
+
+.al-data-grid__row:hover .al-data-grid__td {
+  background: var(--al-dg-row-hover);
+}
+
+.al-data-grid__row--stripe .al-data-grid__td {
+  background: var(--al-dg-stripe);
+}
+
+.al-data-grid__row--stripe:hover .al-data-grid__td {
+  background: var(--al-dg-row-hover);
+}
+
+.al-data-grid__row--selected .al-data-grid__td {
+  background: var(--al-dg-row-selected);
+}
+
+.al-data-grid__row--selected:hover .al-data-grid__td {
+  background: var(--al-dg-row-selected);
+}
+
+.al-data-grid__td {
+  height: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.al-data-grid__td--editable {
+  cursor: text;
+}
+
+.al-data-grid__td--find-match {
+  background: var(--al-dg-find-match, #fef08a) !important;
+}
+
+.al-data-grid__td--find-active {
+  background: var(--al-dg-find-active, #fde047) !important;
+}
+
+.al-data-grid__find-mark {
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  padding: 0;
+}
+
+.al-data-grid__row--editing .al-data-grid__td {
+  background: var(--al-dg-row-edit, #ecfeff);
+}
+
+.al-data-grid__row--invalid .al-data-grid__td {
+  background: var(--al-dg-row-invalid, #fef2f2);
+}
+
+.al-data-grid__td--invalid,
+.al-data-grid__edit-input--invalid {
+  border-color: var(--al-dg-danger, #dc2626) !important;
+}
+
+.al-data-grid__td--editing.al-data-grid__td--invalid,
+.al-data-grid__td--editing .al-data-grid__edit-input--invalid {
+  border-color: transparent !important;
+}
+
+.al-data-grid__row-edit-actions {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.al-data-grid__th--pinned-left,
+.al-data-grid__td--pinned-left,
+.al-data-grid__th--pinned-right,
+.al-data-grid__td--pinned-right {
+  position: sticky;
+  z-index: 2;
+}
+
+.al-data-grid__th--pinned-left,
+.al-data-grid__th--pinned-right {
+  z-index: 5;
+  background: var(--al-dg-header-bg, #f9fafb);
+}
+
+.al-data-grid__header-row--group .al-data-grid__th--pinned-left,
+.al-data-grid__header-row--group .al-data-grid__th--pinned-right {
+  z-index: 6;
+}
+
+.al-data-grid__filter-row .al-data-grid__th--pinned-left,
+.al-data-grid__filter-row .al-data-grid__th--pinned-right {
+  z-index: 5;
+}
+
+.al-data-grid__spacer td {
+  border: 0;
+  padding: 0;
+  line-height: 0;
+  font-size: 0;
+}
+
+.al-data-grid__spacer-pad {
+  width: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.al-data-grid__state {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--al-dg-muted);
+}
+
+.al-data-grid__ctx {
+  position: fixed;
+  z-index: 1000;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 4px;
+  margin: 0;
+  border: 1px solid var(--al-dg-border);
+  border-radius: 8px;
+  background: var(--al-dg-bg);
+  color: var(--al-dg-fg);
+  box-sizing: border-box;
+}
+
+.al-data-grid__ctx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.al-data-grid__ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--al-dg-border);
+}
+
+.al-data-grid__ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.al-data-grid__ctx-item:hover:not(:disabled),
+.al-data-grid__ctx-item:focus-visible:not(:disabled) {
+  background: var(--al-dg-row-hover);
+  outline: none;
+}
+
+.al-data-grid__ctx-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.al-data-grid__ctx-shortcut {
+  color: var(--al-dg-muted);
+  font-size: 11px;
+}

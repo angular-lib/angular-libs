@@ -4,6 +4,10 @@
   "compileOnSave": false,
   "compilerOptions": {
     "paths": {
+      "@angular-libs/data-grid": ["./projects/angular-libs/data-grid/src/public-api.ts"],
+      "@angular-libs/data-grid/plugins": [
+        "./projects/angular-libs/data-grid/plugins/src/public-api.ts"
+      ],
       "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
       "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],
       "@angular-libs/shortcut": ["./dist/angular-libs/shortcut"],
@@ -78,6 +82,12 @@
     },
     {
       "path": "./projects/angular-libs/socket/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/angular-libs/data-grid/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/angular-libs/data-grid/tsconfig.spec.json"
     }
   ]
 }
