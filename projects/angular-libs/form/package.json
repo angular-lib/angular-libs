@@ -1,0 +1,40 @@
+{
+  "name": "@angular-libs/form",
+  "version": "0.0.1",
+  "description": "Config-driven UI for Angular Signal Forms: typed elements[], field registry, S2 selectionDisplay, layout widths/groups, and control chrome.",
+  "author": "angular-lib",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/angular-lib/angular-libs.git",
+    "directory": "projects/angular-libs/form"
+  },
+  "bugs": {
+    "url": "https://github.com/angular-lib/angular-libs/issues"
+  },
+  "homepage": "https://github.com/angular-lib/angular-libs/tree/main/projects/angular-libs/form",
+  "keywords": [
+    "angular",
+    "signals",
+    "signal-forms",
+    "forms",
+    "form",
+    "field-registry",
+    "createForm",
+    "selection-display",
+    "config-driven",
+    "angular-libs"
+  ],
+  "peerDependencies": {
+    "@angular/common": ">=21.0.0",
+    "@angular/core": ">=21.0.0",
+    "@angular/forms": ">=21.0.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false
+}

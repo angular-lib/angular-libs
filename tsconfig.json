@@ -10,6 +10,7 @@
       ],
       "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
       "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],
+      "@angular-libs/form": ["./projects/angular-libs/form/src/public-api.ts"],
       "@angular-libs/shortcut": ["./dist/angular-libs/shortcut"],
       "@angular-libs/store": ["./projects/angular-libs/store/src/public-api.ts"],
       "@angular-libs/translate": ["./projects/angular-libs/translate/src/public-api.ts"],
@@ -88,6 +89,12 @@
     },
     {
       "path": "./projects/angular-libs/data-grid/tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/angular-libs/form/tsconfig.lib.json"
+    },
+    {
+      "path": "./projects/angular-libs/form/tsconfig.spec.json"
     }
   ]
 }
