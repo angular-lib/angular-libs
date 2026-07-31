@@ -123,6 +123,7 @@ export function bluetoothSignal(): BluetoothSignal {
       return device;
     } catch (err: any) {
       if (err.name === 'AbortError') {
+        state.update((prev) => ({ ...prev, loading: false, error: null }));
         return;
       }
       activeDevice = null;

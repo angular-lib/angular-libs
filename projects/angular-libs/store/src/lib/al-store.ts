@@ -6,6 +6,7 @@ import {
   DestroyRef,
   inject,
   computed,
+  isDevMode,
 } from '@angular/core';
 import { SyncMessage } from './sync-message';
 import { ALStoreConfig, ALStorePlugin } from './interfaces';
@@ -196,12 +197,38 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
   }
 
   select<R>(projector: (state: T) => R): Signal<R> {
+    const self = this;
     const stateProxy = new Proxy({} as T, {
       get: (_, prop: string | symbol) => {
-        return this.getSignal(prop as keyof T)();
+        return self.getSignal(prop as keyof T)();
+      },
+      has: (_, prop: string | symbol) => {
+        return prop in self.state || prop in self.initialState;
+      },
+      ownKeys: () => Reflect.ownKeys({ ...self.initialState, ...self.state }),
+      getOwnPropertyDescriptor: (_, prop: string | symbol) => {
+        if (typeof prop === 'symbol') return undefined;
+        if (prop in self.state || prop in self.initialState) {
+          return {
+            enumerable: true,
+            configurable: true,
+            get: () => self.getSignal(prop as keyof T)(),
+          };
+        }
+        return undefined;
       },
     });
     return computed(() => projector(stateProxy));
+  }
+
+  private safePostMessage(data: SyncMessage<T>): void {
+    try {
+      this.channel?.postMessage(data);
+    } catch (err) {
+      if (isDevMode()) {
+        console.warn('[ALStore] BroadcastChannel.postMessage failed (value may not be structured-cloneable).', err);
+      }
+    }
   }
 
   set<K extends keyof T>(key: K, value: T[K]): void {
@@ -209,7 +236,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
       return this.reset(key);
     }
     this.internalSet(key, value);
-    this.channel?.postMessage({ action: 'set', key, value });
+    this.safePostMessage({ action: 'set', key, value });
   }
 
   private internalSet<K extends keyof T>(key: K, value: T[K]): void {
@@ -278,7 +305,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
       typeof stateOrUpdater === 'function' ? stateOrUpdater(this.snapshot()) : stateOrUpdater;
 
     this.internalPatchState(partialState);
-    this.channel?.postMessage({ action: 'patchState', partialState });
+    this.safePostMessage({ action: 'patchState', partialState });
   }
 
   private internalPatchState(partialState: Partial<T>): void {
@@ -293,7 +320,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
 
   reset<K extends keyof T>(key?: K): void {
     this.internalReset(key);
-    this.channel?.postMessage({ action: 'reset', key });
+    this.safePostMessage({ action: 'reset', key });
   }
 
   /**

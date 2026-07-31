@@ -70,7 +70,12 @@ client object whose signals update as the URL, connection, and messages change.
 
 Call `createWebSocket()` from an Angular injection context, such as a component
 field initializer, constructor, provider factory, or service. Its connection is
-closed automatically with that context.
+closed automatically with that context. Outside an injection context, pass
+`{ injector }` so the reactive `effect` and `DestroyRef` teardown still wire up.
+
+Return `null` / `undefined` from the URL signal to disconnect. That clears the
+active URL so `online` / `reconnect()` will not revive the socket until a URL
+is provided again.
 
 ```ts
 import { Component, computed, signal } from '@angular/core';
@@ -221,6 +226,10 @@ mock.receiveAll(JSON.stringify({ type: 'ready' }));
 When no native `WebSocket` and no `webSocketFactory` are available, the client
 stays disconnected and rejects sends. This makes SSR safe without creating an
 outbox that cannot be delivered.
+
+`createWebSocket()` defaults `bufferWhileOffline` to **off**. Pass
+`bufferWhileOffline: true` (and optionally `outbox.storage`) when you want
+offline queuing. `websocketResource()` still defaults buffering **on**.
 
 `websocketResource()` remains available for existing callers. It keeps its
 resource-shaped return value and legacy 30-second heartbeat default, but new

@@ -14,7 +14,7 @@ A modern, highly performant, Signals-based translation library specifically buil
 
 ## 1. Setup (\`app.config.ts\`)
 
-By default, this halts app initialization until translations are loaded to prevent template flickering.
+By default, this waits for the default-language loader during app init to reduce template flickering.
 
 ```typescript
 import { provideALTranslate } from '@angular-libs/translate';
@@ -26,12 +26,20 @@ export const appConfig = {
       // The loader runs inside an Injection Context, so you can safely use inject() here if needed.
       loader: (lang) => fetch(`/assets/i18n/${lang}.json`).then((res) => res.json()),
 
-      // Optional: Set to false if you want the app to boot immediately and load languages in the background
+      // Optional: boot immediately and load languages in the background
       // blockBootstrap: false
+
+      // Optional: fallback strings when a key is missing in the active language
+      // fallbackData: { 'errors.generic': 'Something went wrong' },
+
+      // Optional: lifecycle plugins (onInit / onLangChange / onMissingKey / transform)
+      // plugins: [myPlugin],
     }),
   ],
 };
 ```
+
+**`blockBootstrap`:** when `true`/omitted, init awaits the loader promise. A failed load is logged and does **not** abort bootstrap — the app still starts (possibly with an empty dictionary). Handle hard failures in your own loader or after `loadLanguage()`.
 
 ## 2. Strong Typing (Optional but Recommended)
 
@@ -47,7 +55,8 @@ import type enTranslations from '../assets/i18n/en.json';
 import { TranslationKeysOf, ALTranslate } from '@angular-libs/translate';
 import { inject } from '@angular/core';
 
-// Generates a string union of all nested dot-notation keys
+// Generates a string union of nested keys (including intermediate object keys).
+// Runtime dictionaries only contain leaf paths — prefer 'home.title' over 'home'.
 export type AppTranslations = TranslationKeysOf<typeof enTranslations>;
 ```
 
@@ -152,16 +161,20 @@ export class MyComponent {
 }
 ```
 
-### Programmatic API (\`ALTranslate\`)
+### Programmatic API (`ALTranslate`)
 
-- `currentLang`: A WritableSignal holding the active language code.
+- `currentLang`: A WritableSignal holding the active language code. Prefer changing language via `loadLanguage` / `setDictionary` so UI and dictionary stay in sync.
 - `loadLanguage(lang: string): Promise<void>`: Fetches and loads translations for a specific language using the provided loader, then sets it as active.
 - `setDictionary(translations: TranslationInput)`: Replaces the translation dictionary (does not update active lang).
+- `setFallbackDictionary(translations)` / `fallbackData` in config: Used when a key is missing in the primary dictionary.
+- `addToDictionary(translations)`: Merges keys into the active dictionary (useful for lazy feature modules).
 - `get(key, params)`: Synchronously format a key.
-- `select(key, params)`: Returns a Computed Signal of the translation that updates instantly when the language changes.
+- `select(key, params)`: Returns a `computed` Signal that updates when the language/dictionary changes. **Params are snapshotted** at call time — for reactive param objects, wrap in your own `computed(() => translate.get(key, paramsSignal()))`.
 
 ## Limitations
 
-- **Single dictionary active at a time.** Switching language replaces the current dictionary (unless manually merging).
+- **Single dictionary active at a time.** Switching language replaces the current dictionary (unless manually merging via `addToDictionary`).
 - **No Pluralization rules** (e.g. "1 item" vs "2 items"). Use manual logic in your templates or services.
 - **No ICU message format.** Simple mustache interpolation `{{ variable }}` only.
+- **`TranslationKeysOf` includes intermediate object keys** in the type union, but only leaf keys exist at runtime after flatten.
+- **`blockBootstrap` does not fail the app** if the loader rejects — it only waits for the attempt to finish.

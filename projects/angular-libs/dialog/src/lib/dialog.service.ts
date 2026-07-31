@@ -24,7 +24,7 @@ import { type GlobalDialogConfig, type DialogOptions, type InferDialogResult } f
  * - uses the browser's native HTML5 `<dialog>` element
  * - works with standalone components
  * - supports typed component inputs and close results (via {@link InferDialogResult})
- * - guards DOM access for SSR safety
+ * - requires a browser DOM (`document`); not safe to call `open()` during SSR
  * - supports both modal (blocking) and non-modal (interactive) modes
  * - extensible via plugins (e.g. `draggablePlugin`)
  * - allows minimizing non-modal dialogs into a taskbar-like state
@@ -136,8 +136,9 @@ export class DialogService {
    * Result typing is inferred from a public component property typed as `DialogRef<TResult>`.
    * If the component does not expose one, the result type becomes `unknown`.
    *
-   * In server-side rendering environments, DOM work is skipped and a detached `DialogRef` is
-   * returned instead.
+   * Call only in the browser. `open()` uses `document.createElement('dialog')` and
+   * will throw in SSR / non-DOM environments — guard with platform checks or
+   * invoke from client-only lifecycle hooks.
    *
    * @typeParam TComponent Component type to render inside the dialog.
    * @param component Standalone or declarable Angular component class to render.

@@ -80,6 +80,7 @@ export interface ALShortcutPlugin {
 
   /**
    * Hook called for every native key event on the document (keydown and keyup).
+   * Return `true` to mark the event as consumed and skip core shortcut dispatch.
    */
-  onKeyEvent?(event: KeyboardEvent): void;
+  onKeyEvent?(event: KeyboardEvent): boolean | void;
 }

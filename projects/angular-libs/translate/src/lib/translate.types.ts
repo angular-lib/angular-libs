@@ -42,6 +42,10 @@ export type JoinTranslationKeys<K, P> = K extends string | number
  * // 2. From a const object
  * const translations = { home: { title: 'Welcome' } } as const;
  * export type MyConstKeys = TranslationKeysOf<typeof translations>; // 'home' | 'home.title'
+ *
+ * **Runtime note:** Flattening only stores **leaf** string values. Intermediate object
+ * keys such as `'home'` appear in this type union but are not present in the dictionary —
+ * prefer leaf paths (`'home.title'`) or Option B strict interfaces for keys you call at runtime.
  */
 export type TranslationKeysOf<T> = T extends object
   ? {
@@ -122,8 +126,13 @@ export interface ALTranslateConfig<TSchema extends TranslationSchema = any> {
   /** Fallback translations to use if a key is missing in the primary language. */
   fallbackData?: TranslationInput;
   /**
-   * If true (or omitted), halts application initialization until the default language is loaded.
-   * If false, allows the app to bootstrap immediately and loads translations lazily.
+   * If true (or omitted), waits for the default-language `loader` promise during app init
+   * so templates are less likely to flash missing keys.
+   * If false, the app boots immediately and loads translations in the background.
+   *
+   * **Note:** loader failures are logged and do **not** fail bootstrap either way —
+   * when blocking, init simply continues after the rejected load settles. Handle hard
+   * failures in your loader or via `loadLanguage(...).catch(...)`.
    */
   blockBootstrap?: boolean;
   /** Optional array of lifecycle-aware plugins to run. */

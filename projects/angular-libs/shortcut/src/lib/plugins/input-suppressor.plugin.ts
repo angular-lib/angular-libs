@@ -13,7 +13,7 @@ export function inputSuppressorPlugin(exceptions: string[] = []): ALShortcutPlug
       if (!target) return;
 
       const tagName = target.tagName.toUpperCase();
-      const isContentEditable = target.hasAttribute('contenteditable') || (target as any).isContentEditable;
+      const isContentEditable = (target as HTMLElement).isContentEditable === true;
 
       if (
         tagName === 'INPUT' ||

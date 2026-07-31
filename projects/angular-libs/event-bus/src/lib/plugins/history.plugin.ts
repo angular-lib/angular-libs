@@ -60,6 +60,9 @@ export interface ALEventBusHistoryPlugin extends ALEventBusPlugin {
  * It automatically tracks sequential dispatches, maintaining an undo and redo stack of event payloads.
  * This allows simple integration of undo/redo actions for canvas tools, editors, or wizard steps.
  *
+ * Undo/redo re-emits the previous/next stack entry (key + payload). It is a command timeline, not a
+ * full multi-key state snapshot — pass `keys` when you only care about a related set of events.
+ *
  * @param options Configurations including history depth limits and targeted event key arrays.
  *
  * @example
@@ -85,9 +88,8 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
   const undoStack: HistoryItem[] = [];
   const redoStack: HistoryItem[] = [];
 
-  // A bypass mechanism to ignore logging actions when undoing/redoing
+  // Bypass capturing while undo/redo re-emits (out-of-band — not via headers).
   let isNavigatingHistory = false;
-  const HISTORY_BYPASS = '__HISTORY_ROLLBACK_BYPASS__';
 
   return {
     onInit(bus: IALEventBus<any>) {
@@ -96,7 +98,6 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
     onAfterEmit(key, payload, emitOptions) {
       const keyStr = String(key);
       if (keys && !keys.includes(keyStr)) return;
-      if (emitOptions?.headers?.[HISTORY_BYPASS]) return;
 
       // Guard history stack from capturing undo/redo events directly
       if (isNavigatingHistory) return;
@@ -134,8 +135,9 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
 
         // Retrieve prior state and restore it
         const prior = undoStack[undoStack.length - 1];
-        const nextOptions = { ...prior.headers, [HISTORY_BYPASS]: true };
-        busInstance.emit(prior.key as any, prior.payload, { headers: nextOptions });
+        busInstance.emit(prior.key as any, prior.payload, {
+          headers: prior.headers ? { ...prior.headers } : undefined,
+        });
         return true;
       } finally {
         isNavigatingHistory = false;
@@ -149,8 +151,9 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
         const next = redoStack.pop()!;
         undoStack.push(next);
 
-        const nextOptions = { ...next.headers, [HISTORY_BYPASS]: true };
-        busInstance.emit(next.key as any, next.payload, { headers: nextOptions });
+        busInstance.emit(next.key as any, next.payload, {
+          headers: next.headers ? { ...next.headers } : undefined,
+        });
         return true;
       } finally {
         isNavigatingHistory = false;

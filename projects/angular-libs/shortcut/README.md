@@ -72,7 +72,7 @@ export class MyComponent {
 ```
 
 ### Directive API Reference
-*   `[alShortcut]` (`string`): The shortcut combination (e.g. `'ctrl+s'`). **Required**.
+*   `[alShortcut]` (`string`): The shortcut combination (e.g. `'ctrl+s'`, `'cmd+s'`, `'esc'`). Synonyms are normalised: `cmd`/`command` → `meta`, `esc` → `escape`, `option` → `alt`, `control`/`ctl` → `ctrl`. **Required**.
 *   `[alShortcutPriority]` (`number`, default `0`): The execution precedence level of custom registrations.
 *   `[alShortcutDescription]` (`string`): Narrative metadata details for programmatic inspection or palette registry.
 *   `[alShortcutPreventDefault]` (`boolean`, default `true`): Automatically invoke `event.preventDefault()` on activation.
@@ -87,7 +87,7 @@ export class MyComponent {
 Register professional UX plugins directly onto the shortcut service:
 
 ### 1. Form Input Suppressor Plugin
-Ignores shortcut triggers when focused inside inputs, texts, selects, or elements marked with `contenteditable`.
+Ignores shortcut triggers when focused inside inputs, textareas, selects, or elements that are **actually** content-editable (`HTMLElement.isContentEditable === true`). `contenteditable="false"` does **not** suppress.
 ```typescript
 import { inputSuppressorPlugin } from '@angular-libs/shortcut';
 
@@ -97,6 +97,8 @@ shortcutService.registerPlugin(inputSuppressorPlugin(['escape', 'ctrl+s']));
 
 ### 2. Multi-Key Chord Plugin
 Supports Vim-style or VS-Code style sequential multi-key chords (e.g. `"g d"` or `"ctrl+k ctrl+c"`).
+
+A **completed** chord consumes the key event so the matching single-key shortcut (if any) does not also fire. **Partial** chord prefixes (e.g. pressing `g` while waiting for `d`) do **not** block other registered shortcuts on that key — avoid registering the same key as both a chord step and a standalone shortcut if you need exclusive behavior.
 ```typescript
 import { chordPlugin } from '@angular-libs/shortcut';
 
@@ -163,6 +165,10 @@ import { visualHintsPlugin } from '@angular-libs/shortcut';
 const hinting = shortcutService.registerPlugin(visualHintsPlugin({ triggerShortcut: 'ctrl+g' }));
 hinting.startHinting();
 ```
+
+### Custom plugins
+
+`onKeyEvent(event)` may return `true` to consume the event and skip core shortcut dispatch. Built-in `chordPlugin` / `twicePlugin` use this for completed matches. Returning nothing/`false` leaves core handling intact.
 
 ---
 

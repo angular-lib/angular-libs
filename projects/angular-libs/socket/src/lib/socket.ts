@@ -48,11 +48,13 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
   options: CreateWebSocketOptions<TSend, TReceive> = {},
 ): SocketClient<TSend, TReceive> {
   let destroyRef: DestroyRef | null = null;
+  let effectInjector: Injector | undefined = options.injector;
   if (options.injector) {
     destroyRef = options.injector.get(DestroyRef, null);
   } else {
     try {
       destroyRef = inject(DestroyRef, { optional: true });
+      effectInjector = inject(Injector);
     } catch {
       // Called outside an injection context without an explicit options.injector
     }
@@ -207,16 +209,26 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
     }
   };
 
+  let outboxEpoch = 0;
+
   const updateQueue = (updater: (prev: TSend[]) => TSend[]) => {
-    const nextQueue = updater(queuedMessages());
+    const previous = queuedMessages();
+    const nextQueue = updater(previous);
+    // Invalidate in-flight storage hydration only when the live outbox is cleared,
+    // so a late getItem() cannot resurrect messages after flush/clear.
+    if (nextQueue.length === 0 && previous.length > 0) {
+      outboxEpoch++;
+    }
     queuedMessages.set(nextQueue);
     syncOutboxStorage(nextQueue);
   };
 
   if (outbox.storage) {
     try {
+      const epochAtLoad = outboxEpoch;
       const res = outbox.storage.getItem();
       const handleLoaded = (loadedItems: TSend[]) => {
+        if (epochAtLoad !== outboxEpoch) return;
         if (!Array.isArray(loadedItems) || loadedItems.length === 0) return;
         updateQueue((currentQueued) => {
           const merged = [...loadedItems, ...currentQueued];
@@ -406,12 +418,15 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
   effect((onCleanup) => {
     const nextUrl = url();
     if (!nextUrl) {
-      untracked(() => shutdown(undefined, undefined, false));
+      untracked(() => {
+        activeUrl = null;
+        shutdown(undefined, undefined, false);
+      });
       return;
     }
     untracked(() => void connect(nextUrl));
     onCleanup(() => untracked(() => shutdown(undefined, undefined, false)));
-  });
+  }, effectInjector ? { injector: effectInjector } : undefined);
 
   destroyRef?.onDestroy(() => shutdown());
 

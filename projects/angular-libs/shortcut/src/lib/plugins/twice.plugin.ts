@@ -54,12 +54,13 @@ export function twicePlugin(
     return val;
   }
 
-  function handleKeyUp(event: KeyboardEvent): void {
+  function handleKeyUp(event: KeyboardEvent): boolean {
     if (ignoreInputs) {
       const target = event.target as Element | null;
       if (target && 'tagName' in target) {
         const tagName = (target.tagName || '').toUpperCase();
-        const isContentEditable = target.hasAttribute('contenteditable') || (target as any).isContentEditable;
+        const isContentEditable =
+          (target as HTMLElement).isContentEditable === true;
         if (
           tagName === 'INPUT' ||
           tagName === 'TEXTAREA' ||
@@ -68,13 +69,13 @@ export function twicePlugin(
         ) {
           lastKey = '';
           count = 0;
-          return;
+          return false;
         }
       }
     }
 
     const currentKey = event.key ? event.key.toLowerCase() : '';
-    if (!currentKey) return;
+    if (!currentKey) return false;
 
     const normCurrent = currentKey === 'control' ? 'control' : currentKey;
 
@@ -98,16 +99,19 @@ export function twicePlugin(
         matched.forEach(entry => entry.action(event));
         lastKey = '';
         count = 0;
+        return true;
       }
     }
+    return false;
   }
 
   return {
     id: 'twice',
     onKeyEvent(event) {
       if (event.type === 'keyup') {
-        handleKeyUp(event);
+        return handleKeyUp(event);
       }
+      return false;
     },
     onDestroy() {
       registrations.length = 0;

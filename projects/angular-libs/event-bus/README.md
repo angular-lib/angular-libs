@@ -7,7 +7,7 @@ A type-safe, RxJS-free event bus powered entirely by Angular Signals
 ## Features
 
 - ✅ **Strongly Typed**: Full type-safety for event payloads out of the box.
-- 🚀 **Signal-Based**: Built on Angular Signals for a modern, reactive architecture. Angular 18+
+- 🚀 **Signal-Based**: Built on Angular Signals for a modern, reactive architecture. Angular 19+
 - 📡 **Flexible Subscriptions**: Listen via callbacks (`on`) or reactive signals (`onToSignal`).
 - 🌀 **Async Resource Mapping**: Reactively map events to async operations with `onToResource()`. Integrates directly with Angular's modern Resource API, providing native loading status, error signals, and auto-abort cancellation.
 - 🔄 **Event Transformation**: Map payloads directly within subscription options.
@@ -105,7 +105,7 @@ The package ships with four high-profile, plug-and-play functional factories:
 | **`loggerPlugin`** | Passive | `{ enabled?: boolean, theme?: { headerColor?: string, payloadColor?: string } }` | Automatically styles, groups, and logs emissions, timestamps, and metadata headers to the browser console. |
 | **`debouncePlugin`** | Passive | `DebounceRule[]` | Intercepts rapid event cascades (like typing or window resizes) and buffers dispatches with a strict custom millisecond delay. |
 | **`crossTabSyncPlugin`** | Passive | `{ keys?: string[], channelName?: string }` | Synchronizes specified events across browser tabs in real time using the highly optimized `BroadcastChannel` API. |
-| **`historyPlugin`** | Active | `{ limit?: number, keys?: string[] }` | Exposes a complete historical timeline stack with `.undo()`, `.redo()`, `.canUndo()`, and `.canRedo()` triggers. |
+| **`historyPlugin`** | Active | `{ limit?: number, keys?: string[] }` | Timeline undo/redo via `.undo()`, `.redo()`, `.canUndo()`, `.canRedo()`. Undo re-emits the previous stack entry’s key/payload — it is **not** a full multi-key state restore. Prefer `keys: [...]` when tracking related editor events, or treat the stack as a command log. |
 
 ---
 

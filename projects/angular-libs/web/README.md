@@ -98,6 +98,8 @@ export class UploaderComponent {
 }
 ```
 
+Prefer `(filesDropped)` for validated files. `(fileDrop)` emits the native `FileList` and may still include files that failed `accept` / `maxFileSize` — pair it with `(fileRejected)` if you need both.
+
 ---
 
 ### 📂 File System Access API (`fileSystemSignal`)
@@ -189,7 +191,7 @@ export class BatteryIndicatorComponent {
 | Directive | Export Name | Selector | Description |
 | :--- | :--- | :--- | :--- |
 | `AlClickOutsideDirective` | `alClickOutside` | `[alClickOutside]` | Detects clicks outside the host element with element/selector ignore list support. |
-| `AlFileDropDirective` | `alFileDrop` | `[alFileDrop]` | Drag-and-drop file target with reactive signal hover state, size filter, and accept filter. |
+| `AlFileDropDirective` | `alFileDrop` | `[alFileDrop]` | Drag-and-drop target with signal hover state. Use `filesDropped` (filtered `File[]`) + `fileRejected`; `fileDrop` is the raw native `FileList`. |
 
 ---
 
@@ -215,7 +217,7 @@ export class BatteryIndicatorComponent {
 | 🔑 **Permissions** | `permissionSignal()` | Query permissions (geolocation, camera, notifications) reactively. |
 | 📺 **Picture-in-Picture** | `pictureInPictureSignal()` | Manage video Picture-in-Picture window states. |
 | 📐 **Resize Observer** | `resizeObserverSignal()` | Observe target element dimensions and content box changes. |
-| 📱 **Screen Orientation** | `screenOrientationSignal()` | Screen orientation type (`portrait-primary`, `landscape`, etc.) and lock controls. |
+| 📱 **Screen Orientation** | `screenOrientationSignal()` | Screen orientation type (`portrait-primary`, `landscape`, etc.). |
 | 📳 **Vibration** | `vibrateSignal()` | Trigger tactile vibration patterns on supported mobile devices. |
 
 ---

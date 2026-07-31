@@ -74,7 +74,8 @@ export interface WebSocketResourceOptions<TSend = any, TReceive = any> {
   deserializer?: (event: MessageEvent) => TReceive;
   serializer?: (payload: TSend) => WebSocketSendData;
 
-  /** Optional custom Angular Injector to resolve tokens and DestroyRef when initialized outside a creation context. */
+  /** Optional Angular `Injector` when calling outside an injection context.
+   *  Used for `DestroyRef` teardown **and** the reactive URL `effect`. */
   injector?: Injector;
 
   /** Heartbeat interval in milliseconds. Set to 0 to disable. Defaults to 30000. */
@@ -87,7 +88,9 @@ export interface WebSocketResourceOptions<TSend = any, TReceive = any> {
   maxReconnectDelay?: number;
   backoffFactor?: number;
 
-  /** Buffer outgoing messages while disconnected and flush them when connected. Defaults to true. */
+  /** Buffer outgoing messages while disconnected and flush them when connected.
+   *  Defaults to `true` for `websocketResource()`, and **off** for `createWebSocket()`
+   *  unless you set it explicitly. */
   bufferWhileOffline?: boolean;
 
   /** Automatically listen to browser online/offline network events to trigger instant reconnects or status updates. Defaults to true. */

@@ -40,8 +40,8 @@ export function debouncePlugin(rules: DebounceRule[]): ALEventBusPlugin {
   const timers = new Map<string, any>();
   const rulesMap = new Map(rules.map((r) => [r.key, r.delay]));
 
-  // Internal header key to bypass our debounce check when rehashing emissions
-  const DEBOUNCE_BYPASS = '__DEBUG_DEBOUNCE_BYPASS__';
+  // Out-of-band bypass so deferred re-emits are not re-debounced (no header leak).
+  const bypassKeys = new Set<string>();
 
   return {
     onInit(bus) {
@@ -53,10 +53,8 @@ export function debouncePlugin(rules: DebounceRule[]): ALEventBusPlugin {
 
       if (!delay || !busInstance) return;
 
-      // Checking bypass header
-      if (options?.headers?.[DEBOUNCE_BYPASS]) {
-        // Clean up our bypass header so it doesn't propagate to consumers
-        delete options.headers[DEBOUNCE_BYPASS];
+      if (bypassKeys.has(keyStr)) {
+        bypassKeys.delete(keyStr);
         return;
       }
 
@@ -67,8 +65,8 @@ export function debouncePlugin(rules: DebounceRule[]): ALEventBusPlugin {
 
       const timerId = setTimeout(() => {
         timers.delete(keyStr);
-        const nextOptions = { ...options, headers: { ...options?.headers, [DEBOUNCE_BYPASS]: true } };
-        busInstance!.emit(keyStr as any, payload as any, nextOptions);
+        bypassKeys.add(keyStr);
+        busInstance!.emit(keyStr as any, payload as any, options);
       }, delay);
 
       timers.set(keyStr, timerId);

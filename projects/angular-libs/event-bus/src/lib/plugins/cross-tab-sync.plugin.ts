@@ -43,11 +43,11 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
   const keys = options.keys;
   let busInstance: IALEventBus<any> | null = null;
   let channel: BroadcastChannel | null = null;
-  const SYNC_HEADER = '__TAB_SYNC_FLAG__';
 
-  // Guards against re-broadcasting a reset that we ourselves just applied because it arrived
-  // from another tab (which would otherwise cause an infinite ping-pong between tabs).
+  // Guards against re-broadcasting emits/resets applied from another tab (ping-pong).
+  // Kept out-of-band so internal flags never leak into consumer-visible headers.
   let isApplyingRemoteReset = false;
+  let isApplyingRemoteEmit = false;
 
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     channel = new BroadcastChannel(channelName);
@@ -77,22 +77,20 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
         }
 
         const { key, payload, headers } = data;
-        // Re-emit on the local bus, with the SYNC_HEADER to avoid broadcast echoing loops
-        const nextHeaders = { ...headers, [SYNC_HEADER]: true };
-        busInstance.emit(key, payload, { headers: nextHeaders });
+        isApplyingRemoteEmit = true;
+        try {
+          busInstance.emit(key, payload, headers ? { headers } : undefined);
+        } finally {
+          isApplyingRemoteEmit = false;
+        }
       };
     },
     onAfterEmit(key, payload, emitOptions) {
-      if (!channel) return;
+      if (!channel || isApplyingRemoteEmit) return;
       const keyStr = String(key);
 
       // Filter by keys if specified
       if (keys && !keys.includes(keyStr)) return;
-
-      // Avoid echo infinite loops
-      if (emitOptions?.headers?.[SYNC_HEADER]) {
-        return;
-      }
 
       channel.postMessage({
         type: 'emit',

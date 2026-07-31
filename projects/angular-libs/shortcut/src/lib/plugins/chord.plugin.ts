@@ -87,12 +87,13 @@ export function chordPlugin(
     }
   }
 
-  function handleKeyDown(event: KeyboardEvent): void {
+  function handleKeyDown(event: KeyboardEvent): boolean {
     if (ignoreInputs) {
       const target = event.target as Element | null;
       if (target && 'tagName' in target) {
         const tagName = (target.tagName || '').toUpperCase();
-        const isContentEditable = target.hasAttribute('contenteditable') || (target as any).isContentEditable;
+        const isContentEditable =
+          (target as HTMLElement).isContentEditable === true;
         if (
           tagName === 'INPUT' ||
           tagName === 'TEXTAREA' ||
@@ -100,13 +101,13 @@ export function chordPlugin(
           isContentEditable
         ) {
           resetHistory();
-          return;
+          return false;
         }
       }
     }
 
     const key = getShortcutKey(event);
-    if (!key) return;
+    if (!key) return false;
 
     // Refresh sequence reset timer
     if (timeoutId) {
@@ -145,15 +146,20 @@ export function chordPlugin(
       }
       exactMatch.action(event);
       resetHistory();
+      // Only a completed chord consumes the event; partial prefixes still allow
+      // registered single-key shortcuts to run (previous public behavior).
+      return true;
     } else if (partialMatches) {
       // If it is a partial match, we must prevent default behavior of this sub-step
       // (e.g. pressing 'g' shouldn't do other things if we're waiting for 'd')
       if (event.ctrlKey || event.metaKey || event.altKey) {
         event.preventDefault();
       }
+      return false;
     } else {
       // No match at all, clear history
       resetHistory();
+      return false;
     }
   }
 
@@ -161,8 +167,9 @@ export function chordPlugin(
     id: 'chord',
     onKeyEvent(event) {
       if (event.type === 'keydown') {
-        handleKeyDown(event);
+        return handleKeyDown(event);
       }
+      return false;
     },
     onDestroy() {
       resetHistory();

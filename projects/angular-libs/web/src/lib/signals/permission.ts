@@ -41,6 +41,7 @@ export function permissionSignal(name: PermissionName): Signal<PermissionSignalS
   }
 
   let permissionStatus: PermissionStatus | null = null;
+  let destroyed = false;
 
   const handleChange = () => {
     if (permissionStatus) {
@@ -52,17 +53,20 @@ export function permissionSignal(name: PermissionName): Signal<PermissionSignalS
     .query({ name })
     .then(
       (status) => {
+        if (destroyed) return;
         permissionStatus = status;
         state.set(status.state);
         status.addEventListener('change', handleChange);
       },
       () => {
+        if (destroyed) return;
         state.set('unsupported');
       }
     );
 
   if (destroyRef) {
     destroyRef.onDestroy(() => {
+      destroyed = true;
       if (permissionStatus) {
         permissionStatus.removeEventListener('change', handleChange);
       }

@@ -77,9 +77,11 @@ export class AppComponent {
 - `set(key, val)`: Updates a value directly and triggers reactive updates.
 - `update(key, fn)`: Safely mutates a value using a callback based on the previous state.
 - `patchState(stateOrUpdater)`: Modifies multiple state object properties simultaneously.
-- `select(projector)`: Creates a reactive, memoized derived state Signal using a proxy-based callback.
+- `select(projector)`: Creates a reactive, memoized derived state Signal using a proxy-based callback. Property access, `in`, `Object.keys`, and object spread are supported. Prefer reading properties you need so signal dependencies stay precise.
 - `snapshot()`: Retrieves a synchronous snapshot of the entire current state object.
 - `reset(key?)`: Resets a specific key (or the entire store if omitted) back to its `initialState`.
+
+When `syncChannel` is configured, updates are broadcast with `BroadcastChannel.postMessage`. Values must be **structured-cloneable**; non-cloneable payloads are skipped (dev warning) without rolling back the local write.
 
 ### Plugins
 

@@ -32,6 +32,15 @@ export function commandPalettePlugin(
   const triggerKeys = config.triggerShortcut || 'ctrl+shift+p';
   const placeholderText = config.placeholder || 'Type a command or search shortcuts...';
 
+  function escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function getMatchingShortcuts(): ReturnType<ALShortcutService['getShortcuts']> {
     const list = serviceRef?.getShortcuts() || [];
     // Deduplicate / filter out our own command palette toggle trigger if wanted, or keep it.
@@ -75,12 +84,15 @@ export function commandPalettePlugin(
 
   function renderListHTML(): string {
     if (filteredShortcuts.length === 0) {
-      return `<div class="al-pal-no-results">No commands found for "${query}"</div>`;
+      return `<div class="al-pal-no-results">No commands found for "${escapeHtml(query)}"</div>`;
     }
     return filteredShortcuts.map((item, index) => {
-      const keysHtml = item.shortcut.split('+').map(k => `<span class="al-pal-kbd">${k}</span>`).join('');
+      const keysHtml = item.shortcut
+        .split('+')
+        .map((k) => `<span class="al-pal-kbd">${escapeHtml(k)}</span>`)
+        .join('');
       const focusedClass = index === selectedIndex ? 'al-pal-item-focused' : '';
-      const desc = item.description || `Trigger ${item.shortcut}`;
+      const desc = escapeHtml(item.description || `Trigger ${item.shortcut}`);
       return `
         <li class="al-pal-item ${focusedClass}" data-index="${index}">
           <span class="al-pal-item-desc">${desc}</span>
@@ -177,7 +189,7 @@ export function commandPalettePlugin(
         <div class="al-pal-modal">
           <div class="al-pal-search-wrapper">
             <span class="al-pal-search-icon">🔍</span>
-            <input type="text" class="al-pal-input" id="al-pal-search-input" value="${query}" placeholder="${placeholderText}" autocomplete="off" />
+            <input type="text" class="al-pal-input" id="al-pal-search-input" value="${escapeHtml(query)}" placeholder="${escapeHtml(placeholderText)}" autocomplete="off" />
           </div>
           <ul class="al-pal-list" id="al-pal-items-list">
             ${renderListHTML()}

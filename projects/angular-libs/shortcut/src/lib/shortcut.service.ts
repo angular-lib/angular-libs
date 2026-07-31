@@ -205,9 +205,11 @@ export class ALShortcutService implements OnDestroy {
   }
 
   private handleKeyEvent(event: KeyboardEvent): void {
-    // Run plugins onKeyEvent interceptor first
+    // Run plugins onKeyEvent interceptor first — a true return consumes the event.
     for (const plugin of this.plugins) {
-      plugin.onKeyEvent?.(event);
+      if (plugin.onKeyEvent?.(event) === true) {
+        return;
+      }
     }
 
     if (this.registeredShortcuts.size === 0) return;
@@ -298,7 +300,16 @@ export class ALShortcutService implements OnDestroy {
     return shortcut
       .toLowerCase()
       .split('+')
-      .map(k => k.trim())
+      .map((k) => {
+        const token = k.trim();
+        if (token === 'cmd' || token === 'command' || token === '⌘') return 'meta';
+        if (token === 'control' || token === 'ctl') return 'ctrl';
+        if (token === 'option' || token === '⌥') return 'alt';
+        if (token === 'esc') return 'escape';
+        if (token === '' || token === ' ') return 'space';
+        return token;
+      })
+      .filter(Boolean)
       .sort()
       .join('+');
   }

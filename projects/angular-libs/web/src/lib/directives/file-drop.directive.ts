@@ -46,10 +46,12 @@ export class AlFileDropDirective {
   /** Reactive state indicating if files are currently hovering above the target DOM drop zones. */
   readonly isOver = signal<boolean>(false);
 
-  /** Emits the matching native FileList object when items are successfully dropped. */
+  /** Emits the native drop `FileList` when at least one file is accepted.
+   *  This is the browser's original list and may still include rejected entries —
+   *  prefer `filesDropped` for the filtered `File[]`, and `fileRejected` for rejects. */
   readonly fileDrop = output<FileList>();
 
-  /** Emits array of validated File objects. */
+  /** Emits only files that passed `accept` / `maxFileSize` validation. */
   readonly filesDropped = output<File[]>();
 
   /** Emits array of rejected files with failure reason ('type' or 'size'). */
@@ -64,6 +66,12 @@ export class AlFileDropDirective {
   protected onDragLeave(event: DragEvent): void {
     event.preventDefault();
     event.stopPropagation();
+    const related = event.relatedTarget as Node | null;
+    const current = event.currentTarget as Node | null;
+    // Ignore leave events that bubble when moving into a child of the drop zone.
+    if (related && current && current.contains(related)) {
+      return;
+    }
     this.isOver.set(false);
   }
 

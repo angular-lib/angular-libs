@@ -54,7 +54,7 @@ function cleanTaskbarIfEmpty(): void {
  * Plugin that manages docking minimized dialogs inside a native-styled bottom taskbar
  * or a custom user-defined target element.
  *
- * Keeps the core DialogService clean, lightweight, and 100% safe for SSR environments.
+ * Keeps docking concerns outside the core DialogService.
  *
  * @example
  * ```ts

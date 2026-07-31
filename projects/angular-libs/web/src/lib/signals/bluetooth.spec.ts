@@ -65,6 +65,16 @@ describe('bluetoothSignal', () => {
     expect(bt.state().loading).toBe(false);
   });
 
+  it('should clear loading on AbortError without treating it as a hard failure', async () => {
+    const err = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    mockBluetooth.requestDevice.mockRejectedValue(err);
+
+    const bt = TestBed.runInInjectionContext(() => bluetoothSignal());
+    await expect(bt.requestDevice()).resolves.toBeUndefined();
+    expect(bt.state().loading).toBe(false);
+    expect(bt.state().error).toBeNull();
+  });
+
   it('should detach the previous device listener when a new device is selected (no leak)', async () => {
     const deviceA = createMockDevice('Device A');
     const deviceB = createMockDevice('Device B');

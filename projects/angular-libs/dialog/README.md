@@ -19,7 +19,7 @@ A lightweight service for opening Angular components inside a native HTML `<dial
   - **`dockPlugin`**: Docking minimized dialogs cleanly inside a glassmorphic layout.
   - **`windowManagerPlugin`**: All-in-one OS-style workspace window layout composite.
 - **DefaultDialogComponent**: Built-in, fully-customizable wrapper supporting nested sub-components or HTML/plain text layouts with zero boilerplate.
-- SSR safe
+- Browser-only `open()` (uses native DOM — not SSR-safe; call from the client)
 
 ## Installation & Styles Setup
 
@@ -94,10 +94,10 @@ snapToEdge(ref, 'right');
 ```
 
 ### Global Configuration & Dock Custom Settings
-Configure global behaviors using Angular signals on `DialogService` or by calling `updateConfig` anywhere (e.g., in your main component's constructor):
+Configure global behaviors using Angular signals on `DialogService` or by calling `updateConfig` anywhere (e.g. in your main component's constructor). Dock options such as `autoHide` / `minimizeTarget` belong on `dockPlugin`, not on `updateConfig`:
 
 ```ts
-import { DialogService } from '@angular-libs/dialog';
+import { DialogService, dockPlugin } from '@angular-libs/dialog';
 import { inject } from '@angular/core';
 
 export class AppComponent {
@@ -105,12 +105,15 @@ export class AppComponent {
 
   constructor() {
     this.dialogService.updateConfig({
-      // Auto-hide the taskbar/dock when there is no cursor interaction (default is false)
-      autoHideDock: true,
-      // Custom HTMLElement or CSS selector where minimized dialogs are attached
-      minimizeTarget: '#my-custom-dock-container',
       // Global plugins to apply to all dialogs automatically
-      plugins: []
+      plugins: [
+        dockPlugin({
+          // Auto-hide the taskbar/dock when there is no cursor interaction (default is false)
+          autoHide: true,
+          // Custom HTMLElement or CSS selector where minimized dialogs are attached
+          minimizeTarget: '#my-custom-dock-container',
+        }),
+      ],
     });
   }
 }
@@ -507,7 +510,7 @@ this.dialogService.open(NewTicketFormComponent, {
 ```
 
 #### Guidelines for AI Agents writing new plugins:
-* **SSR Safety**: All hooks (`setup`, `onOpen`, `beforeClose`, and `onClose`) are executed safely on the browser side. Direct DOM access (`dialogEl`), `window`, and `document` are safe to reference inside them.
+* **Browser-only plugins**: Plugin hooks (`setup`, `onOpen`, `beforeClose`, `onClose`) run only after a successful browser `open()`. You may use `dialogEl`, `window`, and `document` inside them. Do not call `DialogService.open()` during SSR — it requires DOM.
 * **Component-Safe Communication**: Use generic parameterization (e.g. `DialogPlugin<any, DraftableComponent>`) to type-safely restrict or safely interface with custom property/methods declared on the dialog component.
 * **Cleanup Strategy**: If you register event listeners, timers, or timeouts inside `setup(...)`, always return a teardown callback from it to ensure resources are cleaned up cleanly.
 </details>
@@ -678,6 +681,6 @@ You are an expert AI development assistant specialized in modern Angular practic
     cascade
   } from '@angular-libs/dialog';
   ```
-- Set `autoHideDock` or `minimizeTarget` via global `dialogService.updateConfig({...})` in application root/constructor if needed.
+- Configure dock behavior via `dockPlugin({ autoHide, minimizeTarget })` on `updateConfig({ plugins: [...] })` or per-open `plugins` — not as top-level `updateConfig` fields.
 ````
 </details>

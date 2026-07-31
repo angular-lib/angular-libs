@@ -113,19 +113,24 @@ export function batterySignal(options?: BatterySignalOptions): Signal<BatterySig
   };
 
   if (win && supported) {
+    let destroyed = false;
+
     navigator.getBattery().then(
       (bat: any) => {
+        if (destroyed) return;
         battery = bat;
         updateState();
         bindEvents();
       },
       () => {
+        if (destroyed) return;
         state.set({ ...state(), supported: false, loading: false });
       }
     );
 
     if (destroyRef) {
       destroyRef.onDestroy(() => {
+        destroyed = true;
         unbindEvents();
       });
     }
