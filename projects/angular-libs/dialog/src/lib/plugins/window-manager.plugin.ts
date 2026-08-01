@@ -61,7 +61,7 @@ export function windowManagerPlugin(options: WindowManagerPluginOptions = {}): D
 
   return {
     id: 'window-manager',
-    setup(context: DialogPluginContext<any, any>) {
+    setup(context: DialogPluginContext) {
       const teardowns = plugins.map((p) => p.setup?.(context));
       return () => {
         teardowns.forEach((cleanup) => cleanup?.());

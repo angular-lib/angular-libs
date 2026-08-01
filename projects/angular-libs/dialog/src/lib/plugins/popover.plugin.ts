@@ -61,7 +61,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
 
   return {
     id: 'popover',
-    setup(context: DialogPluginContext<any, any>): () => void {
+    setup(context: DialogPluginContext): () => void {
       const { element } = context;
       // Find the anchor element
       let anchorEl: HTMLElement | null = null;

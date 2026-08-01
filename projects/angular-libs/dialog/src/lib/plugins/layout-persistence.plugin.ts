@@ -110,7 +110,7 @@ export function layoutPersistencePlugin(options: LayoutPersistenceOptions): Dial
 
   return {
     id: 'layout-persistence',
-    setup(context: DialogPluginContext<any, any>): void {
+    setup(context: DialogPluginContext): void {
       const { element, dialogRef } = context;
       const applyState = (state: SavedDialogState) => {
         setPosition(
@@ -170,7 +170,7 @@ export function layoutPersistencePlugin(options: LayoutPersistenceOptions): Dial
       }
     },
 
-    onOpen(context: DialogPluginContext<any, any>): void {
+    onOpen(context: DialogPluginContext): void {
       if (!loadedState) return;
 
       // Restore minimized or maximized state after dialog is natively open

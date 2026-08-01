@@ -298,7 +298,7 @@ It features customizable headers (with optional close, minimize, maximize decora
 ```ts
 import { DefaultDialogComponent } from '@angular-libs/dialog';
 
-const ref = this.dialogService.open(DefaultDialogComponent, {
+const ref = this.dialogService.open<DefaultDialogComponent, 'proceed' | null>(DefaultDialogComponent, {
   inputs: {
     title: 'Discard Project?',
     subtitle: 'This operation is irreversible.',
@@ -393,16 +393,16 @@ export class EditNameComponent {
 The dialog library supports custom visual and logical extensions through a simple plugin system. Implement custom workflows by matching the `DialogPlugin` interface:
 
 ```typescript
-export interface DialogPlugin<TResult = any, TComponent = any> {
+export interface DialogPlugin<TComponent = any> {
   readonly id?: string;
-  setup?(context: DialogPluginContext<TResult, TComponent>): (() => void) | void;
-  onOpen?(context: DialogPluginContext<TResult, TComponent>): void;
+  setup?(context: DialogPluginContext<TComponent>): (() => void) | void;
+  onOpen?(context: DialogPluginContext<TComponent>): void;
   beforeClose?(
-    context: DialogPluginContext<TResult, TComponent> & { source: CloseSource }
+    context: DialogPluginContext<TComponent> & { source: CloseSource }
   ): Promise<boolean | void> | boolean | void;
-  onClose?(context: DialogPluginContext<TResult, TComponent>): void;
+  onClose?(context: DialogPluginContext<TComponent>): void;
   onLayoutChange?(
-    context: DialogPluginContext<TResult, TComponent> & { changes: LayoutChangeEvent }
+    context: DialogPluginContext<TComponent> & { changes: LayoutChangeEvent }
   ): void;
 }
 ```
@@ -439,12 +439,12 @@ export interface DraftableComponent {
   loadDraftData?: (data: Record<string, any>) => void;
 }
 
-export function autoDraftRecoveryPlugin(draftKey: string): DialogPlugin<any, DraftableComponent> {
+export function autoDraftRecoveryPlugin(draftKey: string): DialogPlugin<DraftableComponent> {
   const localStorageKey = `dialog-draft:${draftKey}`;
   let autosaveIntervalId: any;
 
   return {
-    setup(context: DialogPluginContext<any, DraftableComponent>) {
+    setup(context: DialogPluginContext<DraftableComponent>) {
       const { dialogRef } = context;
       const component = dialogRef.component;
       if (!component) return;
@@ -497,8 +497,6 @@ export function autoDraftRecoveryPlugin(draftKey: string): DialogPlugin<any, Dra
   };
 }
 ```
-}
-```
 
 ### Usage
 Apply the stateful auto-draft persistence plugin on open:
@@ -511,7 +509,7 @@ this.dialogService.open(NewTicketFormComponent, {
 
 #### Guidelines for AI Agents writing new plugins:
 * **Browser-only plugins**: Plugin hooks (`setup`, `onOpen`, `beforeClose`, `onClose`) run only after a successful browser `open()`. You may use `dialogEl`, `window`, and `document` inside them. Do not call `DialogService.open()` during SSR — it requires DOM.
-* **Component-Safe Communication**: Use generic parameterization (e.g. `DialogPlugin<any, DraftableComponent>`) to type-safely restrict or safely interface with custom property/methods declared on the dialog component.
+* **Component-Safe Communication**: Use generic parameterization (e.g. `DialogPlugin<DraftableComponent>`) to type-safely access custom properties/methods on `context.dialogRef.component`.
 * **Cleanup Strategy**: If you register event listeners, timers, or timeouts inside `setup(...)`, always return a teardown callback from it to ensure resources are cleaned up cleanly.
 </details>
 
@@ -622,6 +620,10 @@ You are an expert AI development assistant specialized in modern Angular practic
   ```ts
   const ref = this.dialogService.open(MyDialogComponent, { inputs: { data: 'test' } });
   const { result, closeSource } = await ref.closed;
+  ```
+  Result type is inferred from a public `dialogRef: DialogRef<TResult>` on the component. Override when needed:
+  ```ts
+  const ref = this.dialogService.open<DefaultDialogComponent, 'yes' | 'no'>(DefaultDialogComponent, { ... });
   ```
 - **Signal-Based Inputs:** When passing configuration properties via `{ inputs: { ... } }`, they map directly to public `input()` or `model()` signal properties in the child component. The library dynamically handles binding updates using `ComponentRef.setInput()`.
 - **CSS Variable Styling:** Never attempt to reposition or write custom `z-index` values directly onto the `.al-dialog` wrapper unless utilizing standard CSS custom property hooks:

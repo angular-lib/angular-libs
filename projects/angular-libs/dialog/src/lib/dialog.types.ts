@@ -2,13 +2,6 @@ import { type Injector, type InputSignal, type ModelSignal } from '@angular/core
 import type { DialogRef, CloseSource } from './dialog-ref';
 
 /**
- * Marker interface that components rendered in a dialog can implement to type their result.
- */
-export interface DialogComponent<TResult = any> {
-  dialogRef: DialogRef<TResult, any>;
-}
-
-/**
  * Maps component signal inputs (`input()`, `model()`) to raw primitive/object types.
  *
  * @typeParam T Component type whose inputs should be mapped.
@@ -23,7 +16,7 @@ export type ComponentInputs<T> = {
 };
 
 /**
- * Infers the dialog result type from a component by checking its `dialogRef` property or its interface setup.
+ * Infers the dialog result type from a component by checking its `dialogRef` property.
  *
  * @typeParam TComponent Component type rendered by the dialog.
  */
@@ -33,10 +26,13 @@ export type InferDialogResult<TComponent> = TComponent extends { dialogRef: Dial
 
 /**
  * Context provided to dialog plugin lifecycle events.
+ *
+ * @typeParam TComponent Component type rendered inside the dialog. Use this when authoring
+ * plugins that need typed access to `dialogRef.component`.
  */
-export interface DialogPluginContext<TResult = any, TComponent = any> {
+export interface DialogPluginContext<TComponent = any> {
   element: HTMLDialogElement;
-  dialogRef: DialogRef<TResult, TComponent>;
+  dialogRef: DialogRef<any, TComponent>;
   injector: Injector;
 }
 
@@ -55,8 +51,11 @@ export interface LayoutChangeEvent {
  *
  * A plugin's `setup` function is called once after the component is mounted inside the dialog.
  * It may return a cleanup function that the service calls automatically when the dialog closes.
+ *
+ * @typeParam TComponent Optional component type for typed `context.dialogRef.component` access.
+ * Built-in plugins leave this as the default (`any`).
  */
-export interface DialogPlugin<TResult = any, TComponent = any> {
+export interface DialogPlugin<TComponent = any> {
   /**
    * Unique identifier to prevent duplicate activation of the same plugin.
    * If a plugin with an matching ID is provided in parent global configuration and specific config,
@@ -68,31 +67,31 @@ export interface DialogPlugin<TResult = any, TComponent = any> {
    * Called once immediately after the component is rendered inside the dialog but before opening.
    * Receives both the native dialog element, the DialogRef wrapper, and the dynamic Injector.
    */
-  setup?(context: DialogPluginContext<TResult, TComponent>): (() => void) | void;
+  setup?(context: DialogPluginContext<TComponent>): (() => void) | void;
 
   /**
    * Called immediately after the dialog is opened (either modal or non-modal).
    */
-  onOpen?(context: DialogPluginContext<TResult, TComponent>): void;
+  onOpen?(context: DialogPluginContext<TComponent>): void;
 
   /**
    * Intercepts and potentially prevents the dialog from closing.
    * Return `false` to prevent closing. Return `true` or `void` to allow it.
    */
   beforeClose?(
-    context: DialogPluginContext<TResult, TComponent> & { source: CloseSource }
+    context: DialogPluginContext<TComponent> & { source: CloseSource }
   ): Promise<boolean | void> | boolean | void;
 
   /**
    * Called after the dialog has finished closing and is removed from the DOM.
    */
-  onClose?(context: DialogPluginContext<TResult, TComponent>): void;
+  onClose?(context: DialogPluginContext<TComponent>): void;
 
   /**
    * Called after any layout modifications have occurred (dimensions, positions, coordinates, or minimization/maximization state).
    */
   onLayoutChange?(
-    context: DialogPluginContext<TResult, TComponent> & { changes: LayoutChangeEvent }
+    context: DialogPluginContext<TComponent> & { changes: LayoutChangeEvent }
   ): void;
 }
 
@@ -135,7 +134,7 @@ export interface GlobalDialogConfig extends DialogConfigBase {
   /**
    * Default plugins to extend dialog behavior globally.
    */
-  plugins?: DialogPlugin<any, any>[];
+  plugins?: DialogPlugin[];
 }
 
 /**
@@ -184,5 +183,5 @@ export interface DialogOptions<TComponent = unknown> extends DialogConfigBase {
    * open(MyDialog, { plugins: [draggablePlugin({ handle: '.my-header' })] });
    * ```
    */
-  plugins?: DialogPlugin<InferDialogResult<TComponent>, TComponent>[];
+  plugins?: DialogPlugin[];
 }

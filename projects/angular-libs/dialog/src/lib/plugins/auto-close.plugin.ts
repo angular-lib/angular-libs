@@ -34,7 +34,7 @@ export function autoClosePlugin(options: AutoCloseOptions = {}): DialogPlugin {
 
   return {
     id: 'auto-close',
-    setup(context: DialogPluginContext<any, any>): () => void {
+    setup(context: DialogPluginContext): () => void {
       const { element, dialogRef } = context;
       let timeoutId: any = null;
 

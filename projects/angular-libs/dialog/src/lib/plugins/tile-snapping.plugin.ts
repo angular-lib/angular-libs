@@ -34,7 +34,7 @@ export function tileSnappingPlugin(options: TileSnappingOptions = {}): DialogPlu
 
   return {
     id: 'tile-snapping',
-    setup(context: DialogPluginContext<any, any>): () => void {
+    setup(context: DialogPluginContext): () => void {
       const { element, dialogRef } = context;
       let overlayEl: HTMLDivElement | null = null;
       let startRow = -1;

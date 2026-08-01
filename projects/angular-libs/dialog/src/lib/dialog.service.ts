@@ -135,12 +135,14 @@ export class DialogService {
    *
    * Result typing is inferred from a public component property typed as `DialogRef<TResult>`.
    * If the component does not expose one, the result type becomes `unknown`.
+   * Pass an explicit second type argument to override: `open<MyComp, MyResult>(MyComp, options)`.
    *
    * Call only in the browser. `open()` uses `document.createElement('dialog')` and
    * will throw in SSR / non-DOM environments — guard with platform checks or
    * invoke from client-only lifecycle hooks.
    *
    * @typeParam TComponent Component type to render inside the dialog.
+   * @typeParam TResult Close result type. Defaults to {@link InferDialogResult} of `TComponent`.
    * @param component Standalone or declarable Angular component class to render.
    * @param options Optional configuration for inputs, close behavior, injector ancestry, classes,
    * plugins, modal mode, and inline size styles.
@@ -158,10 +160,10 @@ export class DialogService {
    * const { result, closeSource } = await ref.closed;
    * ```
    */
-  open<TComponent>(
+  open<TComponent, TResult = InferDialogResult<TComponent>>(
     component: Type<TComponent>,
     options: DialogOptions<TComponent> = {},
-  ): DialogRef<InferDialogResult<TComponent>, TComponent> {
+  ): DialogRef<TResult, TComponent> {
     const rawPlugins = [
       ...(this.config().plugins || []),
       ...(options.plugins || []),
@@ -219,7 +221,7 @@ export class DialogService {
     dialogEl.tabIndex = -1;
 
     // 2. Instantiate our updated DialogRef, which stores the result in memory (not in the DOM)
-    const dialogRef = new DialogRef<InferDialogResult<TComponent>, TComponent>(dialogEl, mergedOptions);
+    const dialogRef = new DialogRef<TResult, TComponent>(dialogEl, mergedOptions);
 
     // Register the parent/child hierarchy (if any) so the parent can cascade-close this
     // dialog automatically when it closes.

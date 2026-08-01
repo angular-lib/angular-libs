@@ -9,7 +9,7 @@ import { snapToEdge, type SnapEdge } from '../actions/snap-to-edge';
 export function snapToEdgePlugin(): DialogPlugin {
   return {
     id: 'snap-to-edge',
-    setup(context: DialogPluginContext<any, any>): () => void {
+    setup(context: DialogPluginContext): () => void {
       const { element, dialogRef } = context;
 
       const onKeyDown = (e: KeyboardEvent) => {

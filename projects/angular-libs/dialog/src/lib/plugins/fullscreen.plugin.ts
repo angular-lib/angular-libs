@@ -36,7 +36,7 @@ export function fullscreenPlugin(options: FullscreenPluginOptions = {}): DialogP
 
   return {
     id: 'fullscreen',
-    setup({ element, dialogRef }: DialogPluginContext<any, any>): () => void {
+    setup({ element, dialogRef }: DialogPluginContext): () => void {
       const handleFullscreenChange = () => {
         if (!isFullscreen(dialogRef)) {
           triggerLayoutChangeHook(dialogRef, 'normal');

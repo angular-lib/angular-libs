@@ -2,7 +2,7 @@ import { Component, inject, input, output, signal, DestroyRef, Type } from '@ang
 import { CommonModule, NgComponentOutlet } from '@angular/common';
 import { DialogRef } from '../dialog-ref';
 import { isMaximized, minimize, toggleMaximize, isFullscreen, toggleFullscreen } from '../actions';
-import type { ComponentInputs, DialogComponent } from '../dialog.types';
+import type { ComponentInputs } from '../dialog.types';
 
 @Component({
   selector: 'al-default-dialog',
@@ -140,15 +140,15 @@ import type { ComponentInputs, DialogComponent } from '../dialog.types';
  *   }
  * });
  *
- * // 3. Get a strongly-typed close result by supplying the TResult type argument explicitly:
- * const dialogRef = dialogService.open<DefaultDialogComponent<unknown, 'confirmed' | 'cancelled'>>(
+ * // 3. Override the close result type on open (preferred over specializing the component class):
+ * const dialogRef = dialogService.open<DefaultDialogComponent, 'confirmed' | 'cancelled'>(
  *   DefaultDialogComponent,
  *   { inputs: { title: 'Confirm', primaryButtonText: 'Yes' } },
  * );
  * const { result } = await dialogRef.closed; // typed as 'confirmed' | 'cancelled' | undefined
  * ```
  */
-export class DefaultDialogComponent<TComponent = any, TResult = unknown> implements DialogComponent<TResult> {
+export class DefaultDialogComponent<TComponent = any, TResult = unknown> {
   /** Optional title displayed prominently in the header. */
   title = input<string>();
 
@@ -240,7 +240,8 @@ export class DefaultDialogComponent<TComponent = any, TResult = unknown> impleme
 
   /**
    * Closes the dialog, optionally passing a typed result back to the caller.
-   * The result type comes from the `TResult` type argument supplied to `DefaultDialogComponent`.
+   * Prefer overriding the result on open: `open<DefaultDialogComponent, TResult>(...)`.
+   * The component's own `TResult` type argument still types `close(result?)` when specialized.
    */
   close(result?: TResult) {
     this.dialogRef?.close(result);

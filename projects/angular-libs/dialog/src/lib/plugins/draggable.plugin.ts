@@ -26,7 +26,7 @@ export interface DraggablePluginOptions {
 export function draggablePlugin(options: DraggablePluginOptions = {}): DialogPlugin {
   return {
     id: 'draggable',
-    setup(context: DialogPluginContext<any, any>): () => void {
+    setup(context: DialogPluginContext): () => void {
       const { element, dialogRef } = context;
       const { handle, containInViewport = false } = options;
       const handleSelector = handle?.trim() || null;

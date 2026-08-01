@@ -69,7 +69,7 @@ function cleanTaskbarIfEmpty(): void {
 export function dockPlugin(options: DockPluginOptions = {}): DialogPlugin {
   return {
     id: 'dock',
-    setup(context: DialogPluginContext<any, any>): () => void {
+    setup(context: DialogPluginContext): () => void {
       const { element, dialogRef } = context;
       const windowState = getWindowState(dialogRef);
       const originalOnStateChange = windowState._onStateChange;
