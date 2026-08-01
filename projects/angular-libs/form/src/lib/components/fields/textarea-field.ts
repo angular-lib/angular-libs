@@ -50,10 +50,18 @@ import { AlField } from '../field/field';
       box-sizing: border-box;
       font: inherit;
       padding: 0.4rem 0.5rem;
-      border: 1px solid #c4c4c4;
+      border: 1px solid var(--al-form-border, #c4c4c4);
       border-radius: 0.25rem;
       resize: vertical;
       min-height: 4rem;
+      outline: none;
+    }
+    .al-textarea:focus {
+      border-color: var(--al-form-focus, #ea580c);
+    }
+    .al-textarea.al-textarea--invalid,
+    .al-textarea[aria-invalid='true'] {
+      border-color: var(--al-form-invalid, #b00020);
     }
     .al-textarea--auto {
       resize: none;

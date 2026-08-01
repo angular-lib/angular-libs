@@ -29,6 +29,11 @@ export type {
   FormTextareaProps,
   FormCheckboxProps,
   FormSelectProps,
+  FormDropdownColumn,
+  FormDropdownLoaderParams,
+  FormDropdownDatasource,
+  FormSelectCreatableOptions,
+  FormSelectTreeOptions,
   FormCustomProps,
   FormFlexAlign,
   FormFlexJustify,
@@ -85,6 +90,9 @@ export { AlNumberField } from './lib/components/fields/number-field';
 export { AlTextareaField } from './lib/components/fields/textarea-field';
 export { AlCheckboxField } from './lib/components/fields/checkbox-field';
 export { AlSelectField } from './lib/components/fields/select-field';
+export { AlDropdown } from './lib/components/dropdown/al-dropdown';
+export type { AlDropdownValueChange } from './lib/components/dropdown/al-dropdown';
+export type { AlDropdownApi } from './lib/components/dropdown/dropdown-api';
 export { AlPasswordField } from './lib/components/fields/password-field';
 export { AlSearchField } from './lib/components/fields/search-field';
 export { AlCustomField } from './lib/components/fields/custom-field';

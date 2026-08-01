@@ -37,6 +37,7 @@ import { AlControlChrome } from '../control-chrome/control-chrome';
         [meta]="meta()"
         [submitAttempted]="submitAttempted()">
         <al-control-chrome
+          [anchorName]="controlAnchor()"
           [prefix]="chromeProps()?.prefix"
           [suffix]="chromeProps()?.suffix"
           [clearable]="clearable()"
@@ -67,6 +68,8 @@ export class AlFieldShell {
   readonly clearValue = input<unknown | undefined>(undefined);
   readonly clearableOverride = input<boolean | null>(null);
   readonly meta = input<string | null>(null);
+  /** Shared with dropdown panels so they align to the chrome (not the whole field). */
+  readonly controlAnchor = input<string | undefined>(undefined);
 
   readonly clear = output<Event>();
 

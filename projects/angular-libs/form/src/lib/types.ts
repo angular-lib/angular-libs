@@ -136,6 +136,57 @@ export interface FormCheckboxProps {
   checkboxLabel?: string;
 }
 
+/** Column definition for multi-column dropdown panels (flat list only; not with tree). */
+export interface FormDropdownColumn {
+  field?: string;
+  header?: string;
+  width?: string | number;
+  hide?: boolean;
+  ignoreInSearch?: boolean;
+  valueGetter?: (item: Record<string, unknown>) => unknown;
+}
+
+export interface FormDropdownLoaderParams {
+  abortSignal: AbortSignal;
+  searchTerm?: string;
+  startRow: number;
+  endRow: number;
+}
+
+export interface FormDropdownDatasource {
+  loader: (params: FormDropdownLoaderParams) => Promise<readonly Record<string, unknown>[]>;
+  chunkSize?: number;
+  debounceMs?: number;
+  /** When true, filter client-side and do not re-query loader on search. */
+  searchLocally?: boolean;
+}
+
+export interface FormSelectCreatableOptions {
+  createOnBlur?: boolean;
+  /** Multi: treat comma as create delimiter. */
+  createOnComma?: boolean;
+  /** Return `false` or an error string to block create. */
+  validate?: (term: string) => boolean | string;
+  /**
+   * Prefer this for S2 (`valueMode: 'id'`): return a real row with `valueKey`.
+   * Without `onCreate`, creatable requires `valueMode: 'object'`.
+   */
+  onCreate?: (
+    term: string,
+  ) => Promise<Record<string, unknown>> | Record<string, unknown>;
+}
+
+export interface FormSelectTreeOptions {
+  /** Default `'children'`. */
+  childrenKey?: string;
+  getChildren?: (
+    item: Record<string, unknown>,
+  ) => readonly Record<string, unknown>[] | undefined;
+  defaultExpanded?: 'none' | 'all' | 'selected-ancestors';
+  /** Multi + checkbox: selecting a parent also selects descendants. */
+  selectDescendants?: boolean;
+}
+
 export interface FormSelectProps {
   valueKey: string;
   labelKeys: string[];
@@ -150,6 +201,24 @@ export interface FormSelectProps {
    * Default: `0` for number-ish current values, `''` for strings, otherwise `null`.
    */
   emptyValue?: unknown;
+  /** Client search in the open panel (default true). */
+  searchable?: boolean;
+  /** Highlight matching search terms without filtering when true. */
+  disableSearchFiltering?: boolean;
+  datasource?: FormDropdownDatasource;
+  groupBy?: string | ((item: Record<string, unknown>) => string);
+  isRowDisabled?: (item: Record<string, unknown>) => boolean;
+  /** Multi-column panel (ignored when `tree` is enabled). */
+  columns?: FormDropdownColumn[];
+  panelMaxHeight?: number;
+  enableCheckboxes?: boolean;
+  footerText?: string;
+  onFooterClick?: () => void;
+  noItemsText?: string;
+  loadingText?: string;
+  createText?: string;
+  creatable?: boolean | FormSelectCreatableOptions;
+  tree?: boolean | FormSelectTreeOptions;
 }
 
 export interface FormCustomProps<TComponent = unknown> {

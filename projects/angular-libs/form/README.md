@@ -108,7 +108,7 @@ provideFormFields({ select: MySelectField, datepicker: MyDateField })
 | Controller | `createForm`, `FormController`, `seedSelection`, `clearSelection` |
 | Factories | `formText`…, `formElementGroup`, `formRow`, `formFactories`, `FORM_WIDTHS` |
 | Root UI | `AlSignalForm` |
-| Custom fields | `AlField`, `AlFieldShell`, `AlControlChrome`, `formCustom`, `provideFormFields` |
+| Custom fields | `AlField`, `AlFieldShell`, `AlControlChrome`, `AlDropdown`, `formCustom`, `provideFormFields` |
 | Grid bridge | `toColumnDefs` |
 | Dev | `warnInvalidFormSetup` (also runs from `AlSignalForm` in dev) |
 
@@ -122,9 +122,45 @@ Selects store **IDs** (or ID arrays) in the Signal Forms model. Labels for the c
 2. `seedSelection(controller, { roleId: [{ id, name }] })` after load  
 3. `clearSelection` / `resetUi()` when resetting  
 4. Optional `emptyValue` on clear (default `0` / `''` / `null` from current type)  
-5. `loadItems` errors surface in the open panel  
+5. `loadItems` / `datasource` errors surface in the open panel  
 
 Use `valueMode: 'object'` only when the field should hold full row object(s) (S1).
+
+### Powerful select (`AlDropdown`)
+
+Built-in `select` uses a **Popover API** panel (no CDK): search, multi chips, async `loadItems` / paged `datasource`, grouping, checkboxes, columns, footer, **creatable tags**, and **tree** options.
+
+```ts
+f.select({
+  path: 'tagIds',
+  label: 'Tags',
+  props: {
+    valueKey: 'id',
+    labelKeys: ['name'],
+    multiple: true,
+    searchable: true,
+    creatable: {
+      onCreate: async (term) => api.createTag(term), // required for S2 id mode
+    },
+    items: tags,
+  },
+});
+
+f.select({
+  path: 'folderId',
+  label: 'Folder',
+  props: {
+    valueKey: 'id',
+    labelKeys: ['name'],
+    tree: { childrenKey: 'children', defaultExpanded: 'selected-ancestors' },
+    items: folderTree,
+  },
+});
+```
+
+Standalone (outside the form): import `AlDropdown` and bind `[value]` / `(valueChange)`.
+
+Browser baseline: native `popover` + CSS anchor positioning (fallback absolute panel when anchors are unsupported).
 
 ## Layout
 
@@ -140,16 +176,18 @@ Set on a parent (or `:root`):
 |-------|---------|------|
 | `--al-form-row-gap` | `0.5rem` | Flex row gap |
 | `--al-form-column-gap` | `1rem` | Flex column gap (also used in `FORM_WIDTHS` calcs) |
+| `--al-form-border` | `#c4c4c4` | Control border |
+| `--al-form-focus` | `#ea580c` | Focus border (chrome + textarea) |
+| `--al-form-invalid` | `#b00020` | Invalid border |
 
 Control chrome uses scoped classes (`al-control`, `al-control__action`, …). Override in global CSS:
 
 ```css
 al-control-chrome.al-control {
   border-radius: 0.5rem;
-  border-color: #94a3b8;
 }
-al-control-chrome.al-control.al-control--focused {
-  outline-color: #0ea5e9;
+:root {
+  --al-form-focus: #0ea5e9;
 }
 ```
 

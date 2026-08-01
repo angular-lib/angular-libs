@@ -56,18 +56,25 @@ import {
       gap: 0.25rem;
       width: 100%;
       box-sizing: border-box;
-      border: 1px solid #c4c4c4;
+      border: 1px solid var(--al-form-border, #c4c4c4);
       border-radius: 0.25rem;
       background: #fff;
       min-height: 2.25rem;
       padding-inline: 0.35rem;
     }
+    /* Same focus language as .al-textarea: colored 1px border, wraps prefix/suffix/clear */
     al-control-chrome.al-control.al-control--focused {
-      outline: 2px solid #4c6fff;
-      outline-offset: 1px;
+      outline: none;
+      border-color: var(--al-form-focus, #ea580c);
+    }
+    /* Open dropdown: keep focus cue, square bottom against panel */
+    al-control-chrome.al-control.al-control--focused:has(.al-dropdown--open) {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      border-bottom-color: var(--al-form-border, #c4c4c4);
     }
     al-control-chrome.al-control.al-control--invalid {
-      border-color: #b00020;
+      border-color: var(--al-form-invalid, #b00020);
     }
     al-control-chrome.al-control.al-control--disabled {
       opacity: 0.65;
@@ -159,6 +166,7 @@ import {
     '[class.al-control--focused]': 'focused()',
     '[class.al-control--invalid]': 'invalid()',
     '[class.al-control--disabled]': 'disabled()',
+    '[style.anchor-name]': 'anchorName() || null',
     '(click)': 'onHostClick($event)',
     '(focusin)': 'focused.set(true)',
     '(focusout)': 'onFocusOut($event)',
@@ -167,6 +175,8 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AlControlChrome {
+  /** CSS anchor for popovers that should match this control box (incl. clear). */
+  readonly anchorName = input<string | undefined>(undefined);
   readonly prefix = input<string | undefined>(undefined);
   readonly suffix = input<string | undefined>(undefined);
   readonly clearable = input(false);
