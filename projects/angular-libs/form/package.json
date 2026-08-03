@@ -15,7 +15,7 @@
   "bugs": {
     "url": "https://github.com/angular-lib/angular-libs/issues"
   },
-  "homepage": "https://github.com/angular-lib/angular-libs/tree/main/projects/angular-libs/form",
+  "homepage": "https://angular-lib.github.io/angular-libs/form",
   "keywords": [
     "angular",
     "signals",

@@ -12,7 +12,7 @@
     "url": "https://github.com/angular-lib/angular-libs.git",
     "directory": "projects/angular-libs/dialog"
   },
-  "homepage": "https://github.com/angular-lib/angular-libs/tree/main/projects/angular-libs/dialog",
+  "homepage": "https://angular-lib.github.io/angular-libs/dialog",
   "bugs": {
     "url": "https://github.com/angular-lib/angular-libs/issues"
   },

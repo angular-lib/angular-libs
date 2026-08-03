@@ -4,7 +4,7 @@
   "description": "Reactive Angular Signal wrappers and directives for modern Browser and Hardware Web APIs (Geolocation, Battery, Bluetooth, NFC, File System, ResizeObserver, ClickOutside, FileDrop, and more).",
   "author": "Angular-Libs",
   "license": "MIT",
-  "homepage": "https://github.com/angular-lib/web/tree/main/projects/angular-libs/web",
+  "homepage": "https://angular-lib.github.io/angular-libs/web",
   "repository": {
     "type": "git",
     "url": "https://github.com/angular-lib/web.git",

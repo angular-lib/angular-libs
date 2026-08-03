@@ -6,6 +6,7 @@
     "start": "ng serve demo",
     "socket": "bun run server/server.ts",
     "build": "ng build demo",
+    "build:pages": "ng build demo --configuration=production --base-href=/angular-libs/",
     "build:libs": "ng build @angular-libs/dialog && ng build @angular-libs/event-bus && ng build @angular-libs/shortcut && ng build @angular-libs/socket && ng build @angular-libs/store && ng build @angular-libs/translate && ng build @angular-libs/web && ng build @angular-libs/data-grid && ng build @angular-libs/form",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"

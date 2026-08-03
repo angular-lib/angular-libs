@@ -43,7 +43,7 @@
     "rxjs-free",
     "ai-friendly"
   ],
-  "homepage": "https://github.com/angular-lib/store/tree/main/projects/angular-libs/store",
+  "homepage": "https://angular-lib.github.io/angular-libs/store",
   "license": "MIT",
   "sideEffects": false,
   "peerDependenciesMeta": {

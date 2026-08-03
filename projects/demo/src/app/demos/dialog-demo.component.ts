@@ -22,6 +22,11 @@ import {
         <h3 class="section-title">Intents</h3>
         <div class="grid">
           <div class="card">
+            <h4>Window</h4>
+            <p>Modeless with drag, snap, and dock by default.</p>
+            <button class="btn btn-success" (click)="openWindow()">Open Window</button>
+          </div>
+          <div class="card">
             <h4>Modal</h4>
             <p>Blocking dialog. Confirm/Cancel close with results.</p>
             <button class="btn btn-primary" (click)="openStandardModal()">Open Modal</button>
@@ -33,11 +38,6 @@ import {
             @if (lastConfirm !== null) {
               <p class="result">Result: {{ lastConfirm }}</p>
             }
-          </div>
-          <div class="card">
-            <h4>Window</h4>
-            <p>Modeless with drag, snap, and dock by default.</p>
-            <button class="btn btn-success" (click)="openWindow()">Open Window</button>
           </div>
           <div class="card">
             <h4>Popover</h4>
@@ -115,6 +115,7 @@ export class DialogDemoComponent {
       inputs: {
         title: 'Floating Window',
         contentText: 'Drag, Alt+S tile snap, Alt+Arrows edge snap, minimize to dock.',
+        showFullscreenIcon: true,
         showMinimizeIcon: true,
         showMaximizeIcon: true,
         closeButtonText: 'Close',
@@ -159,7 +160,7 @@ export class DialogDemoComponent {
             element.style.outline = '3px solid #8b5cf6';
             setTimeout(() => {
               element.style.outline = '';
-            }, 600);
+            }, 1000);
           },
         }),
       ],

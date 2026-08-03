@@ -1,6 +1,7 @@
 {
   "name": "@angular-libs/data-grid",
   "version": "0.0.1",
+  "homepage": "https://angular-lib.github.io/angular-libs/data-grid",
   "peerDependencies": {
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0",

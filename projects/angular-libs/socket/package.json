@@ -12,6 +12,7 @@
     "url": "https://github.com/angular-lib/angular-libs.git",
     "directory": "projects/angular-libs/socket"
   },
+  "homepage": "https://angular-lib.github.io/angular-libs/socket",
   "keywords": [
     "angular",
     "signals",

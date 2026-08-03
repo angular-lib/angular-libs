@@ -14,7 +14,7 @@
   ],
   "license": "MIT",
   "author": "Angular-Libs",
-  "homepage": "https://github.com/angular-lib/event-bus/tree/main/projects/angular-libs/event-bus",
+  "homepage": "https://angular-lib.github.io/angular-libs/event-bus",
   "repository": {
     "type": "git",
     "url": "https://github.com/angular-lib/event-bus.git"
