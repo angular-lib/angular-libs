@@ -1,0 +1,243 @@
+/* Core dialog shell — use alone for modal / confirm / alert / toast / popover */
+dialog.al-dialog {
+  /* Public theme tokens (primary contract) */
+  --al-dialog-bg: #ffffff;
+  --al-dialog-color: #333333;
+  --al-dialog-border: none;
+  --al-dialog-border-radius: 8px;
+  --al-dialog-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  --al-dialog-backdrop: rgba(0, 0, 0, 0.3);
+  --al-dialog-accent: #007bff;
+  --al-dialog-font-family: system-ui, -apple-system, sans-serif;
+
+  /* Advanced tokens */
+  --al-dialog-header-bg: transparent;
+  --al-dialog-header-border-color: #eeeeee;
+  --al-dialog-header-padding: 16px;
+  --al-dialog-title-color: #111111;
+  --al-dialog-subtitle-color: #666666;
+  --al-dialog-content-padding: 0 16px;
+  --al-dialog-footer-bg: transparent;
+  --al-dialog-footer-border-color: #eeeeee;
+  --al-dialog-footer-padding: 16px;
+
+  --al-btn-primary-bg: var(--al-dialog-accent);
+  --al-btn-primary-color: #ffffff;
+  --al-btn-primary-hover-bg: #0069d9;
+  --al-btn-secondary-bg: #e0e0e0;
+  --al-btn-secondary-color: #333333;
+  --al-btn-secondary-hover-bg: #c8c8c8;
+
+  --al-action-btn-hover-bg: #f5f5f5;
+  --al-action-btn-hover-color: #333333;
+
+  --al-minimized-width: 150px;
+  --al-minimized-height: 100px;
+  --al-minimized-border: 1px solid rgba(15, 23, 42, 0.14);
+  --al-minimized-shadow: 0 16px 36px rgba(15, 23, 42, 0.2);
+  --al-minimized-border-radius: 10px;
+
+  --al-toast-inset: 16px;
+  --al-toast-stack-offset: 0px;
+  --al-toast-max-width: min(360px, calc(100vw - 32px));
+
+  box-sizing: border-box !important;
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  padding: 0;
+  border: var(--al-dialog-border);
+  background: transparent;
+  overflow: visible;
+  outline: none;
+  border-radius: var(--al-dialog-border-radius);
+  box-shadow: var(--al-dialog-shadow);
+  width: max-content;
+  height: max-content;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+@media (prefers-color-scheme: dark) {
+  dialog.al-dialog {
+    --al-dialog-bg: #1e1e1e;
+    --al-dialog-color: #e8e8e8;
+    --al-dialog-border: 1px solid #333333;
+    --al-dialog-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --al-dialog-backdrop: rgba(0, 0, 0, 0.55);
+    --al-dialog-accent: #3b82f6;
+    --al-dialog-header-border-color: #333333;
+    --al-dialog-title-color: #f5f5f5;
+    --al-dialog-subtitle-color: #a3a3a3;
+    --al-dialog-footer-border-color: #333333;
+    --al-btn-primary-hover-bg: #2563eb;
+    --al-btn-secondary-bg: #333333;
+    --al-btn-secondary-color: #e8e8e8;
+    --al-btn-secondary-hover-bg: #404040;
+    --al-action-btn-hover-bg: #2a2a2a;
+    --al-action-btn-hover-color: #f5f5f5;
+    --al-minimized-border: 1px solid rgba(255, 255, 255, 0.12);
+    --al-minimized-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+  }
+}
+
+dialog.al-dialog::backdrop {
+  background: var(--al-dialog-backdrop);
+}
+
+dialog.al-dialog:fullscreen,
+dialog.al-dialog:has(:fullscreen),
+dialog.al-dialog.al-dialog-maximized {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  --al-dialog-border-radius: 0 !important;
+  transform: none !important;
+  resize: none !important;
+}
+
+dialog.al-dialog.al-dialog-minimized {
+  position: fixed !important;
+  inset: auto !important;
+  bottom: 24px !important;
+  left: 24px !important;
+  width: var(--al-minimized-width) !important;
+  min-width: var(--al-minimized-width) !important;
+  max-width: var(--al-minimized-width) !important;
+  height: var(--al-minimized-height) !important;
+  min-height: var(--al-minimized-height) !important;
+  max-height: var(--al-minimized-height) !important;
+  resize: none !important;
+  transform: none !important;
+  margin: 0 !important;
+  border: var(--al-minimized-border) !important;
+  border-radius: var(--al-minimized-border-radius) !important;
+  --al-dialog-border-radius: var(--al-minimized-border-radius) !important;
+  background: var(--al-dialog-bg) !important;
+  box-shadow: var(--al-minimized-shadow) !important;
+  overflow: hidden;
+  z-index: 1000;
+  cursor: pointer;
+  pointer-events: auto !important;
+}
+
+dialog.al-dialog.al-dialog-minimized > * {
+  display: block !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transform: scale(0.25) !important;
+  transform-origin: top left !important;
+  width: 400% !important;
+  height: 400% !important;
+}
+
+/* Toast — corner placement + stacking via --al-toast-stack-offset */
+dialog.al-dialog.al-dialog-toast {
+  /* Do not use `inset: auto !important` — it locks all sides and blocks corner placement. */
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  margin: 0 !important;
+  transform: none !important;
+  z-index: 10050;
+  width: max-content;
+  max-width: var(--al-toast-max-width);
+  max-height: none;
+  box-shadow: var(--al-dialog-shadow);
+  background: var(--al-dialog-bg);
+  border: var(--al-dialog-border);
+  pointer-events: auto;
+}
+
+dialog.al-dialog.al-dialog-toast.al-toast-bottom-right {
+  bottom: calc(var(--al-toast-inset) + var(--al-toast-stack-offset)) !important;
+  right: var(--al-toast-inset) !important;
+  top: auto !important;
+  left: auto !important;
+}
+
+dialog.al-dialog.al-dialog-toast.al-toast-bottom-left {
+  bottom: calc(var(--al-toast-inset) + var(--al-toast-stack-offset)) !important;
+  left: var(--al-toast-inset) !important;
+  top: auto !important;
+  right: auto !important;
+}
+
+dialog.al-dialog.al-dialog-toast.al-toast-top-right {
+  top: calc(var(--al-toast-inset) + var(--al-toast-stack-offset)) !important;
+  right: var(--al-toast-inset) !important;
+  bottom: auto !important;
+  left: auto !important;
+}
+
+dialog.al-dialog.al-dialog-toast.al-toast-top-left {
+  top: calc(var(--al-toast-inset) + var(--al-toast-stack-offset)) !important;
+  left: var(--al-toast-inset) !important;
+  bottom: auto !important;
+  right: auto !important;
+}
+
+dialog.al-dialog.al-dialog-toast .al-dialog-container {
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+}
+
+dialog.al-dialog.al-dialog-toast .al-dialog-header {
+  border-bottom: none;
+  padding: 10px 10px 0 14px;
+  align-items: center;
+}
+
+dialog.al-dialog.al-dialog-toast .al-dialog-content {
+  overflow: visible;
+  padding: 8px 14px 12px;
+}
+
+dialog.al-dialog.al-dialog-toast .al-dialog-content p {
+  padding: 0;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+dialog.al-dialog.al-dialog-toast .al-dialog-title {
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+dialog.al-dialog.al-dialog-toast .al-dialog-footer {
+  display: none;
+}
+
+/* Fade animation helpers (opt-in via animation: 'fade') */
+dialog.al-dialog.al-dialog-anim-fade-enter {
+  animation: al-dialog-fade-in 0.15s ease-out;
+}
+
+dialog.al-dialog.al-dialog-anim-fade-leave {
+  animation: al-dialog-fade-out 0.15s ease-in forwards;
+}
+
+@keyframes al-dialog-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes al-dialog-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.al-dialog.al-dialog-anim-fade-enter,
+  dialog.al-dialog.al-dialog-anim-fade-leave {
+    animation: none;
+  }
+}

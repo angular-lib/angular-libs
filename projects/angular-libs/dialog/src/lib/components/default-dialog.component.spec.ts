@@ -85,4 +85,24 @@ describe('DefaultDialogComponent', () => {
     expect(buttons[0].getAttribute('title')).toBe('Restore State');
     expect(buttons[1].getAttribute('title')).toBe('Exit Full');
   });
+
+  it('should omit the header when there is nothing to show', () => {
+    const fixture = TestBed.createComponent(DefaultDialogComponent);
+    fixture.componentRef.setInput('showCloseIcon', false);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.al-dialog-header')).toBeNull();
+  });
+
+  it('should render the header when a title is set', () => {
+    const fixture = TestBed.createComponent(DefaultDialogComponent);
+    fixture.componentRef.setInput('showCloseIcon', false);
+    fixture.componentRef.setInput('title', 'Hello');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.al-dialog-header')).not.toBeNull();
+    expect(element.querySelector('.al-dialog-title')?.textContent?.trim()).toBe('Hello');
+  });
 });

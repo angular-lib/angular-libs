@@ -10,84 +10,73 @@ import {
   DestroyRef,
   type WritableSignal,
 } from '@angular/core';
+import { Router, NavigationStart } from '@angular/router';
 import { DialogRef } from './dialog-ref';
 import { setPosition, bringToFront } from './actions';
-import { type GlobalDialogConfig, type DialogOptions, type InferDialogResult } from './dialog.types';
+import {
+  DIALOG_CONFIG,
+  DIALOG_SIZE_PRESETS,
+  isPlainDialogStrings,
+  resolveDialogStrings,
+  type GlobalDialogConfig,
+  type DialogOptions,
+  type InferDialogResult,
+  type WindowOptions,
+  type ConfirmOptions,
+  type PopoverDialogOptions,
+  type ToastOptions,
+  type ToastPosition,
+  type DialogSizePreset,
+  type AutoFocusTarget,
+  type DialogAnimation,
+  type ProvideDialogConfig,
+  type DialogStrings,
+} from './dialog.types';
+import { mergePlugins, resolveBehaviorPlugins } from './behavior-resolver';
+import { popoverPlugin } from './plugins/popover.plugin';
+import { autoClosePlugin } from './plugins/auto-close.plugin';
+import { DefaultDialogComponent } from './components/default-dialog.component';
+
+const TOAST_STACK_GAP_PX = 12;
 
 /**
- * Service for opening Angular components inside a native HTML `<dialog>` modal.
+ * Service for opening Angular components inside a native HTML `<dialog>` element.
  *
- * The service dynamically creates a `<dialog>` element, mounts the requested component inside it,
- * wires `DialogRef` into the component injector, and cleans everything up when the dialog closes.
+ * Prefer intent helpers when possible:
+ * - {@link open} — modal dialogs
+ * - {@link window} — modeless floating windows
+ * - {@link confirm} / {@link alert} — built-in chrome
+ * - {@link popover} / {@link toast} — anchored / transient surfaces
  *
- * Key characteristics:
- * - uses the browser's native HTML5 `<dialog>` element
- * - works with standalone components
- * - supports typed component inputs and close results (via {@link InferDialogResult})
- * - requires a browser DOM (`document`); not safe to call `open()` during SSR
- * - supports both modal (blocking) and non-modal (interactive) modes
- * - extensible via plugins (e.g. `draggablePlugin`)
- * - allows minimizing non-modal dialogs into a taskbar-like state
- *
- * @example
- * ```ts
- * // Basic modal dialog
- * const ref = dialogService.open(EditUserDialogComponent, {
- *   inputs: { userName: 'Ava' },
- *   width: '32rem',
- * });
- * const { result } = await ref.closed;
- *
- * // Non-modal, draggable dialog that can be minimized
- * const floatingRef = dialogService.open(ChatWindowComponent, {
- *   modal: false,
- *   plugins: [draggablePlugin({ handle: '.chat-header' })]
- * });
- * minimize(floatingRef); // Send to bottom of screen
- * ```
+ * Browser-only: `open()` uses `document` and is not SSR-safe.
  */
 @Injectable({ providedIn: 'root' })
 export class DialogService {
   private appRef = inject(ApplicationRef);
   private envInjector = inject(EnvironmentInjector);
+  private destroyRef = inject(DestroyRef);
+  private bootstrapConfig = inject(DIALOG_CONFIG, { optional: true }) as ProvideDialogConfig | null;
+  private router = inject(Router, { optional: true });
 
-  /**
-   * Reactive signal representing the entire global dialog configuration.
-   * Can be read, updated, or bound dynamically using standard Angular Signals.
-   */
-  public config: WritableSignal<GlobalDialogConfig> = signal<GlobalDialogConfig>({});
+  public config: WritableSignal<GlobalDialogConfig> = signal<GlobalDialogConfig>({
+    ...(this.bootstrapConfig ?? {}),
+  });
 
   public openDialogs: DialogRef<any, any>[] = [];
 
   constructor() {
-    // Keep nested dialogs visible across native fullscreen transitions.
-    // When the document leaves fullscreen, any dialog that was mounted inside the
-    // (now former) fullscreen element is relocated back to <body>.
     if (typeof document !== 'undefined') {
       document.addEventListener('fullscreenchange', this.handleGlobalFullscreenChange);
-      inject(DestroyRef).onDestroy(() => {
+      this.destroyRef.onDestroy(() => {
         document.removeEventListener('fullscreenchange', this.handleGlobalFullscreenChange);
       });
     }
   }
 
-  /**
-   * Resolves the DOM container a dialog should be mounted into.
-   *
-   * The native Fullscreen API promotes the fullscreen element into the browser's "top layer",
-   * which renders above all normal-flow content. A dialog appended to `<body>` while another
-   * element is fullscreen would therefore be hidden behind it (non-modal dialogs especially,
-   * since they never join the top layer). Mounting the new dialog inside the active fullscreen
-   * element makes it render on top of the fullscreen content instead.
-   */
   private getMountTarget(): HTMLElement {
     return (document.fullscreenElement as HTMLElement | null) ?? document.body;
   }
 
-  /**
-   * When the document exits fullscreen, move any dialog that was mounted inside the former
-   * fullscreen element back to `<body>` so its fixed positioning and lifecycle stay correct.
-   */
   private handleGlobalFullscreenChange = (): void => {
     if (document.fullscreenElement) return;
 
@@ -103,101 +92,320 @@ export class DialogService {
     }
   };
 
-  /**
-   * Dynamically updates the global dialog configuration.
-   * Useful when configurations are loaded asynchronously (e.g. from a backend) after app initialization.
-   *
-   * @param config Partial global configuration options to apply.
-   */
   updateConfig(config: Partial<GlobalDialogConfig>): void {
-    this.config.update((current) => ({
-      ...current,
-      ...config,
-    }));
+    this.config.update((current) => {
+      const next: GlobalDialogConfig = {
+        ...current,
+        ...config,
+        window: { ...current.window, ...config.window },
+        persistDefaults: { ...current.persistDefaults, ...config.persistDefaults },
+      };
+
+      if (config.strings !== undefined) {
+        // Merge only when both sides are plain objects; Signal/factory replace entirely.
+        next.strings =
+          isPlainDialogStrings(current.strings) && isPlainDialogStrings(config.strings)
+            ? { ...current.strings, ...config.strings }
+            : config.strings;
+      } else {
+        next.strings = current.strings;
+      }
+
+      return next;
+    });
   }
 
-  /**
-   * Closes all currently open dialogs.
-   *
-   * Each dialog is closed through its own {@link DialogRef.close} method, which means any
-   * registered {@link DialogRef.beforeClose} hook still participates in the close flow.
-   */
   closeAll(): void {
-    // Clone array to avoid mutation issues while closing
     [...this.openDialogs].forEach((dialogRef) => dialogRef.close());
   }
 
   /**
-   * Opens a component in a native HTML5 `dialog` modal.
-   *
-   * The returned {@link DialogRef} exposes both the created component instance and the eventual
-   * close result.
-   *
-   * Result typing is inferred from a public component property typed as `DialogRef<TResult>`.
-   * If the component does not expose one, the result type becomes `unknown`.
-   * Pass an explicit second type argument to override: `open<MyComp, MyResult>(MyComp, options)`.
-   *
-   * Call only in the browser. `open()` uses `document.createElement('dialog')` and
-   * will throw in SSR / non-DOM environments — guard with platform checks or
-   * invoke from client-only lifecycle hooks.
-   *
-   * @typeParam TComponent Component type to render inside the dialog.
-   * @typeParam TResult Close result type. Defaults to {@link InferDialogResult} of `TComponent`.
-   * @param component Standalone or declarable Angular component class to render.
-   * @param options Optional configuration for inputs, close behavior, injector ancestry, classes,
-   * plugins, modal mode, and inline size styles.
-   * @returns A dialog handle that exposes the created component instance immediately and resolves
-   * its {@link DialogRef.closed} promise after the dialog closes.
-   *
-   * @example
-   * ```ts
-   * const ref = dialogService.open(ConfirmDialogComponent, {
-   *   inputs: { message: 'Delete this file?' },
-   *   disableClose: true,
-   *   width: '28rem',
-   * });
-   *
-   * const { result, closeSource } = await ref.closed;
-   * ```
+   * Opens a modal component dialog (default).
    */
   open<TComponent, TResult = InferDialogResult<TComponent>>(
     component: Type<TComponent>,
     options: DialogOptions<TComponent> = {},
   ): DialogRef<TResult, TComponent> {
-    const rawPlugins = [
-      ...(this.config().plugins || []),
-      ...(options.plugins || []),
-    ];
+    return this.openInternal(component, options, { intent: 'open' });
+  }
 
-    // Deduplicate from right to left, keeping more specific/last instance of any seen plugin.id
-    const seen = new Set<string>();
-    const uniquePlugins = [...rawPlugins].reverse().filter((p) => {
-      if (!p.id) return true;
-      if (seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    }).reverse();
-
-    const mergedOptions: DialogOptions<TComponent> = {
-      ...this.config(),
-      ...options,
-      plugins: uniquePlugins,
+  /**
+   * Opens a modeless floating window with declarative drag/snap/dock/persist defaults.
+   */
+  window<TComponent, TResult = InferDialogResult<TComponent>>(
+    component: Type<TComponent>,
+    options: WindowOptions<TComponent> = {},
+  ): DialogRef<TResult, TComponent> {
+    const global = this.config();
+    const windowDefaults = {
+      drag: true as const,
+      snap: true as const,
+      dock: true as const,
+      ...global.window,
     };
+
+    return this.openInternal(
+      component,
+      {
+        ...options,
+        modal: false,
+        resize: options.resize ?? global.window?.resize,
+        restoreFocus: options.restoreFocus ?? false,
+        closeOnNavigation: options.closeOnNavigation ?? false,
+        autoFocus: options.autoFocus ?? 'dialog',
+      },
+      { intent: 'window', windowDefaults },
+    );
+  }
+
+  /**
+   * Modal confirm dialog. Resolves `true` on primary, `false` on secondary/dismiss.
+   */
+  async confirm(options: ConfirmOptions = {}): Promise<boolean> {
+    const strings = this.resolveMergedStrings(options.strings);
+    const title = options.title ?? strings.confirmTitle ?? 'Confirm';
+    const ref = this.open<DefaultDialogComponent, boolean>(DefaultDialogComponent, {
+      inputs: {
+        title,
+        subtitle: options.subtitle,
+        contentText: options.message,
+        primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
+        secondaryButtonText: options.cancelText ?? strings.cancel ?? 'Cancel',
+        showCloseIcon: true,
+        primaryResult: true,
+        secondaryResult: false,
+      },
+      width: options.width,
+      size: options.size ?? 'sm',
+      disableClose: options.disableClose,
+      panelClass: options.panelClass,
+      contentClass: options.contentClass,
+      ariaLabel: options.ariaLabel ?? title,
+      ariaDescribedBy: options.ariaDescribedBy,
+      animation: options.animation,
+      closeOnNavigation: true,
+      restoreFocus: true,
+    });
+
+    const { result, source } = await ref.closed;
+    if (result === true) return true;
+    if (result === false) return false;
+    // Escape / backdrop / close icon → cancel
+    return source === 'primary';
+  }
+
+  /**
+   * Modal alert dialog. Resolves when dismissed.
+   */
+  async alert(options: ConfirmOptions = {}): Promise<void> {
+    const strings = this.resolveMergedStrings(options.strings);
+    const title = options.title ?? strings.alertTitle ?? 'Alert';
+    const ref = this.open<DefaultDialogComponent, true>(DefaultDialogComponent, {
+      inputs: {
+        title,
+        subtitle: options.subtitle,
+        contentText: options.message,
+        primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
+        showCloseIcon: true,
+        primaryResult: true,
+      },
+      width: options.width,
+      size: options.size ?? 'sm',
+      disableClose: options.disableClose,
+      panelClass: options.panelClass,
+      contentClass: options.contentClass,
+      ariaLabel: options.ariaLabel ?? title,
+      ariaDescribedBy: options.ariaDescribedBy,
+      animation: options.animation,
+      closeOnNavigation: true,
+      restoreFocus: true,
+    });
+    await ref.closed;
+  }
+
+  /**
+   * Anchored modeless popover.
+   */
+  popover<TComponent, TResult = InferDialogResult<TComponent>>(
+    component: Type<TComponent>,
+    options: PopoverDialogOptions<TComponent>,
+  ): DialogRef<TResult, TComponent> {
+    const { anchor, placement, offset, showArrow, arrowColor, plugins, ...rest } = options;
+    return this.openInternal(
+      component,
+      {
+        ...rest,
+        modal: false,
+        restoreFocus: rest.restoreFocus ?? true,
+        closeOnNavigation: rest.closeOnNavigation ?? false,
+        autoFocus: rest.autoFocus ?? 'first-tabbable',
+        plugins: [
+          popoverPlugin({ anchor, placement, offset, showArrow, arrowColor }),
+          ...(plugins ?? []),
+        ],
+      },
+      { intent: 'popover' },
+    );
+  }
+
+  /**
+   * Transient toast using DefaultDialog chrome + auto-close.
+   */
+  toast(message: string, options: ToastOptions = {}): DialogRef<undefined, DefaultDialogComponent> {
+    const { duration, pauseOnHover, title, position = 'bottom-right', ...rest } = options;
+    const ref = this.openInternal<DefaultDialogComponent, undefined>(
+      DefaultDialogComponent,
+      {
+        ...rest,
+        modal: false,
+        restoreFocus: false,
+        closeOnNavigation: false,
+        autoFocus: false,
+        ariaLabel: title ?? message,
+        inputs: {
+          title,
+          contentText: message,
+          showCloseIcon: true,
+        },
+        plugins: [autoClosePlugin({ duration, pauseOnHover })],
+        panelClass: [
+          'al-dialog-toast',
+          `al-toast-${position}`,
+          ...(rest.panelClass ? [rest.panelClass].flat() : []),
+        ],
+      },
+      { intent: 'toast' },
+    );
+
+    ref.dialogEl.setAttribute('role', 'status');
+    ref.dialogEl.setAttribute('aria-live', 'polite');
+    ref.dialogEl.dataset['alToastPosition'] = position;
+
+    // Restack after layout (microtask is too early — offsetHeight is often still 0).
+    this.scheduleToastRestack(position);
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => this.scheduleToastRestack(position))
+        : null;
+    resizeObserver?.observe(ref.dialogEl);
+
+    void ref.closed.then(() => {
+      resizeObserver?.disconnect();
+      this.scheduleToastRestack(position);
+    });
+
+    return ref;
+  }
+
+  private resolveMergedStrings(perCall?: ConfirmOptions['strings']): DialogStrings {
+    return {
+      ...resolveDialogStrings(this.config().strings),
+      ...resolveDialogStrings(perCall),
+    };
+  }
+
+  /** Coalesce restacks to one double-rAF pass per corner so heights are measurable. */
+  private toastRestackFrames = new Map<ToastPosition, number>();
+
+  private scheduleToastRestack(position: ToastPosition): void {
+    const pending = this.toastRestackFrames.get(position);
+    if (pending != null) {
+      cancelAnimationFrame(pending);
+    }
+
+    const frame = requestAnimationFrame(() => {
+      const frame2 = requestAnimationFrame(() => {
+        this.toastRestackFrames.delete(position);
+        this.restackToasts(position);
+      });
+      this.toastRestackFrames.set(position, frame2);
+    });
+    this.toastRestackFrames.set(position, frame);
+  }
+
+  private restackToasts(position: ToastPosition): void {
+    const toasts = this.openDialogs.filter(
+      (r) =>
+        r.dialogEl?.classList.contains('al-dialog-toast') &&
+        r.dialogEl.dataset['alToastPosition'] === position,
+    );
+
+    let offset = 0;
+    for (const toastRef of toasts) {
+      const el = toastRef.dialogEl;
+      el.style.setProperty('--al-toast-stack-offset', `${offset}px`);
+      // Prefer laid-out height; fall back only while content is still measuring.
+      const height = el.getBoundingClientRect().height || el.offsetHeight || 64;
+      offset += height + TOAST_STACK_GAP_PX;
+    }
+  }
+
+  private openInternal<TComponent, TResult = InferDialogResult<TComponent>>(
+    component: Type<TComponent>,
+    options: DialogOptions<TComponent>,
+    meta: {
+      intent: 'open' | 'window' | 'popover' | 'toast';
+      windowDefaults?: {
+        drag?: boolean | object;
+        snap?: boolean | object;
+        dock?: boolean | object;
+        persist?: boolean | object;
+        resize?: boolean;
+      };
+    },
+  ): DialogRef<TResult, TComponent> {
+    const global = this.config();
+    const isModal = options.modal !== false;
+
+    const behavior = resolveBehaviorPlugins(
+      {
+        drag: options.drag,
+        snap: options.snap,
+        dock: options.dock,
+        persist: options.persist,
+      },
+      meta.intent === 'window' ? (meta.windowDefaults as any) : {},
+      global.persistDefaults,
+      options.id ?? global.id,
+    );
+
+    const uniquePlugins = mergePlugins(
+      { plugins: global.plugins },
+      behavior,
+      { plugins: options.plugins },
+    );
+
+    const sizeWidth = resolveSize(options.size ?? global.size);
+    const mergedOptions: DialogOptions<TComponent> = {
+      ...global,
+      ...options,
+      width: options.width ?? sizeWidth ?? global.width,
+      resize:
+        options.resize ??
+        (meta.intent === 'window' ? meta.windowDefaults?.resize : undefined) ??
+        global.resize,
+      plugins: uniquePlugins,
+      restoreFocus: options.restoreFocus ?? (isModal ? true : false),
+      closeOnNavigation: options.closeOnNavigation ?? (isModal ? true : false),
+      autoFocus:
+        options.autoFocus ??
+        global.autoFocus ??
+        (isModal ? 'first-tabbable' : 'dialog'),
+      animation: options.animation ?? global.animation ?? false,
+    };
+
+    // Strip non-dialog option bags that shouldn't live on DialogRef.options forever is fine
     const { inputs } = mergedOptions;
 
-    // 1. Create a raw HTML dialog element dynamically in the DOM body
-    const dialogEl = document.createElement('dialog');
+    const opener =
+      typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
 
-    // Add a default class which applies our zero-config base styles (padding: 0, border: none, etc.)
+    const dialogEl = document.createElement('dialog');
     dialogEl.classList.add('al-dialog');
 
-    if (mergedOptions.panelClass) {
-      const classes = [mergedOptions.panelClass]
-        .flat()
-        .flatMap((c) => c.split(' '))
-        .filter(Boolean);
-      dialogEl.classList.add(...classes);
-    }
+    applyClasses(dialogEl, mergedOptions.panelClass);
 
     const sizeKeys = ['width', 'minWidth', 'maxWidth', 'height', 'minHeight', 'maxHeight'] as const;
     sizeKeys.forEach((key) => {
@@ -205,87 +413,94 @@ export class DialogService {
       if (value) dialogEl.style[key] = value;
     });
 
-    if (mergedOptions.resizable) {
+    if (mergedOptions.resize) {
       dialogEl.style.resize = 'both';
       dialogEl.style.overflow = 'hidden';
-      // Prevent the native dialog from being resized smaller than its contents' minimum size
       if (!mergedOptions.minWidth) dialogEl.style.minWidth = 'min-content';
       if (!mergedOptions.minHeight) dialogEl.style.minHeight = 'min-content';
     }
 
-    // Mount inside the active fullscreen element (if any) so the dialog renders on top of
-    // fullscreen content instead of being hidden behind the browser's top layer.
-    this.getMountTarget().appendChild(dialogEl);
+    applyAria(dialogEl, mergedOptions, isModal);
 
-    // Make the dialog focusable and focus it on programmatic show
+    this.getMountTarget().appendChild(dialogEl);
     dialogEl.tabIndex = -1;
 
-    // 2. Instantiate our updated DialogRef, which stores the result in memory (not in the DOM)
     const dialogRef = new DialogRef<TResult, TComponent>(dialogEl, mergedOptions);
+    dialogRef._opener = opener;
+    dialogRef._restoreFocus = mergedOptions.restoreFocus !== false;
 
-    // Register the parent/child hierarchy (if any) so the parent can cascade-close this
-    // dialog automatically when it closes.
+    const anim = resolveAnimationClasses(mergedOptions.animation);
+    dialogRef._leaveAnimationClass = anim.leave;
+    if (anim.enter) {
+      dialogEl.classList.add(anim.enter);
+    }
+
     if (mergedOptions.parent) {
       dialogRef.parent = mergedOptions.parent;
       mergedOptions.parent.children.push(dialogRef);
     }
 
-    // Bring clicked/focused non-modal dialogs to the front dynamically by tracking focus/cliques
-    if (mergedOptions.modal === false) {
-      dialogEl.addEventListener('focusin', () => {
-        bringToFront(dialogRef);
-      });
-      dialogEl.addEventListener('mousedown', () => {
-        bringToFront(dialogRef);
-      });
+    if (!isModal) {
+      dialogEl.addEventListener('focusin', () => bringToFront(dialogRef));
+      dialogEl.addEventListener('mousedown', () => bringToFront(dialogRef));
     }
 
-    // Track the dialog
     this.openDialogs.push(dialogRef);
 
-    // 3. Create a custom injector so the component can safely inject `DialogRef`
     const customInjector = Injector.create({
       providers: [{ provide: DialogRef, useValue: dialogRef }],
       parent: mergedOptions.injector ?? this.envInjector,
     });
     dialogRef.injector = customInjector;
 
-    // 4. Instantiate the user's component
     const compRef = createComponent(component, {
       environmentInjector: this.envInjector,
       elementInjector: customInjector,
     });
 
-    // Bind inputs if provided
+    if (component === DefaultDialogComponent) {
+      const s = resolveDialogStrings(global.strings);
+      if (s) {
+        if (s.close !== undefined) compRef.setInput('closeTooltip', s.close);
+        if (s.minimize !== undefined) compRef.setInput('minimizeTooltip', s.minimize);
+        if (s.maximize !== undefined) compRef.setInput('maximizeTooltip', s.maximize);
+        if (s.restore !== undefined) compRef.setInput('restoreTooltip', s.restore);
+        if (s.fullscreen !== undefined) compRef.setInput('fullscreenTooltip', s.fullscreen);
+        if (s.exitFullscreen !== undefined) {
+          compRef.setInput('exitFullscreenTooltip', s.exitFullscreen);
+        }
+      }
+    }
+
     if (inputs) {
       Object.entries(inputs).forEach(([key, value]) => {
         compRef.setInput(key, value);
       });
     }
 
-    // 5. Attach the view to Angular's lifecycle for change detection
     this.appRef.attachView(compRef.hostView);
 
-    // 6. Append the rendered component to the native dialog
     const compRootNode = (compRef.hostView as any).rootNodes[0] as HTMLElement;
     if (compRootNode) {
       compRootNode.dataset['alDialogContent'] = 'true';
+      applyClasses(compRootNode, mergedOptions.contentClass);
+      ensureTitleId(compRootNode, dialogEl, mergedOptions);
     }
     dialogEl.appendChild(compRootNode);
 
-    const pluginTeardowns = mergedOptions.plugins?.map((p) => p.setup?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector })) ?? [];
+    const pluginTeardowns =
+      mergedOptions.plugins?.map((p) =>
+        p.setup?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }),
+      ) ?? [];
 
-    // Assign the actual instance so the parent can modify it before/during render
     dialogRef.component = compRef.instance;
 
-    // 7. Show the dialog using the native modal API
-    mergedOptions.modal === false ? dialogEl.show() : dialogEl.showModal();
+    isModal ? dialogEl.showModal() : dialogEl.show();
 
-    // Trigger onOpen on plugins
-    mergedOptions.plugins?.forEach((p) => p.onOpen?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }));
+    mergedOptions.plugins?.forEach((p) =>
+      p.onOpen?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }),
+    );
 
-    // 8. Handle backdrop clicks to close the dialog
-    // We track mousedown to prevent closing when dragging from inside to outside (like resizing)
     const isClickInside = (el: HTMLElement, event: MouseEvent) => {
       const rect = el.getBoundingClientRect();
       return (
@@ -302,73 +517,186 @@ export class DialogService {
     });
 
     dialogEl.addEventListener('click', (event) => {
-      if (dialogEl.open && !mergedOptions.disableClose && !mousedownInside && !isClickInside(dialogEl, event)) {
+      if (
+        dialogEl.open &&
+        !mergedOptions.disableClose &&
+        !mousedownInside &&
+        !isClickInside(dialogEl, event)
+      ) {
         dialogRef.close(undefined, 'backdrop');
       }
     });
 
-    // 9. Intercept native 'ESC' and 'cancel' activities to route them safely through custom close logic
     const handleDismiss = (e: Event) => {
       e.preventDefault();
       if (!mergedOptions.disableClose) {
         dialogRef.close(undefined, 'escape');
       }
     };
-    dialogEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') handleDismiss(e);
-    });
     dialogEl.addEventListener('cancel', handleDismiss);
 
-    // 10. Handle cleanup and promise resolution when the dialog is naturally closed
+    let navSub: { unsubscribe: () => void } | undefined;
+    if (mergedOptions.closeOnNavigation && this.router) {
+      navSub = this.router.events.subscribe((event) => {
+        if (event instanceof NavigationStart) {
+          dialogRef.close(undefined, 'navigation');
+        }
+      });
+    }
+
     dialogEl.addEventListener(
       'close',
       () => {
-        // Untrack the dialog
         const index = this.openDialogs.indexOf(dialogRef);
         if (index > -1) {
           this.openDialogs.splice(index, 1);
         }
 
-        // Disconnect from Angular
+        navSub?.unsubscribe();
+
         this.appRef.detachView(compRef.hostView);
         compRef.destroy();
-
-        // Remove from DOM
         dialogEl.remove();
 
-        // Run plugin teardowns
         pluginTeardowns.forEach((teardown) => teardown?.());
+        mergedOptions.plugins?.forEach((p) =>
+          p.onClose?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }),
+        );
 
-        // Run plugin onClose hooks
-        mergedOptions.plugins?.forEach((p) => p.onClose?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }));
+        restoreFocusAfterClose(dialogRef, this.openDialogs);
 
-        // Focus the next available dialog in the stack if the dismissed one currently held focus
-        if (this.openDialogs.length > 0 && document.activeElement === document.body) {
-          const nextRef = this.openDialogs[this.openDialogs.length - 1];
-          nextRef?.dialogEl?.focus();
-        }
-
-        // Resolve the ref's promise
         dialogRef._finishClose();
       },
       { once: true },
     );
 
-    // Initial focus on opening a non-modal dialog to wire shortcut keys correctly
-    if (mergedOptions.modal === false) {
-      setTimeout(() => {
-        // Measure baseline centered positions and anchor them strictly to absolute coordinates
-        // This stops coordinates from jumping on the very first drag/focus interaction
+    queueMicrotask(() => {
+      // Floating windows get an initial translate; toasts/popovers use CSS / plugins instead.
+      if (!isModal && meta.intent === 'window') {
         if (!dialogEl.style.transform && dialogEl.style.left !== '0px') {
-          // Instead of removing margin/centering and locking strictly at absolute pixel bounds
-          // on start, we can leverage translate3d relative transforms directly on top of native layout.
-          // This keeps the dialog perfectly centered on open, while supporting relative pointer drags offsets!
           setPosition(dialogRef, 0, 0);
         }
-        dialogEl.focus();
-      }, 0);
-    }
+      }
+      applyAutoFocus(dialogEl, mergedOptions.autoFocus);
+    });
 
     return dialogRef;
+  }
+}
+
+function resolveSize(size?: DialogSizePreset | (string & {})): string | undefined {
+  if (!size) return undefined;
+  if (size in DIALOG_SIZE_PRESETS) {
+    return DIALOG_SIZE_PRESETS[size as DialogSizePreset];
+  }
+  return size;
+}
+
+function applyClasses(el: HTMLElement, value?: string | string[]): void {
+  if (!value) return;
+  const classes = [value]
+    .flat()
+    .flatMap((c) => c.split(' '))
+    .filter(Boolean);
+  if (classes.length) el.classList.add(...classes);
+}
+
+function applyAria(
+  dialogEl: HTMLDialogElement,
+  options: DialogOptions,
+  isModal: boolean,
+): void {
+  dialogEl.setAttribute('aria-modal', isModal ? 'true' : 'false');
+  if (options.ariaLabel) {
+    dialogEl.setAttribute('aria-label', options.ariaLabel);
+  }
+  if (options.ariaLabelledBy) {
+    dialogEl.setAttribute('aria-labelledby', options.ariaLabelledBy);
+  }
+  if (options.ariaDescribedBy) {
+    dialogEl.setAttribute('aria-describedby', options.ariaDescribedBy);
+  }
+}
+
+function ensureTitleId(
+  contentRoot: HTMLElement,
+  dialogEl: HTMLDialogElement,
+  options: DialogOptions,
+): void {
+  if (options.ariaLabelledBy || options.ariaLabel) return;
+  const title = contentRoot.querySelector('.al-dialog-title') as HTMLElement | null;
+  if (!title) return;
+  if (!title.id) {
+    title.id = `al-dialog-title-${Math.random().toString(36).slice(2, 9)}`;
+  }
+  dialogEl.setAttribute('aria-labelledby', title.id);
+
+  const body = contentRoot.querySelector('.al-dialog-content') as HTMLElement | null;
+  if (body && !options.ariaDescribedBy) {
+    if (!body.id) {
+      body.id = `al-dialog-desc-${Math.random().toString(36).slice(2, 9)}`;
+    }
+    dialogEl.setAttribute('aria-describedby', body.id);
+  }
+}
+
+function resolveAnimationClasses(
+  animation: DialogAnimation | undefined,
+): { enter: string | null; leave: string | null } {
+  if (!animation) return { enter: null, leave: null };
+  if (animation === 'fade') {
+    return { enter: 'al-dialog-anim-fade-enter', leave: 'al-dialog-anim-fade-leave' };
+  }
+  return {
+    enter: animation.enter ?? null,
+    leave: animation.leave ?? null,
+  };
+}
+
+function applyAutoFocus(dialogEl: HTMLDialogElement, target: AutoFocusTarget | undefined): void {
+  if (target === false) return;
+
+  if (target === 'dialog' || target === undefined) {
+    dialogEl.focus();
+    return;
+  }
+
+  if (typeof target === 'string' && target !== 'first-tabbable') {
+    const el = dialogEl.querySelector(target) as HTMLElement | null;
+    el?.focus();
+    return;
+  }
+
+  if (target instanceof HTMLElement) {
+    target.focus();
+    return;
+  }
+
+  // first-tabbable
+  const focusable = dialogEl.querySelector(
+    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  ) as HTMLElement | null;
+  (focusable ?? dialogEl).focus();
+}
+
+function restoreFocusAfterClose(
+  dialogRef: DialogRef<any, any>,
+  openDialogs: DialogRef<any, any>[],
+): void {
+  if (!dialogRef._restoreFocus) {
+    if (openDialogs.length > 0 && document.activeElement === document.body) {
+      openDialogs[openDialogs.length - 1]?.dialogEl?.focus();
+    }
+    return;
+  }
+
+  const opener = dialogRef._opener;
+  if (opener && document.contains(opener)) {
+    opener.focus();
+    return;
+  }
+
+  if (openDialogs.length > 0) {
+    openDialogs[openDialogs.length - 1]?.dialogEl?.focus();
   }
 }

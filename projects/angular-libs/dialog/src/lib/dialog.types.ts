@@ -1,10 +1,15 @@
-import { type Injector, type InputSignal, type ModelSignal } from '@angular/core';
+import {
+  InjectionToken,
+  isSignal,
+  type Injector,
+  type InputSignal,
+  type ModelSignal,
+  type Signal,
+} from '@angular/core';
 import type { DialogRef, CloseSource } from './dialog-ref';
 
 /**
  * Maps component signal inputs (`input()`, `model()`) to raw primitive/object types.
- *
- * @typeParam T Component type whose inputs should be mapped.
  */
 export type ComponentInputs<T> = {
   [K in keyof T as T[K] extends InputSignal<any> | ModelSignal<any> ? K : never]?:
@@ -16,20 +21,24 @@ export type ComponentInputs<T> = {
 };
 
 /**
- * Infers the dialog result type from a component by checking its `dialogRef` property.
+ * Infers the dialog result type from a component.
  *
- * @typeParam TComponent Component type rendered by the dialog.
+ * Looks for a public `dialogRef: DialogRef<R>` property first, then an optional
+ * static `ɵdialogResult` brand on the component class.
  */
-export type InferDialogResult<TComponent> = TComponent extends { dialogRef: DialogRef<infer R, any> }
+export type InferDialogResult<TComponent> = TComponent extends {
+  dialogRef: DialogRef<infer R, any>;
+}
   ? R
-  : unknown;
+  : TComponent extends { constructor: { ɵdialogResult?: infer R } }
+    ? R
+    : unknown;
 
-/**
- * Context provided to dialog plugin lifecycle events.
- *
- * @typeParam TComponent Component type rendered inside the dialog. Use this when authoring
- * plugins that need typed access to `dialogRef.component`.
- */
+/** Optional brand for result inference without a public `dialogRef` field. */
+export interface DialogResultBrand<TResult> {
+  ɵdialogResult?: TResult;
+}
+
 export interface DialogPluginContext<TComponent = any> {
   element: HTMLDialogElement;
   dialogRef: DialogRef<any, TComponent>;
@@ -46,142 +55,203 @@ export interface LayoutChangeEvent {
   height: string;
 }
 
-/**
- * Contract for a dialog plugin.
- *
- * A plugin's `setup` function is called once after the component is mounted inside the dialog.
- * It may return a cleanup function that the service calls automatically when the dialog closes.
- *
- * @typeParam TComponent Optional component type for typed `context.dialogRef.component` access.
- * Built-in plugins leave this as the default (`any`).
- */
 export interface DialogPlugin<TComponent = any> {
-  /**
-   * Unique identifier to prevent duplicate activation of the same plugin.
-   * If a plugin with an matching ID is provided in parent global configuration and specific config,
-   * only the specific config instance will be retained.
-   */
   readonly id?: string;
-
-  /**
-   * Called once immediately after the component is rendered inside the dialog but before opening.
-   * Receives both the native dialog element, the DialogRef wrapper, and the dynamic Injector.
-   */
   setup?(context: DialogPluginContext<TComponent>): (() => void) | void;
-
-  /**
-   * Called immediately after the dialog is opened (either modal or non-modal).
-   */
   onOpen?(context: DialogPluginContext<TComponent>): void;
-
-  /**
-   * Intercepts and potentially prevents the dialog from closing.
-   * Return `false` to prevent closing. Return `true` or `void` to allow it.
-   */
   beforeClose?(
-    context: DialogPluginContext<TComponent> & { source: CloseSource }
+    context: DialogPluginContext<TComponent> & { source: CloseSource },
   ): Promise<boolean | void> | boolean | void;
-
-  /**
-   * Called after the dialog has finished closing and is removed from the DOM.
-   */
   onClose?(context: DialogPluginContext<TComponent>): void;
-
-  /**
-   * Called after any layout modifications have occurred (dimensions, positions, coordinates, or minimization/maximization state).
-   */
   onLayoutChange?(
-    context: DialogPluginContext<TComponent> & { changes: LayoutChangeEvent }
+    context: DialogPluginContext<TComponent> & { changes: LayoutChangeEvent },
   ): void;
 }
 
-/**
- * Base configuration options shared between global defaults and dynamic per-dialog options.
- */
-export interface DialogConfigBase {
-  /** Optional unique identifier for this dialog instance. Used to track state (e.g. coordinates/sizes). */
-  id?: string;
-  /** Whether the user is allowed to close the dialog via ESC or backdrop click. */
-  disableClose?: boolean;
-  /** Custom CSS class(es) to apply to the <dialog> element. */
-  panelClass?: string | string[];
-  /** Width of the dialog (e.g., '400px', '50vw') */
-  width?: string;
-  /** Minimum width of the dialog */
-  minWidth?: string;
-  /** Maximum width of the dialog */
-  maxWidth?: string;
-  /** Height of the dialog */
-  height?: string;
-  /** Minimum height of the dialog */
-  minHeight?: string;
-  /** Maximum height of the dialog */
-  maxHeight?: string;
-  /** Whether the dialog can be resized by the user. */
-  resizable?: boolean;
-  /**
-   * Whether the dialog is modal.
-   * If `true` (default), it opens as a modal using `showModal()`, creating a backdrop and blocking the rest of the page.
-   * If `false`, it opens using `show()`, allowing the user to interact with the rest of the page simultaneously.
-   */
-  modal?: boolean;
+export type DialogSizePreset = 'sm' | 'md' | 'lg' | 'xl' | 'full';
+
+export const DIALOG_SIZE_PRESETS: Record<DialogSizePreset, string> = {
+  sm: '320px',
+  md: '480px',
+  lg: '640px',
+  xl: '800px',
+  full: '90vw',
+};
+
+export type AutoFocusTarget = 'first-tabbable' | 'dialog' | false | HTMLElement | string;
+
+export type DialogAnimation =
+  | false
+  | 'fade'
+  | {
+      enter?: string;
+      leave?: string;
+    };
+
+export interface DialogStrings {
+  close?: string;
+  minimize?: string;
+  maximize?: string;
+  restore?: string;
+  fullscreen?: string;
+  exitFullscreen?: string;
+  /** Default title for {@link DialogService.confirm}. */
+  confirmTitle?: string;
+  /** Default title for {@link DialogService.alert}. */
+  alertTitle?: string;
+  /** Default primary button label for confirm / alert. */
+  ok?: string;
+  /** Default secondary button label for confirm. */
+  cancel?: string;
 }
 
-/**
- * Global configuration options for the DialogService.
- */
-export interface GlobalDialogConfig extends DialogConfigBase {
-  /**
-   * Default plugins to extend dialog behavior globally.
-   */
-  plugins?: DialogPlugin[];
-}
+export type ToastPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
 
 /**
- * Configuration used when opening a dialog.
+ * Global chrome strings: a static object, a Signal (reactive i18n), or a sync factory
+ * invoked when a dialog opens.
  *
- * @typeParam TComponent Component type being rendered.
+ * @example
+ * ```ts
+ * provideDialog({ strings: { close: 'Close' } });
+ * provideDialog({ strings: () => translate.dialogStrings() });
+ * provideDialog({ strings: dialogStringsSignal });
+ * ```
  */
+export type DialogStringsSource =
+  | DialogStrings
+  | Signal<DialogStrings>
+  | (() => DialogStrings);
+
+/** Resolves {@link DialogStringsSource} to a plain object at dialog open time. */
+export function resolveDialogStrings(
+  source: DialogStringsSource | null | undefined,
+): DialogStrings | undefined {
+  if (source == null) return undefined;
+  // Signals are callable functions — check isSignal first.
+  if (isSignal(source)) return source();
+  if (typeof source === 'function') return (source as () => DialogStrings)();
+  return source;
+}
+
+/** True when `source` is a plain {@link DialogStrings} object (not Signal / factory). */
+export function isPlainDialogStrings(
+  source: DialogStringsSource | null | undefined,
+): source is DialogStrings {
+  return source != null && !isSignal(source) && typeof source !== 'function';
+}
+
+/**
+ * Declarative window behaviors. Object forms accept the matching plugin option bags
+ * (`DraggablePluginOptions`, `TileSnappingOptions`, etc.).
+ */
+export interface WindowBehaviorOptions {
+  drag?: boolean | Record<string, any>;
+  snap?: boolean | Record<string, any>;
+  dock?: boolean | Record<string, any>;
+  persist?: boolean | Record<string, any>;
+  /** Maps to the native CSS `resize` handle (not a plugin). */
+  resize?: boolean;
+}
+
+export interface DialogConfigBase {
+  id?: string;
+  disableClose?: boolean;
+  panelClass?: string | string[];
+  contentClass?: string | string[];
+  size?: DialogSizePreset | (string & {});
+  width?: string;
+  minWidth?: string;
+  maxWidth?: string;
+  height?: string;
+  minHeight?: string;
+  maxHeight?: string;
+  /** Whether the user can resize the dialog via the native CSS resize handle. */
+  resize?: boolean;
+  modal?: boolean;
+  autoFocus?: AutoFocusTarget;
+  restoreFocus?: boolean;
+  closeOnNavigation?: boolean;
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
+  ariaDescribedBy?: string;
+  animation?: DialogAnimation;
+  drag?: boolean | Record<string, any>;
+  snap?: boolean | Record<string, any>;
+  dock?: boolean | Record<string, any>;
+  persist?: boolean | Record<string, any>;
+}
+
+export interface GlobalDialogConfig extends DialogConfigBase {
+  plugins?: DialogPlugin[];
+  window?: WindowBehaviorOptions;
+  persistDefaults?: Record<string, any>;
+  /**
+   * Default chrome strings for {@link DefaultDialogComponent}.
+   * Accepts a static object, a {@link Signal}, or a sync factory — resolved when a dialog opens.
+   */
+  strings?: DialogStringsSource;
+}
+
+export interface ProvideDialogConfig extends GlobalDialogConfig {}
+
+export const DIALOG_CONFIG = new InjectionToken<ProvideDialogConfig>('DIALOG_CONFIG');
+
 export interface DialogOptions<TComponent = unknown> extends DialogConfigBase {
-  /**
-   * Values assigned to the dialog component through Angular's `setInput()` API.
-   *
-   * This supports signal-based `input()` and `model()` declarations.
-   */
   inputs?: ComponentInputs<TComponent>;
-  /**
-   * Optional parent injector used when creating the dialog component.
-   *
-   * If omitted, the service falls back to the application's environment injector.
-   */
   injector?: Injector;
-  /**
-   * Marks this dialog as a child of the given {@link DialogRef}.
-   *
-   * When the parent dialog closes (through any close path — manual, backdrop, escape, or
-   * programmatic), all of its registered children are automatically closed first, recursively.
-   * The cascaded children are closed with `'parent-closed'` as their {@link CloseSource}.
-   *
-   * Useful for wizards, nested popovers, or any dialog that should never outlive its opener.
-   *
-   * @example
-   * ```ts
-   * const parentRef = dialogService.open(SettingsDialogComponent);
-   * dialogService.open(ColorPickerDialogComponent, { parent: parentRef, modal: false });
-   * // Closing parentRef (in any way) automatically closes the color picker too.
-   * ```
-   */
   parent?: DialogRef<any, any>;
-  /**
-   * Optional plugins to extend dialog behavior (e.g. dragging, snapping).
-   * Each plugin's `setup` is called after the component is mounted and may return a cleanup function.
-   *
-   * @example
-   * ```ts
-   * import { draggablePlugin } from '@angular-libs/dialog';
-   * open(MyDialog, { plugins: [draggablePlugin()] });
-   * open(MyDialog, { plugins: [draggablePlugin({ handle: '.my-header' })] });
-   * ```
-   */
   plugins?: DialogPlugin[];
 }
+
+export interface WindowOptions<TComponent = unknown>
+  extends Omit<DialogOptions<TComponent>, 'modal'> {}
+
+export interface ConfirmOptions {
+  title?: string;
+  message?: string;
+  subtitle?: string;
+  confirmText?: string;
+  cancelText?: string;
+  width?: string;
+  size?: DialogSizePreset | (string & {});
+  disableClose?: boolean;
+  panelClass?: string | string[];
+  contentClass?: string | string[];
+  ariaLabel?: string;
+  ariaDescribedBy?: string;
+  animation?: DialogAnimation;
+  /** Per-call string overrides (merged over global `provideDialog({ strings })`). */
+  strings?: DialogStringsSource;
+}
+
+export interface PopoverDialogOptions<TComponent = unknown>
+  extends Omit<WindowOptions<TComponent>, 'drag' | 'snap' | 'dock' | 'persist'> {
+  anchor: HTMLElement | string;
+  placement?:
+    | 'bottom-left'
+    | 'bottom'
+    | 'bottom-right'
+    | 'top-left'
+    | 'top'
+    | 'top-right'
+    | 'left'
+    | 'right';
+  offset?: number;
+  showArrow?: boolean;
+  arrowColor?: string;
+}
+
+export interface ToastOptions {
+  title?: string;
+  width?: string;
+  size?: DialogSizePreset | (string & {});
+  panelClass?: string | string[];
+  contentClass?: string | string[];
+  duration?: number;
+  pauseOnHover?: boolean;
+  /** Corner placement. Defaults to `bottom-right`. */
+  position?: ToastPosition;
+}
+
+export type DialogSurfaceState = 'open' | 'minimized' | 'maximized' | 'closed';

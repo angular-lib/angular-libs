@@ -34,7 +34,7 @@ export interface PopoverOptions {
    */
   showArrow?: boolean;
   /**
-   * CSS color of the arrow. Defaults to '#ffffff'.
+   * CSS color of the arrow. Defaults to `var(--al-dialog-bg)` so it matches the dialog surface / theme.
    */
   arrowColor?: string;
 }
@@ -57,7 +57,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
   const placement = options.placement || 'bottom-left';
   const offset = options.offset !== undefined ? options.offset : 12;
   const showArrow = options.showArrow !== false;
-  const arrowColor = options.arrowColor || '#ffffff';
+  const arrowColor = options.arrowColor ?? 'var(--al-dialog-bg)';
 
   return {
     id: 'popover',
@@ -80,6 +80,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
       let arrowEl: HTMLDivElement | null = null;
       if (showArrow) {
         arrowEl = document.createElement('div');
+        arrowEl.className = 'al-dialog-popover-arrow';
         arrowEl.style.position = 'absolute';
         arrowEl.style.width = '0';
         arrowEl.style.height = '0';

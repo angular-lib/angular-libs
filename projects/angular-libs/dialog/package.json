@@ -1,7 +1,7 @@
 {
   "name": "@angular-libs/dialog",
-  "version": "0.0.6",
-  "description": "An extensible service for opening Angular components inside a native HTML <dialog> element. ",
+  "version": "0.1.0",
+  "description": "Intent-based Angular dialogs on native HTML <dialog> — modal, window, confirm, popover, toast.",
   "author": "angular-lib",
   "license": "MIT",
   "publishConfig": {
@@ -9,27 +9,34 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/angular-lib/dialog.git"
+    "url": "https://github.com/angular-lib/angular-libs.git",
+    "directory": "projects/angular-libs/dialog"
+  },
+  "homepage": "https://github.com/angular-lib/angular-libs/tree/main/projects/angular-libs/dialog",
+  "bugs": {
+    "url": "https://github.com/angular-lib/angular-libs/issues"
   },
   "keywords": [
     "angular",
     "dialog",
     "modal",
+    "window",
     "native",
     "html5",
     "popover",
+    "toast",
     "draggable",
-    "dock",
-    "window-manager",
-    "layout-persistence",
-    "auto-close",
-    "tile-snapping",
-    "fullscreen",
-    "snapping"
+    "dock"
   ],
   "peerDependencies": {
     "@angular/common": ">=19",
-    "@angular/core": ">=19"
+    "@angular/core": ">=19",
+    "@angular/router": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "@angular/router": {
+      "optional": true
+    }
   },
   "dependencies": {
     "tslib": "^2.3.0"
@@ -37,7 +44,15 @@
   "exports": {
     "./styles.css": {
       "default": "./src/styles.css"
+    },
+    "./styles/core.css": {
+      "default": "./src/styles/core.css"
+    },
+    "./styles/window.css": {
+      "default": "./src/styles/window.css"
     }
   },
-  "sideEffects": false
+  "sideEffects": [
+    "**/*.css"
+  ]
 }

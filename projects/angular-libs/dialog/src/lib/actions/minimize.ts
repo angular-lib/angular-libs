@@ -48,8 +48,13 @@ export function minimize(ref: DialogRef<any, any>): boolean {
   state.isMinimized = true;
   state._onStateChange?.('minimized');
 
-  // Focus the taskbar window or blur active selection so focus outline doesn't block window state changes
-  if (document.activeElement instanceof HTMLElement) {
+  // Prefer focusing the minimized shell (or its dock host) so focus is not dumped on <body>.
+  const taskbar = dialogEl.closest('.al-dialog-taskbar') as HTMLElement | null;
+  const focusTarget = taskbar ?? dialogEl;
+  if (typeof focusTarget.focus === 'function') {
+    focusTarget.tabIndex = focusTarget.tabIndex >= 0 ? focusTarget.tabIndex : -1;
+    focusTarget.focus({ preventScroll: true });
+  } else if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
   }
 
