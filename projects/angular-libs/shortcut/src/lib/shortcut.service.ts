@@ -1,14 +1,27 @@
 import { Injectable, OnDestroy, inject, signal } from '@angular/core';
-import { ALShortcutPlugin, ALShortcutConfig } from './shortcut.types';
+import { DOCUMENT } from '@angular/common';
+import {
+  ALShortcutPlugin,
+  ALShortcutConfig,
+  ALShortcutConflict,
+  ALShortcutDescriptor,
+  ALShortcutHost,
+  SHORTCUT_CONFIG,
+} from './shortcut.types';
+import { formatShortcut, normaliseShortcut, resolveShortcutFromEvent } from './shortcut.utils';
+
+export type { ALShortcutDescriptor, ALShortcutConflict, ALShortcutHost };
 
 /**
  * A highly simplified, zoneless, signal/action-based shortcut manager.
  * SSR-safe, utilizes native event listeners, and clean Injectable/Directive designs.
  */
 @Injectable({ providedIn: 'root' })
-export class ALShortcutService implements OnDestroy {
-  readonly document = inject(Document, { optional: true }) || (typeof document !== 'undefined' ? document : null);
-  
+export class ALShortcutService implements OnDestroy, ALShortcutHost {
+  readonly document = inject(DOCUMENT, { optional: true });
+
+  private readonly bootstrapConfig = inject(SHORTCUT_CONFIG, { optional: true });
+
   /**
    * Reactive state exposing the latest triggered shortcut execution details.
    */
@@ -21,19 +34,24 @@ export class ALShortcutService implements OnDestroy {
 
   constructor() {
     if (typeof window !== 'undefined' && this.document) {
-      // Direct bind since we are zoneless-first (no NgZone bypass needed or legacy overhead!)
       this.globalListener = (event: KeyboardEvent) => this.handleKeyEvent(event);
-      this.document.addEventListener('keydown', this.globalListener, true); // true: capture phase to catch inputs properly
+      this.document.addEventListener('keydown', this.globalListener, true);
       this.document.addEventListener('keyup', this.globalListener, true);
 
-      // Query Chromium-based native physical layout translations safely
-      const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
-      if (nav && nav.keyboard && typeof nav.keyboard.getLayoutMap === 'function') {
+      const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { keyboard?: { getLayoutMap?: () => Promise<ReadonlyMap<string, string>> } }) : null;
+      if (nav?.keyboard && typeof nav.keyboard.getLayoutMap === 'function') {
         nav.keyboard.getLayoutMap()
-          .then((map: ReadonlyMap<string, string>) => {
+          .then((map) => {
             this.layoutMap = map;
           })
           .catch(() => {});
+      }
+    }
+
+    const bootstrapPlugins = this.bootstrapConfig?.plugins;
+    if (bootstrapPlugins?.length) {
+      for (const plugin of bootstrapPlugins) {
+        this.registerPlugin(plugin);
       }
     }
   }
@@ -45,42 +63,82 @@ export class ALShortcutService implements OnDestroy {
       this.globalListener = null;
     }
     this.registeredShortcuts.clear();
-    this.plugins.forEach(p => p.onDestroy?.());
+    this.plugins.forEach((p) => p.onDestroy?.());
     this.plugins.length = 0;
   }
 
   /**
-   * Register a plugin dynamic context.
+   * Register a plugin. Hooks run in registration order.
+   * If a plugin with the same `id` is already registered, returns the existing instance.
+   * Prefer stable `id` values for {@link getPlugin} / {@link unregisterPlugin}.
    */
   registerPlugin<P extends ALShortcutPlugin>(plugin: P): P {
+    if (plugin.id) {
+      const existing = this.plugins.find((p) => p.id === plugin.id);
+      if (existing) {
+        return existing as P;
+      }
+    }
     plugin.onInit?.(this);
     this.plugins.push(plugin);
     return plugin;
   }
 
   /**
+   * Look up a registered plugin by `id`.
+   */
+  getPlugin<P extends ALShortcutPlugin = ALShortcutPlugin>(id: string): P | undefined {
+    return this.plugins.find((p) => p.id === id) as P | undefined;
+  }
+
+  /**
+   * Unregister a plugin by `id` and call its `onDestroy` hook.
+   * The plugin must unsubscribe any shortcuts it registered in `onInit`.
+   * @returns `true` if a plugin was removed.
+   */
+  unregisterPlugin(id: string): boolean {
+    const index = this.plugins.findIndex((p) => p.id === id);
+    if (index === -1) return false;
+    const [plugin] = this.plugins.splice(index, 1);
+    plugin.onDestroy?.();
+    return true;
+  }
+
+  /**
    * Register a shortcut with an action callback, or bulk register multiple shortcuts.
-   * Accepts either a single config object or an array of configurations, returning a single teardown function.
-   * @param config A single shortcut config or an array of shortcut configs.
-   * @returns Unsubscribe function to release registered listeners.
    */
   register(config: ALShortcutConfig | ALShortcutConfig[]): () => void {
     if (Array.isArray(config)) {
-      const unsubscribes = config.map(c => this.register(c));
-      return () => unsubscribes.forEach(unsub => unsub());
+      const unsubscribes = config.map((c) => this.register(c));
+      return () => unsubscribes.forEach((unsub) => unsub());
     }
 
-    const normalisedShortcut = this.normaliseShortcut(config.shortcut);
+    const normalisedShortcut = normaliseShortcut(config.shortcut);
     const priority = config.priority ?? 0;
     const preventDefault = config.preventDefault ?? true;
+    const stopPropagation = config.stopPropagation ?? false;
+    const stopImmediatePropagation = config.stopImmediatePropagation ?? false;
     const allowRepeat = config.allowRepeat ?? false;
     const type = config.type ?? 'keydown';
-    const { element, action, description } = config;
+    const { element, action, description, id, group, when } = config;
 
     const list = this.registeredShortcuts.get(normalisedShortcut) || [];
-    const entry: ALShortcutConfig = { shortcut: config.shortcut, action, element, priority, preventDefault, description, allowRepeat, type };
+    const entry: ALShortcutConfig = {
+      shortcut: config.shortcut,
+      action,
+      element,
+      priority,
+      preventDefault,
+      stopPropagation,
+      stopImmediatePropagation,
+      description,
+      id,
+      group,
+      allowRepeat,
+      type,
+      when,
+    };
     list.push(entry);
-    // Sort descending by priority so higher priorities execute first
     list.sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
     this.registeredShortcuts.set(normalisedShortcut, list);
 
@@ -98,11 +156,8 @@ export class ALShortcutService implements OnDestroy {
     };
   }
 
-  /**
-   * Returns a list of registered shortcuts for programmatic inspection.
-   */
-  getShortcuts(): { shortcut: string; defaultShortcut: string; priority: number; hasElementScope: boolean; description?: string; type: 'keydown' | 'keyup' }[] {
-    const results: { shortcut: string; defaultShortcut: string; priority: number; hasElementScope: boolean; description?: string; type: 'keydown' | 'keyup' }[] = [];
+  getShortcuts(): ALShortcutDescriptor[] {
+    const results: ALShortcutDescriptor[] = [];
     this.registeredShortcuts.forEach((list, defaultShortcut) => {
       let finalShortcut = defaultShortcut;
       for (const plugin of this.plugins) {
@@ -114,15 +169,17 @@ export class ALShortcutService implements OnDestroy {
         }
       }
       if (finalShortcut === '') {
-        return; // Skip disabled shortcuts
+        return;
       }
-      list.forEach(item => {
+      list.forEach((item) => {
         results.push({
           shortcut: finalShortcut,
-          defaultShortcut: defaultShortcut,
+          defaultShortcut,
           priority: item.priority ?? 0,
           hasElementScope: !!item.element,
           description: item.description,
+          id: item.id,
+          group: item.group,
           type: item.type ?? 'keydown',
         });
       });
@@ -131,13 +188,28 @@ export class ALShortcutService implements OnDestroy {
   }
 
   /**
-   * Programmatically trigger/execute registered shortcut actions for a given shortcut key or descriptor.
-   * @param target The shortcut string (e.g. 'ctrl+s') or a descriptor object from `getShortcuts()`.
-   * @param customEvent Optional KeyboardEvent to pass to the action callback.
-   * @returns `true` if a matching action was triggered, `false` otherwise.
+   * Returns normalised shortcut keys that currently have more than one registered handler.
    */
+  getConflicts(): ALShortcutConflict[] {
+    const results: ALShortcutConflict[] = [];
+    this.registeredShortcuts.forEach((list, shortcut) => {
+      if (list.length > 1) {
+        results.push({
+          shortcut,
+          count: list.length,
+          descriptions: list.map((item) => item.description),
+        });
+      }
+    });
+    return results;
+  }
+
+  getLayoutMap(): ReadonlyMap<string, string> | null {
+    return this.layoutMap;
+  }
+
   trigger(
-    target: string | { shortcut?: string; defaultShortcut?: string; description?: string; priority?: number; type?: 'keydown' | 'keyup' },
+    target: string | Partial<ALShortcutDescriptor>,
     customEvent?: KeyboardEvent
   ): boolean {
     const keyString = typeof target === 'string'
@@ -145,10 +217,9 @@ export class ALShortcutService implements OnDestroy {
       : (target.defaultShortcut || target.shortcut || '');
     if (!keyString) return false;
 
-    let normalised = this.normaliseShortcut(keyString);
+    let normalised = normaliseShortcut(keyString);
     let list = this.registeredShortcuts.get(normalised);
 
-    // If not found directly, check if target is a display shortcut that maps to a default shortcut
     if (!list || list.length === 0) {
       for (const [defKey] of this.registeredShortcuts.entries()) {
         let displayKey = defKey;
@@ -158,7 +229,7 @@ export class ALShortcutService implements OnDestroy {
             if (display !== undefined) displayKey = display;
           }
         }
-        if (this.normaliseShortcut(displayKey) === normalised) {
+        if (normaliseShortcut(displayKey) === normalised) {
           normalised = defKey;
           list = this.registeredShortcuts.get(normalised);
           break;
@@ -170,11 +241,19 @@ export class ALShortcutService implements OnDestroy {
 
     let matchedItems = list;
     if (typeof target === 'object') {
-      if (target.description !== undefined || target.priority !== undefined || target.type !== undefined) {
-        const filtered = list.filter(item =>
+      if (
+        target.description !== undefined ||
+        target.priority !== undefined ||
+        target.type !== undefined ||
+        target.id !== undefined ||
+        target.group !== undefined
+      ) {
+        const filtered = list.filter((item) =>
           (target.description === undefined || item.description === target.description) &&
           (target.priority === undefined || (item.priority ?? 0) === target.priority) &&
-          (target.type === undefined || (item.type ?? 'keydown') === target.type)
+          (target.type === undefined || (item.type ?? 'keydown') === target.type) &&
+          (target.id === undefined || item.id === target.id) &&
+          (target.group === undefined || item.group === target.group)
         );
         if (filtered.length > 0) {
           matchedItems = filtered;
@@ -194,6 +273,9 @@ export class ALShortcutService implements OnDestroy {
     });
 
     for (const item of matchedItems) {
+      if (item.when && !item.when()) {
+        continue;
+      }
       this.latestTriggerDetail.set({ shortcut: normalised, event, target: null });
       item.action(event);
       for (const plugin of this.plugins) {
@@ -205,7 +287,6 @@ export class ALShortcutService implements OnDestroy {
   }
 
   private handleKeyEvent(event: KeyboardEvent): void {
-    // Run plugins onKeyEvent interceptor first — a true return consumes the event.
     for (const plugin of this.plugins) {
       if (plugin.onKeyEvent?.(event) === true) {
         return;
@@ -214,9 +295,8 @@ export class ALShortcutService implements OnDestroy {
 
     if (this.registeredShortcuts.size === 0) return;
 
-    let activeShortcut = this.getShortcutFromEvent(event);
-    
-    // Resolve active shortcut through plugins
+    let activeShortcut = resolveShortcutFromEvent(event, this.layoutMap);
+
     for (const plugin of this.plugins) {
       if (plugin.onResolveShortcut) {
         const resolved = plugin.onResolveShortcut(activeShortcut, event);
@@ -229,10 +309,8 @@ export class ALShortcutService implements OnDestroy {
     const list = this.registeredShortcuts.get(activeShortcut);
     if (!list || list.length === 0) return;
 
-    // Resolve event target safely
     const target = event.target as Element | null;
 
-    // Run plugins before hook
     for (const plugin of this.plugins) {
       if (plugin.onBeforeExecute) {
         if (plugin.onBeforeExecute(activeShortcut, event, target) === false) {
@@ -241,121 +319,63 @@ export class ALShortcutService implements OnDestroy {
       }
     }
 
-    // Execute active listeners matching the current event elements/priority
     for (const item of list) {
-      // Clean stage execution: match corresponding trigger phase config ('keydown' | 'keyup')
       if (item.type !== event.type) {
         continue;
       }
 
-      // UX protection: by default, auto-repeat events when holding keys are suppressed
       if (event.repeat && !item.allowRepeat) {
         continue;
       }
 
+      if (item.when && !item.when()) {
+        continue;
+      }
+
       if (item.element) {
-        // Element-level scoped shortcut check: matches only if event target is within that element or if clicked inside
         const boundEl = item.element;
-        const target = event.target as Element | null;
-        
+        const eventTarget = event.target as Element | null;
+
         let isInside = false;
-        if (boundEl === target) {
+        if (boundEl === eventTarget) {
           isInside = true;
-        } else if (boundEl && 'contains' in boundEl && target) {
-          isInside = (boundEl as Node).contains(target);
+        } else if (boundEl && 'contains' in boundEl && eventTarget) {
+          isInside = (boundEl as Node).contains(eventTarget);
         }
-        
+
         if (!isInside) {
-          continue; // Skip because target is outside bounded element
+          continue;
         }
       }
 
-      // Execute matched action
       if (item.preventDefault) {
         event.preventDefault();
       }
-      
-      // Update reactive latest info
+      if (item.stopImmediatePropagation) {
+        event.stopImmediatePropagation();
+      } else if (item.stopPropagation) {
+        event.stopPropagation();
+      }
+
       this.latestTriggerDetail.set({ shortcut: activeShortcut, event, target });
 
       item.action(event);
 
-      // Run plugins after hook
       for (const plugin of this.plugins) {
         plugin.onAfterExecute?.(activeShortcut, event, target);
       }
 
-      // Normally, multiple global commands mapped to the same key execute sequentially (unless they are bounded).
-      // We should check: if it is bound to an element scope, we break after first match. If it's a global listener,
-      // we let execution continue across all registered global listeners matching the prioritised list sequence,
-      // or optionally configure propagation stop. Here we change to let all global matches run unless prevented or
-      // if it's the element-scoped match.
       if (item.element) {
         break;
       }
     }
   }
 
-  private normaliseShortcut(shortcut: string): string {
-    return shortcut
-      .toLowerCase()
-      .split('+')
-      .map((k) => {
-        const token = k.trim();
-        if (token === 'cmd' || token === 'command' || token === '⌘') return 'meta';
-        if (token === 'control' || token === 'ctl') return 'ctrl';
-        if (token === 'option' || token === '⌥') return 'alt';
-        if (token === 'esc') return 'escape';
-        if (token === '' || token === ' ') return 'space';
-        return token;
-      })
-      .filter(Boolean)
-      .sort()
-      .join('+');
+  normaliseShortcut(shortcut: string): string {
+    return normaliseShortcut(shortcut);
   }
 
-  private getShortcutFromEvent(event: KeyboardEvent): string {
-    const keys: string[] = [];
-    if (event.ctrlKey) keys.push('ctrl');
-    if (event.metaKey) keys.push('meta');
-    if (event.altKey) keys.push('alt');
-    if (event.shiftKey) keys.push('shift');
-
-    let key = event.key ? event.key.toLowerCase() : '';
-
-    // If key itself is a modifier, do not append it a second time
-    if (key !== 'control' && key !== 'meta' && key !== 'alt' && key !== 'shift') {
-      if (key === ' ' || event.code === 'Space') {
-        keys.push('space');
-      } else if (key) {
-        const hasModifiers = event.altKey || event.metaKey || event.ctrlKey || event.shiftKey;
-
-        if (hasModifiers && event.code) {
-          let resolvedKey: string | undefined = '';
-          if (this.layoutMap) {
-            resolvedKey = this.layoutMap.get(event.code);
-          }
-
-          if (resolvedKey) {
-            keys.push(resolvedKey.toLowerCase());
-          } else {
-            // Fallback lookup when layout map is not yet resolved, or on unsupported browsers (Firefox/Safari)
-            if (event.code.startsWith('Key')) {
-              const physicalKey = event.code.substring(3).toLowerCase();
-              keys.push(physicalKey);
-            } else if (event.code.startsWith('Digit')) {
-              const physicalDigit = event.code.substring(5).toLowerCase();
-              keys.push(physicalDigit);
-            } else {
-              keys.push(key);
-            }
-          }
-        } else {
-          keys.push(key);
-        }
-      }
-    }
-
-    return keys.sort().join('+');
+  formatShortcut(shortcut: string): string {
+    return formatShortcut(shortcut);
   }
 }

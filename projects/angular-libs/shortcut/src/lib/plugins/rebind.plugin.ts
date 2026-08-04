@@ -1,5 +1,5 @@
 import { ALShortcutPlugin } from '../shortcut.types';
-import { ALShortcutService } from '../shortcut.service';
+import { normaliseShortcut } from '../shortcut.utils';
 
 export interface ALShortcutRebindPlugin extends ALShortcutPlugin {
   /**
@@ -38,16 +38,6 @@ export function rebindPlugin(
 ): ALShortcutRebindPlugin {
   const storageKey = config.storageKey || 'al-shortcut-custom-keybinds';
   const customMappings = new Map<string, string>();
-  let serviceRef: ALShortcutService | null = null;
-
-  function normalizeKey(shortcut: string): string {
-    return shortcut
-      .toLowerCase()
-      .split('+')
-      .map(k => k.trim())
-      .sort()
-      .join('+');
-  }
 
   // Load from localStorage if available
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
@@ -56,7 +46,7 @@ export function rebindPlugin(
       if (saved) {
         const parsed = JSON.parse(saved);
         Object.entries(parsed).forEach(([def, cust]) => {
-          customMappings.set(normalizeKey(def), normalizeKey(cust as string));
+          customMappings.set(normaliseShortcut(def), normaliseShortcut(cust as string));
         });
       }
     } catch (e) {
@@ -80,14 +70,10 @@ export function rebindPlugin(
 
   return {
     id: 'rebind',
-    onInit(service) {
-      serviceRef = service;
-    },
-    onDestroy() {
-      serviceRef = null;
-    },
+    onInit() {},
+    onDestroy() {},
     onResolveShortcut(shortcut) {
-      const normShortcut = normalizeKey(shortcut);
+      const normShortcut = normaliseShortcut(shortcut);
       // If we pressed a custom shortcut, find what default shortcut it maps to
       for (const [def, cust] of customMappings.entries()) {
         if (cust === normShortcut) {
@@ -102,17 +88,17 @@ export function rebindPlugin(
       return shortcut;
     },
     onGetDisplayShortcut(shortcut) {
-      const val = customMappings.get(normalizeKey(shortcut));
+      const val = customMappings.get(normaliseShortcut(shortcut));
       return val !== undefined ? val : shortcut;
     },
     setOverride(defaultShortcut, customShortcut) {
-      const normDef = normalizeKey(defaultShortcut);
-      const normCust = customShortcut ? normalizeKey(customShortcut) : '';
+      const normDef = normaliseShortcut(defaultShortcut);
+      const normCust = customShortcut ? normaliseShortcut(customShortcut) : '';
       customMappings.set(normDef, normCust);
       saveToStorage();
     },
     getOverride(defaultShortcut) {
-      return customMappings.get(normalizeKey(defaultShortcut));
+      return customMappings.get(normaliseShortcut(defaultShortcut));
     },
     getOverrides() {
       const results: { defaultShortcut: string; customShortcut: string }[] = [];

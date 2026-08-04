@@ -1,181 +1,146 @@
 # @angular-libs/shortcut
 
-A highly simplified, zoneless, signal/action-based keyboard shortcut manager for Angular. It is fully SSR-safe, utilizes native DOM event listeners, offers premium physical-layout physical translation mapping (W3C Map & fallback macOS Option keys protection), and includes an powerful extensible functional plugin system.
+Zoneless, SSR-safe keyboard shortcut manager for Angular. Capture-phase document listeners, physical layout mapping, and a functional plugin system.
 
-## Key Features
+## Install
 
-*   **Zoneless-ready native bindings:** Direct capture-phase document listeners keep Angular change detection overhead-free.
-*   **W3C Keyboard Map & physical-keys translation:** Automatically resolves keyboard layouts dynamically (via `navigator.keyboard.getLayoutMap()`) with fallback matching on un-supported environments. Prevents Option/Alt layout character displacement issues (e.g. on macOS).
-*   **Extensible Functional Plugins:** Built-in support for input suppression, modal contexts, visual link-hinting ("Vimium"-style), multi-key chords, double-keypress modifier triggers, command palette UI overlays, and run-time key rebinding.
-*   **Modern Declarative API:** Features robust Angular signal input-matching logic and reactive teardowns.
+```bash
+npm install @angular-libs/shortcut
+```
 
----
+Peer dependencies: `@angular/core` and `@angular/common` ^22.
 
-## Installation & Setup
+## Bootstrap
 
-Simply inject `ALShortcutService` or use the declarative `ALShortcutDirective` inside your standalone components.
+```typescript
+import { provideShortcut, inputSuppressorPlugin } from '@angular-libs/shortcut';
+
+bootstrapApplication(AppComponent, {
+  providers: [
+    provideShortcut({
+      plugins: [inputSuppressorPlugin(['escape', 'mod+s'])],
+    }),
+  ],
+});
+```
+
+Plugins in `provideShortcut({ plugins })` are registered in array order (that order is also hook order).
+
+## Quick start
+
+### Programmatic
 
 ```typescript
 import { Component, inject } from '@angular/core';
-import { ALShortcutService } from '@angular-libs/shortcut';
+import { ALShortcutService, onShortcut } from '@angular-libs/shortcut';
 
-@Component({
-  standalone: true,
-  template: `<!-- Template HTML -->`
-})
+@Component({ standalone: true, template: `...` })
 export class MyComponent {
-  private shortcutService = inject(ALShortcutService);
+  private shortcuts = inject(ALShortcutService);
 
   constructor() {
-    // Programmatic Registration
-    const unsubscribe = this.shortcutService.register({
-      shortcut: 'ctrl+s',
-      action: (event) => {
-        console.log('Saved!', event);
-      },
-      description: 'Trigger a document save',
-      priority: 10
+    this.shortcuts.register({
+      shortcut: 'mod+s',
+      description: 'Save',
+      group: 'file',
+      action: () => this.save(),
     });
+
+    onShortcut('escape', () => this.close(), { description: 'Close' });
   }
+
+  save() {}
+  close() {}
 }
 ```
 
----
+`mod` resolves to **Meta** on Apple platforms and **Ctrl** elsewhere. Synonyms: `cmd`/`command` → `meta`, `esc` → `escape`, `option` → `alt`, `control`/`ctl` → `ctrl`.
 
-## Declarative Directives Usage (`[alShortcut]`)
+Display: `formatShortcut('mod+s')` → `⌘S` or `Ctrl+S`.
 
-Import `ALShortcutDirective` to declare shortcut bindings directly in component templates.
+### Directive
 
 ```typescript
-import { Component } from '@angular/core';
 import { ALShortcutDirective } from '@angular-libs/shortcut';
 
 @Component({
   standalone: true,
   imports: [ALShortcutDirective],
   template: `
-    <!-- Local Scoped: triggers only when active focus is inside or on the div element -->
-    <div [alShortcut]="'ctrl+f'" (alShortcutTriggered)="focusSearch()">
-      Search Component...
-    </div>
-
-    <!-- Global Scoped: triggers anywhere on the document -->
-    <button [alShortcut]="'escape'" [alShortcutGlobal]="true" (alShortcutTriggered)="closeAll()">
-      Close All Views
-    </button>
-  `
+    <div [alShortcut]="'ctrl+f'" (alShortcutTriggered)="focusSearch()">Search…</div>
+    <button [alShortcut]="'escape'" [alShortcutGlobal]="true" (alShortcutTriggered)="closeAll()">Close</button>
+  `,
 })
 export class MyComponent {
-  focusSearch() { /* ... */ }
-  closeAll() { /* ... */ }
+  focusSearch() {}
+  closeAll() {}
 }
 ```
 
-### Directive API Reference
-*   `[alShortcut]` (`string`): The shortcut combination (e.g. `'ctrl+s'`, `'cmd+s'`, `'esc'`). Synonyms are normalised: `cmd`/`command` → `meta`, `esc` → `escape`, `option` → `alt`, `control`/`ctl` → `ctrl`. **Required**.
-*   `[alShortcutPriority]` (`number`, default `0`): The execution precedence level of custom registrations.
-*   `[alShortcutDescription]` (`string`): Narrative metadata details for programmatic inspection or palette registry.
-*   `[alShortcutPreventDefault]` (`boolean`, default `true`): Automatically invoke `event.preventDefault()` on activation.
-*   `[alShortcutAllowRepeat]` (`boolean`, default `false`): Permit repeating keyboard triggers when action/key is held down.
-*   `[alShortcutGlobal]` (`boolean`, default `false`): When enabled, binds directly as a global keybind instead of scoping triggers to local element focus containment.
-*   `(alShortcutTriggered)` (`KeyboardEvent`): Emits whenever the key combo matches.
+### Config highlights
 
----
+- `when?: () => boolean` — skip when false
+- `stopPropagation` / `stopImmediatePropagation`
+- `id` / `group` — returned from `getShortcuts()`, usable with `trigger()`
+- `getConflicts()` — normalised keys with more than one handler
 
-## Powerful Built-in Plugins
+## Headless plugins (stable core)
 
-Register professional UX plugins directly onto the shortcut service:
-
-### 1. Form Input Suppressor Plugin
-Ignores shortcut triggers when focused inside inputs, textareas, selects, or elements that are **actually** content-editable (`HTMLElement.isContentEditable === true`). `contenteditable="false"` does **not** suppress.
 ```typescript
-import { inputSuppressorPlugin } from '@angular-libs/shortcut';
-
-// Skip exceptions (e.g. allow 'esc' or 'ctrl+s' inside inputs)
-shortcutService.registerPlugin(inputSuppressorPlugin(['escape', 'ctrl+s']));
+const service = inject(ALShortcutService);
+service.registerPlugin(inputSuppressorPlugin(['escape']));
+const chords = service.registerPlugin(chordPlugin());
+service.getPlugin('chord');
+service.unregisterPlugin('chord');
 ```
 
-### 2. Multi-Key Chord Plugin
-Supports Vim-style or VS-Code style sequential multi-key chords (e.g. `"g d"` or `"ctrl+k ctrl+c"`).
+| Plugin | Role |
+|--------|------|
+| `inputSuppressorPlugin` | Ignore shortcuts in inputs (exceptions normalised) |
+| `chordPlugin` | Sequences like `"g d"` / `"ctrl+k ctrl+c"` (uses shared layout map) |
+| `twicePlugin` | Double-tap (e.g. Shift) |
+| `contextGuardPlugin` | Allow/block by named context |
+| `rebindPlugin` | Runtime remaps + localStorage |
 
-A **completed** chord consumes the key event so the matching single-key shortcut (if any) does not also fire. **Partial** chord prefixes (e.g. pressing `g` while waiting for `d`) do **not** block other registered shortcuts on that key — avoid registering the same key as both a chord step and a standalone shortcut if you need exclusive behavior.
+Custom plugins implement `ALShortcutPlugin` and receive `ALShortcutHost` in `onInit`.
+
+## Plugin lifecycle
+
+- Hooks (`onKeyEvent`, `onResolveShortcut`, `onBeforeExecute`, …) run in **registration order**.
+- Prefer a stable `id` for `getPlugin` / `unregisterPlugin`.
+- `unregisterPlugin` calls `onDestroy`; the plugin must unsubscribe shortcuts it registered in `onInit`.
+- `registerPlugin` with an existing `id` returns the existing instance (idempotent).
+
+## Experimental UI plugins
+
+Import from **`@angular-libs/shortcut/plugins`** (not the main barrel):
+
 ```typescript
-import { chordPlugin } from '@angular-libs/shortcut';
+import { commandPalettePlugin, visualHintsPlugin } from '@angular-libs/shortcut/plugins';
 
-const chords = shortcutService.registerPlugin(chordPlugin({ timeoutMs: 1000 }));
-chords.register('g d', (ev) => {
-  console.log('Navigated to definition!');
-}, { description: 'Go to Definition' });
+const palette = service.registerPlugin(commandPalettePlugin());
+const hints = service.registerPlugin(visualHintsPlugin());
 ```
 
-### 3. Double-Press Trigger Plugin
-Supports rapid-tap actions, such as double-pressing Shift or Control.
-```typescript
-import { twicePlugin } from '@angular-libs/shortcut';
+These overlays are **`@experimental`**:
 
-const dub = shortcutService.registerPlugin(twicePlugin({ delayMs: 400 }));
-dub.register('shift', () => {
-  console.log('Double Shift tapped!');
-}, { description: 'Activate overlay console' });
-```
+| Relatively stable in 0.0.x | May change without major bump |
+|----------------------------|-------------------------------|
+| Factory names | DOM structure / markup |
+| `open` / `close` / `toggle` | CSS class names |
+| `startHinting` / `stopHinting` | Visual defaults |
+| Plugin `id`s (`command-palette`, `visual-hints`) | Future Angular component rewrite |
 
-### 4. Interactive Command Palette Plugin
-Injects an interactive UI backdrop in the DOM that allows searching and triggering active registrations with mouse, keyboard arrows, and a customizable keyword search bar.
-```typescript
-import { commandPalettePlugin } from '@angular-libs/shortcut';
+- **SSR:** browser-only (require `document` / `window`).
+- Prefer the returned plugin handle or `getPlugin(id)` — do not depend on internal DOM.
+- Theming: CSS variables `--al-pal-*` and `--al-hint-*` (see source for names); class names are not a contract.
 
-const palette = shortcutService.registerPlugin(commandPalettePlugin({
-  triggerShortcut: 'ctrl+shift+p',
-  placeholder: 'Type a command to search shortcuts...'
-}));
+## SSR
 
-// Manually operate
-palette.open();
-palette.close();
-```
+Core listeners attach only when `window` + `DOCUMENT` exist. UI plugins inject DOM — use them in the browser only.
 
-### 5. Context Guard / Whitelisting Plugin
-Controls permission matrices or limits active key execution during transient modal scopes or full screen editing modes.
-```typescript
-import { contextGuardPlugin } from '@angular-libs/shortcut';
+## Testing
 
-const guard = shortcutService.registerPlugin(contextGuardPlugin());
-guard.addRule('dialog-open', { type: 'block', shortcuts: ['ctrl+s', 'ctrl+p'] });
-
-// Toggle context
-guard.setContext('dialog-open', true); // Blocks ctrl+s and ctrl+p
-```
-
-### 6. Dynamic Rebinding Plugin
-Monkey-patches shortcut registries, permitting runtime customizable rebinding that persists custom configurations across local stores.
-```typescript
-import { rebindPlugin } from '@angular-libs/shortcut';
-
-const rebind = shortcutService.registerPlugin(rebindPlugin({ storageKey: 'app-kbd-overrides' }));
-
-// Change 'ctrl+s' action to listen on 'ctrl+shift+s'
-rebind.setOverride('ctrl+s', 'ctrl+shift+s');
-```
-
-### 7. Vimium-style Link Hint Overlay
-Overlays keyboard hinting tags above all visible target links/clickable elements dynamically. Typing the text sequence triggers a native element focus and click automatically.
-```typescript
-import { visualHintsPlugin } from '@angular-libs/shortcut';
-
-const hinting = shortcutService.registerPlugin(visualHintsPlugin({ triggerShortcut: 'ctrl+g' }));
-hinting.startHinting();
-```
-
-### Custom plugins
-
-`onKeyEvent(event)` may return `true` to consume the event and skip core shortcut dispatch. Built-in `chordPlugin` / `twicePlugin` use this for completed matches. Returning nothing/`false` leaves core handling intact.
-
----
-
-## Unit Testing
-
-Run unit tests cleanly using:
 ```bash
 ng test @angular-libs/shortcut
 ```
-

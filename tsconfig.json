@@ -12,6 +12,9 @@
       "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],
       "@angular-libs/form": ["./projects/angular-libs/form/src/public-api.ts"],
       "@angular-libs/shortcut": ["./projects/angular-libs/shortcut/src/public-api.ts"],
+      "@angular-libs/shortcut/plugins": [
+        "./projects/angular-libs/shortcut/plugins/src/public-api.ts"
+      ],
       "@angular-libs/store": ["./projects/angular-libs/store/src/public-api.ts"],
       "@angular-libs/translate": ["./projects/angular-libs/translate/src/public-api.ts"],
       "@angular-libs/web": ["./projects/angular-libs/web/src/public-api.ts"],

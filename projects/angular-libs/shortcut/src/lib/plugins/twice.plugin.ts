@@ -1,4 +1,5 @@
 import { ALShortcutPlugin } from '../shortcut.types';
+import { normaliseShortcut } from '../shortcut.utils';
 
 export interface ALShortcutTwicePlugin extends ALShortcutPlugin {
   /**
@@ -41,17 +42,14 @@ export function twicePlugin(
   let lastKey = '';
   let lastTime = 0;
   let count = 0;
-  let globalListener: ((event: KeyboardEvent) => void) | null = null;
 
+  /** Map KeyboardEvent.key / registration string to a comparable token. */
   function normaliseKey(k: string): string {
-    const val = k.toLowerCase().trim();
-    if (val === 'control' || val === 'ctrl') return 'control';
-    if (val === 'meta' || val === 'cmd') return 'meta';
-    if (val === 'alt') return 'alt';
-    if (val === 'shift') return 'shift';
-    if (val === 'escape' || val === 'esc') return 'escape';
-    if (val === 'space' || val === ' ') return ' ';
-    return val;
+    const normalised = normaliseShortcut(k);
+    // Modifier-only registrations historically match event.key ("control", not "ctrl")
+    if (normalised === 'ctrl') return 'control';
+    if (normalised === 'space') return ' ';
+    return normalised;
   }
 
   function handleKeyUp(event: KeyboardEvent): boolean {

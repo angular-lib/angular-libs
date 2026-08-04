@@ -1,6 +1,7 @@
 import { Component, signal, inject } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
-import { ALShortcutService, visualHintsPlugin } from '@angular-libs/shortcut';
+import { ALShortcutService } from '@angular-libs/shortcut';
+import { visualHintsPlugin } from '@angular-libs/shortcut/plugins';
 
 @Component({
   selector: 'app-root',

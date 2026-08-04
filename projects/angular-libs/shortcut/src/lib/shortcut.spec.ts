@@ -7,9 +7,9 @@ import { inputSuppressorPlugin } from './plugins/input-suppressor.plugin';
 import { twicePlugin } from './plugins/twice.plugin';
 import { rebindPlugin } from './plugins/rebind.plugin';
 import { chordPlugin } from './plugins/chord.plugin';
-import { commandPalettePlugin } from './plugins/command-palette.plugin';
+import { commandPalettePlugin } from '@angular-libs/shortcut/plugins';
 import { contextGuardPlugin } from './plugins/context-guard.plugin';
-import { visualHintsPlugin } from './plugins/visual-hints.plugin';
+import { visualHintsPlugin } from '@angular-libs/shortcut/plugins';
 
 @Component({
   template: `
@@ -663,5 +663,44 @@ describe('ALShortcutService & ALShortcutDirective', () => {
     expect(hints.isActive()).toBe(false);
 
     btn.remove();
+  });
+
+  it('should look up and unregister plugins by id', () => {
+    const plugin = service.registerPlugin(inputSuppressorPlugin());
+    expect(service.getPlugin('input-suppressor')).toBe(plugin);
+    expect(service.registerPlugin(inputSuppressorPlugin())).toBe(plugin);
+    expect(service.unregisterPlugin('input-suppressor')).toBe(true);
+    expect(service.getPlugin('input-suppressor')).toBeUndefined();
+  });
+
+  it('should skip shortcuts when when() returns false', () => {
+    let triggered = false;
+    let enabled = false;
+    service.register({
+      shortcut: 'ctrl+y',
+      when: () => enabled,
+      action: () => { triggered = true; },
+      preventDefault: false,
+    });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }));
+    expect(triggered).toBe(false);
+
+    enabled = true;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true }));
+    expect(triggered).toBe(true);
+  });
+
+  it('should normalise mod and synonyms', () => {
+    expect(service.normaliseShortcut('Cmd+S')).toBe('meta+s');
+    expect(service.normaliseShortcut('esc')).toBe('escape');
+    expect(service.normaliseShortcut('mod+s')).toMatch(/^(ctrl|meta)\+s$/);
+  });
+
+  it('should report conflicts for duplicate shortcut registrations', () => {
+    service.register({ shortcut: 'ctrl+u', action: () => {}, preventDefault: false, description: 'A' });
+    service.register({ shortcut: 'ctrl+u', action: () => {}, preventDefault: false, description: 'B' });
+    const conflicts = service.getConflicts();
+    expect(conflicts.some((c) => c.shortcut === 'ctrl+u' && c.count === 2)).toBe(true);
   });
 });

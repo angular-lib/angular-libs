@@ -1,13 +1,16 @@
 import { ALShortcutPlugin } from '../shortcut.types';
+import { normaliseShortcut } from '../shortcut.utils';
 
 /**
  * Functional plugin to ignore shortcuts when user is focused inside an editable field.
  */
 export function inputSuppressorPlugin(exceptions: string[] = []): ALShortcutPlugin {
+  const normalisedExceptions = new Set(exceptions.map((e) => normaliseShortcut(e)));
+
   return {
     id: 'input-suppressor',
-    onBeforeExecute(shortcut: string, event: KeyboardEvent, target: Element | null): boolean | void {
-      if (exceptions.includes(shortcut)) {
+    onBeforeExecute(shortcut: string, _event: KeyboardEvent, target: Element | null): boolean | void {
+      if (normalisedExceptions.has(normaliseShortcut(shortcut))) {
         return; // Allow executing this exception shortcut regardless
       }
       if (!target) return;

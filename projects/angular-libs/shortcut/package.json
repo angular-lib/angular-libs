@@ -17,7 +17,8 @@
   "homepage": "https://angular-lib.github.io/angular-libs/shortcut",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/angular-lib/angular-libs.git"
+    "url": "git+https://github.com/angular-lib/angular-libs.git",
+    "directory": "projects/angular-libs/shortcut"
   },
   "bugs": {
     "url": "https://github.com/angular-lib/angular-libs/issues"
