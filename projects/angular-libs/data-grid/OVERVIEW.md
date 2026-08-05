@@ -124,8 +124,8 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 | Filter API | **Partial** | `get/setFilterModel`, `clearFilters` | No `getColumnFilterInstance` |
 | Custom filter components | **Later** | — | Typed seam; refuse AG filter-module explosion |
 | Row selection | **Done** | `none` \| `single` \| `multi`, `[(selectedIds)]` | Depth / coexistence — §5d |
-| Cell range selection | **Later** | Prepared seam — §5 | Coexists with rows — §5d (not AG exclusive) |
-| Checkbox selection UX | **Partial** | Multi selection column | Polish in Wave 3 per §5d |
+| Cell range selection | **Done** | Opt-in `cellRangePlugin` — §5 | Coexists with rows — §5d |
+| Checkbox selection UX | **Done** | Multi selection column | Wave 3 per §5d |
 
 ### 4.4 Editing
 
@@ -137,7 +137,7 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 | Read-only / host commit | **Better-path** | Always host-owned writes | Same spirit as AG `readOnlyEdit` without the flag maze |
 | Batch edit | **Later** | Host drafts / Signal Forms | Not a grid-owned pending map |
 | Undo / redo | **Later** | Host history helper over apply events | Not a mutable in-grid stack |
-| Fill handle | **Later** | Same primitive as paste — §5 | |
+| Fill handle | **Done** | Copy-fill via `(paste)` — §5 | |
 
 ### 4.5 Clipboard, find, export
 
@@ -208,57 +208,26 @@ AG `components` string map, `ModuleRegistry`, Excel export, column virtualizatio
 We will likely need range/fill. **Do not clone AG** multi-disjoint ranges and
 fill-handle identity. Prefer **simpler and better**.
 
-### Target model
+### Target model (shipped Wave 4)
 
 | Principle | Choice |
 | --- | --- |
 | Scope v1 | **One contiguous rectangle**: `anchor` + `active` (`FocusCell`) |
-| Packaging | Opt-in `cellRangePlugin()` (name TBD) — not kernel identity |
+| Packaging | Opt-in `cellRangePlugin()` — not kernel identity |
 | Coordinates | `{ rowIndex, columnId }` on **display** rows; resolve data via `DisplayRow` + `rowId` |
 | vs row selection | **Separate** from `[(selectedIds)]` — never overload row selection for cells |
-| Keyboard | Shift+arrows extend `active`; focus stays kernel-owned |
+| Keyboard | Shift+arrows extend `active`; focus moves with active corner |
 | Clipboard | When a range exists, copy/paste use the range matrix (extend `clipboardPlugin`) |
-| Fill | **Same as paste**: emit `(fill)` or reuse `(paste)` with `suggestedRows` → host applies |
+| Fill | Copy-fill via fill handle → `(paste)` + `suggestedRows` → host applies |
 | Multi-range | **v2+ / Never unless measured** |
 | Series fill | Start with **copy-fill**; smart series (dates/numbers) as optional pure util later |
 
-### Direction score
-
-| Approach | Score |
-| --- | --- |
-| Single-range + immutable fill | **86** |
-| AG multi-range / fill-handle parity | **~45** |
-
-### Prepare now (do not implement yet)
-
-1. Keep `FocusCell` as `{ rowIndex, columnId }` — stable coordinate system.
-2. Keep paste → `(paste)` + `suggestedRows` as the write primitive for fills.
-3. Do not put cell selection into `selectedIds`.
-4. Reserve a plugin id + `registerInteraction` capability — **no** new `DataGrid` inputs.
-5. A11y work must not forbid cell-level `aria-selected` later.
-6. Document `CellRange` / `FillEvent` shapes in this file when implementation starts:
-
 ```ts
-// Sketch only — not shipped
 interface CellRange {
   anchor: FocusCell;
   active: FocusCell;
 }
-
-interface FillEvent<T> {
-  range: CellRange;
-  source: CellRange; // cells dragged from
-  matrix: string[][];
-  suggestedRows: T[];
-}
 ```
-
-### Implementation phases (when picked from backlog)
-
-1. Types + highlight CSS + Shift+arrow extend (read-only range)
-2. Clipboard copy/paste bound to range
-3. Drag-select + fill handle → suggested rows
-4. Optional: series fill util; still host-applied (or controller rows when opted in)
 
 ---
 
@@ -634,7 +603,7 @@ custom renderers that contain focusable controls (Tab cycles inside, then moves)
 | **K4** | Tab enter/leave: restore last `GridFocus`; frame tabindex | ✅ Wave 2 |
 | **K5** | Wire §5b Enter-move-down / Tab-while-editing | Edit + nav feel Excel-capable |
 | **K6** | Sparse `navigateFocus` hook + custom-cell inner focus pattern | Escape hatches without AG soup |
-| **K7** | Shift+arrows → cell range (§5) | Range keyboard complete |
+| **K7** | Shift+arrows → cell range (§5) | ✅ Wave 4 |
 
 Keep logic in **`FocusController` (or a thin `KeyboardController` beside it)** —
 not in `data-grid.ts` feature branches. Unit-test the matrix without the template.
@@ -715,9 +684,7 @@ Feature-heavy ops prefer **held adapters** (`rowGroupPlugin().setColumns`).
 
 | Default preset | Opt-in |
 | --- | --- |
-| find, clipboard, statusBar, sideBar | csvExport, autosize, rowDrag, aggregateRow, infiniteScroll, rowGroup, treeData, notes, flashCells |
-
-Future: `cellRangePlugin` (§5).
+| find, clipboard, statusBar, sideBar | csvExport, autosize, rowDrag, aggregateRow, infiniteScroll, rowGroup, treeData, notes, flashCells, **cellRange** |
 
 ---
 
@@ -734,8 +701,8 @@ Ordered by **foundation waves** (§10). Score ≥ 75 to schedule.
 | 3 | **Edit interaction §5b** (presets first) | 91 | ✅ `'default'\|'excel'` + sparse overrides |
 | 3 | **Controller-owned rows §5a** | 88 | ✅ `createGrid({ rows })` + `applyTransaction` |
 | 3 | **Selection depth** per §5d | 86 | ✅ Click/checkbox/Space; `isRowSelectable` |
-| 4 | **Lean column menu** | 80 | Pin / autosize / hide / sort |
-| 4 | **Cell range + fill §5** | 86 | Single rect; copy priority §5d |
+| 4 | **Lean column menu** | 80 | ✅ Pin / autosize / hide / sort |
+| 4 | **Cell range + fill §5** | 86 | ✅ Single rect; copy priority §5d |
 | 5 | **SSRM v2 / publish / filters / …** | — | After foundation — §10 Wave 5 |
 
 Optional / lower:
@@ -831,7 +798,7 @@ spine before spreadsheet layers. Spreadsheet *interactions* without Excel produc
 | **1** | Interactive spine | K0 matrix docs, K1 ARIA, `applyRowTransaction` |
 | **2** | Focus continuum | K2 header realm, K3 body↔header, K4 Tab citizen, column-menu stub |
 | **3** | Policies | §5b editInteraction, §5a controller rows, selection depth |
-| **4** | Spreadsheet layer | Lean column menu, cell range §5, fill via paste |
+| **4** | Spreadsheet layer | ✅ Lean column menu, cell range §5, fill via paste |
 | **5** | Harden & ship | Validation, state, filters, SSRM v2, touch/RTL/SSR notes, publish |
 
 Defer coding range / full menu / edit bag until Waves 0–2 are in place.
@@ -847,7 +814,7 @@ Defer coding range / full menu / edit bag until Waves 0–2 are in place.
 | Accessibility (full SR) | **Review** | Beyond §5c K1; announcements / DOM order |
 | Grid state completeness | **Review** | Compare AG save list vs `DataGridState` |
 | Cell edit validation | **Review** | fullRow has Signal Forms; cell mode weak |
-| Column menu design | **Review** | Stub in Wave 2; UI in Wave 4 |
+| Column menu design | **Done (Wave 4)** | Lean menu: pin / sort / autosize / hide |
 | Performance contract | **Partial** | §12 stub |
 | Touch / mobile | **Review** | |
 | RTL | **Review** | Locale exists; layout mirroring unknown |

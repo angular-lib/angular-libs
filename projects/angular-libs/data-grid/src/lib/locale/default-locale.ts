@@ -51,6 +51,11 @@ export interface DataGridLocale {
   pinLeft: string;
   pinRight: string;
   unpinColumn: string;
+  sortAscending: string;
+  sortDescending: string;
+  sortClear: string;
+  autosizeColumn: string;
+  hideColumn: string;
 }
 
 export const defaultGridLocale: DataGridLocale = {
@@ -101,6 +106,11 @@ export const defaultGridLocale: DataGridLocale = {
   pinLeft: 'Pin left',
   pinRight: 'Pin right',
   unpinColumn: 'Unpin',
+  sortAscending: 'Sort ascending',
+  sortDescending: 'Sort descending',
+  sortClear: 'Clear sort',
+  autosizeColumn: 'Autosize this column',
+  hideColumn: 'Hide column',
 };
 
 export function mergeGridLocale(partial?: Partial<DataGridLocale> | null): DataGridLocale {

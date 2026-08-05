@@ -76,7 +76,7 @@ export interface ColumnDef<T = unknown> {
   /** Minimum width when resizing / flexing. */
   minWidth?: number;
   /**
-   * Flex grow factor — shares remaining viewport width after fixed columns.
+   * Flex grow factor — becomes `minmax(minWidth, Nfr)` in the CSS Grid track list.
    * Prefer `flex` over omitting width when the column should fill space.
    */
   flex?: number;
@@ -261,6 +261,24 @@ export interface PasteEvent<T = unknown> {
   matrix: string[][];
   /** Suggested next rows if host applies field writes. */
   suggestedRows: T[];
+}
+
+/**
+ * Single contiguous cell range (Wave 4 / OVERVIEW §5).
+ * Coordinates are display-row indexes (`FocusCell.rowIndex`).
+ */
+export interface CellRange {
+  anchor: { rowIndex: number; columnId: string };
+  active: { rowIndex: number; columnId: string };
+}
+
+/**
+ * Fill drag result — same write path as paste (`suggestedRows`).
+ * Emitted via `(paste)` when a fill handle completes (v1).
+ */
+export interface FillEvent<T = unknown> extends PasteEvent<T> {
+  range: CellRange;
+  source: CellRange;
 }
 
 export interface DataGridFilterState {

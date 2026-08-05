@@ -1,24 +1,10 @@
 /**
- * Row drag helpers — template owns handles; this owns index math + contracts.
+ * Row drag helpers — template owns handles; this owns index math + pointer session.
  */
 
 import type { RowReorderEvent } from '../components/data-grid/data-grid.types';
 import { moveItem } from './cell-value';
-
-export function parseDragIndex(
-  stored: number | null,
-  dataTransfer: DataTransfer | null | undefined,
-): number {
-  if (stored != null && Number.isFinite(stored)) {
-    return stored;
-  }
-  const raw = dataTransfer?.getData('text/plain');
-  if (raw == null || raw.trim() === '') {
-    return Number.NaN;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : Number.NaN;
-}
+import type { DisplayRow } from './row-display';
 
 export function isValidRowReorder(fromIndex: number, toIndex: number): boolean {
   return Number.isFinite(fromIndex) && Number.isFinite(toIndex) && fromIndex !== toIndex;
@@ -68,4 +54,91 @@ export function buildRowReorderEvent<T>(
   const rows = moveItem(processedRows, fromIndex, toIndex);
   const rowIds = rows.map((row, index) => rowId(row, index));
   return { fromIndex, toIndex, fromId, toId, rowIds, rows };
+}
+
+/**
+ * Map a pointer Y to a data-row index using scroll geometry (no DOM hit-testing).
+ * `contentOffsetY` is the sticky header block height before body rows in the scrollport.
+ * Returns `null` when the display row under the pointer is not a data row.
+ */
+export function resolveRowDropDataIndex(options: {
+  clientY: number;
+  scrollTop: number;
+  scrollRectTop: number;
+  rowHeight: number;
+  contentOffsetY?: number;
+  displayRows: readonly DisplayRow<unknown>[];
+}): number | null {
+  const { clientY, scrollTop, scrollRectTop, rowHeight, displayRows } = options;
+  if (rowHeight <= 0 || displayRows.length === 0) {
+    return null;
+  }
+  const header = options.contentOffsetY ?? 0;
+  const y = clientY - scrollRectTop + scrollTop - header;
+  if (y < 0) {
+    return null;
+  }
+  const displayIndex = Math.min(displayRows.length - 1, Math.floor(y / rowHeight));
+  const item = displayRows[displayIndex];
+  return item?.kind === 'data' ? item.dataIndex : null;
+}
+
+/**
+ * Attach window pointer listeners for a row-reorder drag. Returns cleanup.
+ */
+export function attachRowReorder(options: {
+  pointerId: number;
+  fromIndex: number;
+  getDropIndex: (clientY: number) => number | null;
+  onOver: (index: number | null) => void;
+  onDrop: (fromIndex: number, toIndex: number) => void;
+  onEnd?: () => void;
+}): () => void {
+  let lastOver: number | null = null;
+  let ended = false;
+
+  const onMove = (ev: PointerEvent): void => {
+    if (ev.pointerId !== options.pointerId) {
+      return;
+    }
+    lastOver = options.getDropIndex(ev.clientY);
+    options.onOver(lastOver);
+  };
+
+  const finish = (dropped: boolean, clientY?: number): void => {
+    if (ended) {
+      return;
+    }
+    ended = true;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onCancel);
+    const to =
+      dropped && clientY != null
+        ? (options.getDropIndex(clientY) ?? lastOver)
+        : null;
+    options.onEnd?.();
+    if (to != null) {
+      options.onDrop(options.fromIndex, to);
+    }
+  };
+
+  const onUp = (ev: PointerEvent): void => {
+    if (ev.pointerId !== options.pointerId) {
+      return;
+    }
+    finish(true, ev.clientY);
+  };
+
+  const onCancel = (ev: PointerEvent): void => {
+    if (ev.pointerId !== options.pointerId) {
+      return;
+    }
+    finish(false);
+  };
+
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onCancel);
+  return () => finish(false);
 }

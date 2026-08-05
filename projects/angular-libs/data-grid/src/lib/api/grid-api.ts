@@ -38,6 +38,15 @@ export interface BoundTreeDataAdapter {
   collectAllGroupIds(rows: readonly unknown[]): string[];
 }
 
+/** Cell-range adapter bound by `cellRangePlugin` (OVERVIEW §5). */
+export interface BoundCellRangeAdapter {
+  getRange(): import('../components/data-grid/data-grid.types').CellRange | null;
+  setRange(range: import('../components/data-grid/data-grid.types').CellRange | null): void;
+  clearRange(): void;
+  getClipboardText(): string | null;
+  extendRange(dRow: number, dCol: number): boolean;
+}
+
 /** Selection + query read/write. */
 export interface DataGridSelectionHost<T = unknown> {
   getSelectedIds(): Array<string | number>;
@@ -64,6 +73,8 @@ export interface DataGridColumnsHost {
   setQuickFilter(value: string): void;
   setColumnPinned?(columnId: string, pinned: import('../components/data-grid/data-grid.types').ColumnPin | null): void;
   getColumnPinned?(columnId: string): import('../components/data-grid/data-grid.types').ColumnPin | null;
+  /** Show/hide a column (`hiddenColumnIds`). */
+  setColumnVisible?(columnId: string, visible: boolean): void;
   getColumnsById?(): Map<string, ColumnDef<any>>;
   getVisibleColumnIds?(): string[];
 }
@@ -139,6 +150,8 @@ export class DataGridApi<T = unknown> {
   private rowGroupAdapter: BoundRowGroupAdapter | null = null;
   /** Bound by `treeDataPlugin` during setup. */
   private treeDataAdapter: BoundTreeDataAdapter | null = null;
+  /** Bound by `cellRangePlugin` during setup. */
+  private cellRangeAdapter: BoundCellRangeAdapter | null = null;
   private pluginLifecycle: PluginLifecycle<T> | null = null;
 
   constructor(private readonly host: DataGridApiHost<T>) {}
@@ -210,6 +223,10 @@ export class DataGridApi<T = unknown> {
     return this.host.getColumnPinned?.(columnId) ?? null;
   }
 
+  setColumnVisible(columnId: string, visible: boolean): void {
+    this.host.setColumnVisible?.(columnId, visible);
+  }
+
   getSelectedIds(): Array<string | number> {
     return this.host.getSelectedIds();
   }
@@ -272,7 +289,7 @@ export class DataGridApi<T = unknown> {
     this.host.focusCell?.(rowIndex, columnId);
   }
 
-  /** Wave 2 stub — lean menu UI in Wave 4. */
+  /** Wave 4 lean column menu (pin / sort / autosize / hide). */
   openColumnMenu(columnId: string): void {
     this.host.openColumnMenu?.(columnId);
   }
@@ -346,7 +363,25 @@ export class DataGridApi<T = unknown> {
   }
 
   getSelectionClipboardText(): string | null {
+    // §5d — range wins copy when present.
+    const fromRange = this.cellRangeAdapter?.getClipboardText();
+    if (fromRange != null) {
+      return fromRange;
+    }
     return this.host.getSelectionClipboardText?.() ?? null;
+  }
+
+  getCellRange(): import('../components/data-grid/data-grid.types').CellRange | null {
+    return this.cellRangeAdapter?.getRange() ?? null;
+  }
+
+  clearCellRange(): void {
+    this.cellRangeAdapter?.clearRange();
+  }
+
+  /** @internal — bound by `cellRangePlugin`. */
+  extendCellRange(dRow: number, dCol: number): boolean {
+    return this.cellRangeAdapter?.extendRange(dRow, dCol) ?? false;
   }
 
   focusFindInput(): void {
@@ -385,6 +420,10 @@ export class DataGridApi<T = unknown> {
   bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
     this.treeDataAdapter = adapter;
     this.host.bindTreeDataAdapter?.(adapter);
+  }
+
+  bindCellRangeAdapter(adapter: BoundCellRangeAdapter | null): void {
+    this.cellRangeAdapter = adapter;
   }
 
   getLocale(): import('../locale/default-locale').DataGridLocale {

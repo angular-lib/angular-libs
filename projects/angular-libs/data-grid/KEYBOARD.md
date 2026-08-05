@@ -23,7 +23,7 @@ keys move focus inside the grid; Tab leaves to the next page control.
 
 | Key | Action | When |
 | --- | --- | --- |
-| Shift+arrows | Extend cell range | `cellRangePlugin` (§5) |
+| Shift+arrows | Extend cell range | ✅ `cellRangePlugin` (§5) |
 | Tab while editing | Commit and move | §5b `tab` policy |
 | Type-to-edit | Printable / Backspace starts edit | §5b phase 5 |
 
@@ -35,7 +35,7 @@ keys move focus inside the grid; Tab leaves to the next page control.
 | ↑ ↓ | Header rows / into body (↓ from leaf → body row 0) |
 | PageDown | Jump into body row 0 (same column) |
 | Enter | Toggle sort: asc → desc → none (Shift+Enter multi-sort) |
-| Alt+↓ | Open column menu (stub → lean menu) |
+| Alt+↓ | Open lean column menu (pin / sort / autosize / hide) |
 | Escape | Close menu |
 
 ## Body PageUp / PageDown continuum

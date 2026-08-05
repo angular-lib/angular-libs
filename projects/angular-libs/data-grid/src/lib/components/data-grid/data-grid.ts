@@ -89,14 +89,16 @@ import {
   moveColumn,
   reconcileColumnLayout,
   reconcileHiddenColumnIds,
-  resolveColumnWidths,
+  resolveColumnTracks,
   setColumnPin,
+  CHROME_TRACK,
   type ColumnLayout,
 } from '../../utils/column-layout';
 import {
+  attachRowReorder,
   buildRowReorderEvent,
   isRowDragAllowed,
-  parseDragIndex,
+  resolveRowDropDataIndex,
 } from '../../utils/row-interactions';
 import {
   isDataDisplayRow,
@@ -124,6 +126,7 @@ import {
   resolveContextMenuItems,
   writeClipboardText,
 } from '../../utils/context-menu';
+import { buildLeanColumnMenuItems } from '../../utils/column-menu';
 import { downloadCsv, rowsToCsv } from '../../utils/csv';
 import {
   collectFindMatches,
@@ -338,6 +341,8 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     setColumnPinned: (columnId: string, pinned: ColumnPin | null) =>
       this.setColumnPinned(columnId, pinned),
     getColumnPinned: (columnId: string) => this.getColumnPinned(columnId),
+    setColumnVisible: (columnId: string, visible: boolean) =>
+      this.setColumnVisible(columnId, visible),
     getColumnsById: () => this.getColumnsById(),
     getVisibleColumnIds: () => this.getVisibleColumnIds(),
   };
@@ -415,8 +420,8 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   readonly findActiveIndex = signal(0);
   readonly focusedCell = signal<FocusCell | null>(null);
   /**
-   * Column menu stub (Wave 2) — set by Alt+↓ / `api.openColumnMenu`.
-   * Lean UI lands in Wave 4; until then hosts can bind this signal.
+   * Column id for the open lean column menu (Alt+↓ / `api.openColumnMenu`).
+   * Cleared when the menu closes.
    */
   readonly columnMenuColumnId = signal<string | null>(null);
   /** Collapsed tree node ids (row-group collapse lives on the plugin adapter). */
@@ -752,25 +757,37 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   readonly reservedChromeWidth = computed(() => {
     let w = 0;
     if (this.showSelection()) {
-      w += 40;
+      w += CHROME_TRACK.select;
     }
     if (this.rowDragEnabled()) {
-      w += 36;
+      w += CHROME_TRACK.drag;
     }
     if (this.effectiveEditMode() === 'fullRow') {
-      w += 132;
+      w += CHROME_TRACK.rowEdit;
     }
     return w;
   });
 
-  readonly resolvedWidths = computed(() =>
-    resolveColumnWidths(
-      this.visibleColumns(),
-      this.widthOverrides(),
-      this.viewportWidth(),
-      this.reservedChromeWidth(),
-    ),
+  /** CSS Grid track list — flex columns use `fr`, no viewport width measure. */
+  readonly columnTrackLayout = computed(() =>
+    resolveColumnTracks(this.visibleColumns(), this.widthOverrides(), {
+      drag: this.rowDragEnabled(),
+      select: this.showSelection(),
+      rowEdit: this.effectiveEditMode() === 'fullRow',
+    }),
   );
+
+  readonly gridTemplateColumns = computed(() => this.columnTrackLayout().tracks);
+
+  /** Pixel widths for pin offsets / resize; flex tracks are null → use minWidth. */
+  readonly resolvedWidths = computed(() => {
+    const { widthsPx } = this.columnTrackLayout();
+    const out: Record<string, number> = {};
+    for (const col of this.visibleColumns()) {
+      out[col.id] = widthsPx[col.id] ?? col.minWidth;
+    }
+    return out;
+  });
 
   readonly statusBarVisible = computed(() =>
     this.statusBarSlotItems().some((item) => {
@@ -889,6 +906,8 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
         onHeaderActivate: (columnId, multi) => this.activateHeaderSort(columnId, multi),
         onOpenColumnMenu: (columnId) => this.openColumnMenu(columnId),
         hasFloatingFilters: () => this.floatingFilters() && this.hasFilters(),
+        onExtendRange: (dRow, dCol) => this.api.extendCellRange(dRow, dCol),
+        onClearRange: () => this.api.clearCellRange(),
         getFindMatchCount: (): number => this.findMatches().length,
         getFindActiveIndex: (): number => this.findActiveIndex(),
         setFindActiveIndex: (index) => this.findActiveIndex.set(index),
@@ -975,14 +994,21 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     });
 
     this.destroyRef.onDestroy(() => {
+      if (this.measureViewportRaf) {
+        cancelAnimationFrame(this.measureViewportRaf);
+        this.measureViewportRaf = 0;
+      }
       this.viewportResizeObserver?.disconnect();
       this.controller().bindApi(null);
       this.teardownPlugins();
       this.destroyRowEditSession();
+      this.rowDragCleanup?.();
+      this.rowDragCleanup = null;
     });
   }
 
   private viewportResizeObserver: ResizeObserver | null = null;
+  private measureViewportRaf = 0;
 
   private observeViewportResize(): void {
     const scroll = this.host.nativeElement.querySelector(
@@ -992,8 +1018,18 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       return;
     }
     this.viewportResizeObserver?.disconnect();
-    this.viewportResizeObserver = new ResizeObserver(() => this.measureViewport());
+    this.viewportResizeObserver = new ResizeObserver(() => this.scheduleMeasureViewport());
     this.viewportResizeObserver.observe(scroll);
+  }
+
+  private scheduleMeasureViewport(): void {
+    if (this.measureViewportRaf) {
+      return;
+    }
+    this.measureViewportRaf = requestAnimationFrame(() => {
+      this.measureViewportRaf = 0;
+      this.measureViewport();
+    });
   }
 
   private pluginContext(): DataGridPluginContext<T> {
@@ -1016,9 +1052,17 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     const scroll = this.host.nativeElement.querySelector(
       '.al-data-grid__scroll',
     ) as HTMLElement | null;
-    if (scroll) {
-      this.viewportHeight.set(scroll.clientHeight || 480);
-      this.viewportWidth.set(scroll.clientWidth || 800);
+    if (!scroll) {
+      return;
+    }
+    const width = scroll.clientWidth || 800;
+    const height = scroll.clientHeight || 480;
+    // Avoid flex-width churn when the measured box is unchanged.
+    if (this.viewportWidth() !== width) {
+      this.viewportWidth.set(width);
+    }
+    if (this.viewportHeight() !== height) {
+      this.viewportHeight.set(height);
     }
   }
 
@@ -1187,13 +1231,80 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     return !!focus && focusRealmOf(focus) === 'floatingFilter' && focus.columnId === columnId;
   }
 
-  /** Wave 2 stub — stores column id; lean menu UI in Wave 4. */
+  /** Lean column menu — pin / sort / autosize / hide (Wave 4). */
   openColumnMenu(columnId: string): void {
+    const column = this.columnsById().get(columnId);
+    if (!column) {
+      return;
+    }
     this.columnMenuColumnId.set(columnId);
+    const items = this.leanColumnMenuItems(column);
+    const escape =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape
+        : (s: string) => s.replace(/"/g, '\\"');
+    const th = this.host.nativeElement.querySelector(
+      `[data-testid="al-dg-col-${escape(columnId)}"]`,
+    ) as HTMLElement | null;
+    const rect = th?.getBoundingClientRect();
+    const pos = positionMenu(
+      rect?.left ?? 8,
+      (rect?.bottom ?? 8) + 4,
+      220,
+      8 + items.length * 36,
+    );
+    this.contextMenuState.set({
+      left: pos.left,
+      top: pos.top,
+      ctx: null,
+      source: 'header',
+      items,
+    });
   }
 
   closeColumnMenu(): void {
     this.columnMenuColumnId.set(null);
+    if (this.contextMenuState()?.source === 'header') {
+      this.contextMenuState.set(null);
+    }
+  }
+
+  private leanColumnMenuItems(column: ResolvedColumn<T>): DataGridContextMenuItem<T>[] {
+    const locale = this.resolvedLocale();
+    const pinned = column.pinned === 'left' || column.pinned === 'right' ? column.pinned : null;
+    const sortDirection =
+      this.sorts().find((s) => s.columnId === column.id)?.direction ?? null;
+    return buildLeanColumnMenuItems({
+      locale,
+      pinned,
+      sortable: !!column.sortable,
+      sortDirection,
+      canHide: this.visibleColumns().length > 1,
+      sortAsc: () => this.setColumnSort(column.id, 'asc'),
+      sortDesc: () => this.setColumnSort(column.id, 'desc'),
+      clearSort: () => this.setColumnSort(column.id, null),
+      pinLeft: () => this.setColumnPinned(column.id, 'left'),
+      pinRight: () => this.setColumnPinned(column.id, 'right'),
+      unpin: () => this.setColumnPinned(column.id, null),
+      autosize: () => this.autoSizeColumns([column.id]),
+      hide: () => this.setColumnVisible(column.id, false),
+    });
+  }
+
+  /** Set / clear a single-column sort (lean menu). */
+  setColumnSort(columnId: string, direction: 'asc' | 'desc' | null): void {
+    const column = this.columnsById().get(columnId);
+    if (!column?.sortable) {
+      return;
+    }
+    const sorts: SortState[] = direction
+      ? [{ columnId: column.id, direction }]
+      : this.sorts().filter((s) => s.columnId !== column.id);
+    this.sorts.set(sorts);
+    this.sortChange.emit(sorts);
+    this.emitState();
+    this.emitQueryIfServer();
+    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', sorts);
   }
 
   focusHeaderColumn(columnId: string): void {
@@ -1346,8 +1457,11 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   onScroll(event: Event): void {
     const el = event.target as HTMLElement;
     this.scrollTop.set(el.scrollTop);
-    this.viewportHeight.set(el.clientHeight || 480);
-    this.viewportWidth.set(el.clientWidth || 800);
+    // Height can change if a horizontal scrollbar toggles; width is owned by ResizeObserver.
+    const height = el.clientHeight || 480;
+    if (this.viewportHeight() !== height) {
+      this.viewportHeight.set(height);
+    }
   }
 
   /** Called by `infiniteScrollPlugin` via `api.notifyNearEnd()`. */
@@ -1577,8 +1691,14 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
-    if (this.columnMenuColumnId()) {
+    if (this.columnMenuColumnId() || this.contextMenuState()?.source === 'header') {
       this.closeColumnMenu();
+      this.closeContextMenu();
+      (event as KeyboardEvent | undefined)?.preventDefault?.();
+      return;
+    }
+    if (this.api.getCellRange()) {
+      this.api.clearCellRange();
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
@@ -1813,7 +1933,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   }
 
   /**
-   * Header pin menu — always available (independent of cell `contextMenu`).
+   * Lean column menu — Alt+↓ / API, and header right-click.
    * Drag-onto-column pin still works via {@link reorderVisibleColumns}.
    */
   onHeaderContextMenu(column: ResolvedColumn<T>, event: MouseEvent): void {
@@ -1823,31 +1943,9 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     event.preventDefault();
     event.stopPropagation();
 
-    const locale = this.resolvedLocale();
-    const pinned = column.pinned === 'left' || column.pinned === 'right' ? column.pinned : null;
-    const items: DataGridContextMenuItem<T>[] = [
-      {
-        id: 'pin-left',
-        label: locale.pinLeft,
-        disabled: pinned === 'left',
-        action: () => this.setColumnPinned(column.id, 'left'),
-      },
-      {
-        id: 'pin-right',
-        label: locale.pinRight,
-        disabled: pinned === 'right',
-        action: () => this.setColumnPinned(column.id, 'right'),
-      },
-      {
-        id: 'unpin',
-        label: locale.unpinColumn,
-        separator: true,
-        disabled: pinned == null,
-        action: () => this.setColumnPinned(column.id, null),
-      },
-    ];
-
-    const pos = positionMenu(event.clientX, event.clientY, 200, 8 + items.length * 36);
+    this.columnMenuColumnId.set(column.id);
+    const items = this.leanColumnMenuItems(column);
+    const pos = positionMenu(event.clientX, event.clientY, 220, 8 + items.length * 36);
     this.contextMenuState.set({
       left: pos.left,
       top: pos.top,
@@ -1873,9 +1971,11 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
   closeContextMenu(): void {
     if (!this.contextMenuState()) {
+      this.columnMenuColumnId.set(null);
       return;
     }
     this.contextMenuState.set(null);
+    this.columnMenuColumnId.set(null);
     this.contextMenuClosed.emit();
   }
 
@@ -2155,9 +2255,12 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   startResize(event: PointerEvent, column: ResolvedColumn<T>): void {
     event.preventDefault();
     event.stopPropagation();
+    // Prefer rendered track width so flex (`fr`) columns don't jump from minWidth.
+    const header = (event.currentTarget as HTMLElement | null)?.closest('.al-data-grid__th');
+    const rendered = header?.getBoundingClientRect().width;
     attachColumnResize({
       startX: event.clientX,
-      startWidth: this.columnWidth(column) ?? column.minWidth,
+      startWidth: Math.round(rendered ?? this.columnWidth(column) ?? column.minWidth),
       minWidth: column.minWidth,
       onWidth: (width) => {
         this.widthOverrides.update((widths) => nextWidthOverride(widths, column.id, width, column.minWidth));
@@ -2208,11 +2311,18 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   }
 
   onColumnVisibility(event: { columnId: string; visible: boolean }): void {
+    this.setColumnVisible(event.columnId, event.visible);
+  }
+
+  setColumnVisible(columnId: string, visible: boolean): void {
     const set = new Set(this.hiddenColumnIds());
-    if (event.visible) {
-      set.delete(event.columnId);
+    if (visible) {
+      set.delete(columnId);
     } else {
-      set.add(event.columnId);
+      if (this.visibleColumns().length <= 1 && this.visibleColumns().some((c) => c.id === columnId)) {
+        return;
+      }
+      set.add(columnId);
     }
     const next = [...set];
     this.hiddenColumnIds.set(next);
@@ -2470,35 +2580,64 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     return plugins.map((p) => p.id ?? '').join('\0');
   }
 
-  private rowDragFrom: number | null = null;
+  /**
+   * Pointer-based row reorder (HTML5 DnD is unreliable on sticky cells in overflow scrollers).
+   * Session listeners live in {@link attachRowReorder}.
+   */
+  readonly rowDragFromIndex = signal<number | null>(null);
+  readonly rowDragOverIndex = signal<number | null>(null);
+  private rowDragCleanup: (() => void) | null = null;
 
-  onRowDragStart(index: number, event: DragEvent): void {
-    if (!this.rowDragEnabled()) {
+  onRowDragPointerDown(index: number, event: PointerEvent): void {
+    if (!this.rowDragEnabled() || event.button !== 0) {
       return;
     }
-    this.rowDragFrom = index;
-    event.dataTransfer?.setData('text/plain', String(index));
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-    }
-  }
-
-  onRowDrop(toIndex: number, event: DragEvent): void {
     event.preventDefault();
-    if (!this.rowDragEnabled()) {
-      return;
-    }
-    const from = parseDragIndex(this.rowDragFrom, event.dataTransfer);
-    this.rowDragFrom = null;
-    const payload = buildRowReorderEvent(
-      this.processedRows(),
-      from,
-      toIndex,
-      (row, index) => this.resolveRowId(row, index),
-    );
-    if (payload) {
-      this.rowReorder.emit(payload);
-    }
+    event.stopPropagation();
+
+    this.rowDragCleanup?.();
+    this.rowDragFromIndex.set(index);
+    this.rowDragOverIndex.set(index);
+
+    const scroll = this.host.nativeElement.querySelector(
+      '.al-data-grid__scroll',
+    ) as HTMLElement | null;
+    const thead = scroll?.querySelector('.al-data-grid__thead') as HTMLElement | null;
+
+    this.rowDragCleanup = attachRowReorder({
+      pointerId: event.pointerId,
+      fromIndex: index,
+      getDropIndex: (clientY) => {
+        if (!scroll) {
+          return null;
+        }
+        return resolveRowDropDataIndex({
+          clientY,
+          scrollTop: scroll.scrollTop,
+          scrollRectTop: scroll.getBoundingClientRect().top,
+          rowHeight: this.rowHeight(),
+          contentOffsetY: thead?.offsetHeight ?? 0,
+          displayRows: this.pagedDisplayRows(),
+        });
+      },
+      onOver: (over) => this.rowDragOverIndex.set(over),
+      onDrop: (from, to) => {
+        const payload = buildRowReorderEvent(
+          this.processedRows(),
+          from,
+          to,
+          (row, i) => this.resolveRowId(row, i),
+        );
+        if (payload) {
+          this.rowReorder.emit(payload);
+        }
+      },
+      onEnd: () => {
+        this.rowDragCleanup = null;
+        this.rowDragFromIndex.set(null);
+        this.rowDragOverIndex.set(null);
+      },
+    });
   }
 
   setFilterOptions(column: ResolvedColumn<T>): string[] {

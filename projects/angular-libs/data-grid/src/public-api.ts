@@ -9,6 +9,7 @@ export { DataGridApi } from './lib/api/grid-api';
 export type {
   BoundRowGroupAdapter,
   BoundTreeDataAdapter,
+  BoundCellRangeAdapter,
   DataGridApiHost,
   DataGridClipboardHost,
   DataGridColumnsHost,
@@ -101,6 +102,8 @@ export type {
   DataGridQuery,
   DataGridState,
   EditMode,
+  CellRange,
+  FillEvent,
   PasteEvent,
   ResolvedColumn,
   RowClassFn,
@@ -120,6 +123,15 @@ export type {
 export { rowsToCsv, downloadCsv } from './lib/utils/csv';
 export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
 export { defaultContextMenuItems } from './lib/utils/context-menu';
+export { buildLeanColumnMenuItems } from './lib/utils/column-menu';
+export type { LeanColumnMenuHelpers } from './lib/utils/column-menu';
+export {
+  cellInNormalizedRange,
+  moveFocusWithinGrid,
+  normalizeCellRange,
+  singleCellRange,
+} from './lib/utils/cell-range';
+export type { NormalizedCellRange } from './lib/utils/cell-range';
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
 export type { FindMatch, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';
@@ -139,15 +151,23 @@ export {
   reconcileColumnLayout,
   reconcileColumnOrder,
   reconcileHiddenColumnIds,
+  CHROME_TRACK,
+  resolveColumnTracks,
   resolveColumnWidths,
   setColumnPin,
 } from './lib/utils/column-layout';
-export type { ColumnLayout, ColumnPinSide } from './lib/utils/column-layout';
+export type {
+  ColumnLayout,
+  ColumnPinSide,
+  ColumnTrackLayout,
+  ColumnTracksChrome,
+} from './lib/utils/column-layout';
 export {
+  attachRowReorder,
   buildRowReorderEvent,
   isRowDragAllowed,
   isValidRowReorder,
-  parseDragIndex,
+  resolveRowDropDataIndex,
 } from './lib/utils/row-interactions';
 export {
   buildHeaderRows,

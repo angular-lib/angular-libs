@@ -48,6 +48,13 @@ export interface FocusControllerOptions {
   onOpenColumnMenu?: (columnId: string) => void;
   /** Whether floating filter row is present for continuum navigation. */
   hasFloatingFilters?: () => boolean;
+  /**
+   * Shift+arrows in body — extend cell range (OVERVIEW §5 / K7).
+   * Return `true` when handled (skip normal move).
+   */
+  onExtendRange?: (dRow: number, dCol: number) => boolean;
+  /** Non-shift body navigation — clear any active cell range. */
+  onClearRange?: () => void;
 }
 
 export class FocusController {
@@ -201,6 +208,12 @@ export class FocusController {
 
     switch (event.key) {
       case 'ArrowUp':
+        if (realm === 'body' && event.shiftKey && this.options.onExtendRange?.(-1, 0)) {
+          return true;
+        }
+        if (realm === 'body' && !event.shiftKey) {
+          this.options.onClearRange?.();
+        }
         this.move(-1, 0);
         return true;
       case 'ArrowDown':
@@ -208,12 +221,30 @@ export class FocusController {
           this.options.onOpenColumnMenu?.(this.focused.columnId);
           return true;
         }
+        if (realm === 'body' && event.shiftKey && this.options.onExtendRange?.(1, 0)) {
+          return true;
+        }
+        if (realm === 'body' && !event.shiftKey) {
+          this.options.onClearRange?.();
+        }
         this.move(1, 0);
         return true;
       case 'ArrowLeft':
+        if (realm === 'body' && event.shiftKey && this.options.onExtendRange?.(0, -1)) {
+          return true;
+        }
+        if (realm === 'body' && !event.shiftKey) {
+          this.options.onClearRange?.();
+        }
         this.move(0, -1);
         return true;
       case 'ArrowRight':
+        if (realm === 'body' && event.shiftKey && this.options.onExtendRange?.(0, 1)) {
+          return true;
+        }
+        if (realm === 'body' && !event.shiftKey) {
+          this.options.onClearRange?.();
+        }
         this.move(0, 1);
         return true;
       case 'Home':

@@ -256,7 +256,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
               return;
             }
             const td = (event.target as HTMLElement | null)?.closest?.(
-              'td[data-row-id][data-column-id]',
+              '[data-row-id][data-column-id]',
             ) as HTMLElement | null;
             if (!td || !element.contains(td)) {
               return;
@@ -291,7 +291,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
               return;
             }
             const td = (event.target as HTMLElement | null)?.closest?.(
-              'td[data-row-id][data-column-id]',
+              '[data-row-id][data-column-id]',
             );
             if (!td) {
               return;
@@ -364,7 +364,7 @@ function findCellElement(
   columnId: string,
 ): HTMLElement | null {
   return root.querySelector(
-    `td[data-row-id="${cssEscape(String(rowId))}"][data-column-id="${cssEscape(columnId)}"]`,
+    `[data-row-id="${cssEscape(String(rowId))}"][data-column-id="${cssEscape(columnId)}"]`,
   );
 }
 

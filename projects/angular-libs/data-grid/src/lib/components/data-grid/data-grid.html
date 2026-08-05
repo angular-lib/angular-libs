@@ -39,8 +39,9 @@
           data-testid="al-dg-frame"
         >
           <div class="al-data-grid__scroll" (scroll)="onScroll($event)" #scrollViewport>
-            <table
+            <div
               class="al-data-grid__table"
+              [style.--al-dg-tracks]="gridTemplateColumns()"
               [class.al-data-grid__table--striped]="stripe()"
               [class.al-data-grid__table--row-drag]="rowDragEnabled()"
               [class.al-data-grid__table--selection]="showSelection()"
@@ -48,17 +49,17 @@
               [class.al-data-grid__table--col-groups]="hasColumnGroups()"
               [class.al-data-grid__table--floating-filters]="floatingFilters() && hasFilters()"
             >
-              <thead class="al-data-grid__thead">
+              <div class="al-data-grid__thead">
                 @if (hasColumnGroups()) {
-                  <tr class="al-data-grid__header-row al-data-grid__header-row--group" role="row">
+                  <div class="al-data-grid__header-row al-data-grid__header-row--group" role="row">
                     @if (rowDragEnabled()) {
-                      <th class="al-data-grid__th al-data-grid__th--drag"></th>
+                      <div class="al-data-grid__th al-data-grid__th--drag"></div>
                     }
                     @if (showSelection()) {
-                      <th class="al-data-grid__th al-data-grid__th--select"></th>
+                      <div class="al-data-grid__th al-data-grid__th--select"></div>
                     }
                     @for (cell of groupHeaderRow(); track $index) {
-                      <th
+                      <div
                         class="al-data-grid__th"
                         [class.al-data-grid__th--group]="!cell.columnId"
                         [class.al-data-grid__th--group-spacer]="!!cell.columnId"
@@ -75,24 +76,24 @@
                             : null
                         "
                         role="columnheader"
-                        [attr.colspan]="cell.colspan"
+                        [style.gridColumn]="'span ' + cell.colspan"
                       >
                         @if (!cell.columnId) {
                           <span class="al-data-grid__header-label">{{ cell.label }}</span>
                         }
-                      </th>
+                      </div>
                     }
                     @if (effectiveEditMode() === 'fullRow') {
-                      <th class="al-data-grid__th al-data-grid__th--row-edit"></th>
+                      <div class="al-data-grid__th al-data-grid__th--row-edit"></div>
                     }
-                  </tr>
+                  </div>
                 }
-                <tr class="al-data-grid__header-row" role="row">
+                <div class="al-data-grid__header-row" role="row">
                   @if (rowDragEnabled()) {
-                    <th class="al-data-grid__th al-data-grid__th--drag" role="columnheader" scope="col"></th>
+                    <div class="al-data-grid__th al-data-grid__th--drag" role="columnheader"></div>
                   }
                   @if (showSelection()) {
-                    <th class="al-data-grid__th al-data-grid__th--select" role="columnheader" scope="col">
+                    <div class="al-data-grid__th al-data-grid__th--select" role="columnheader">
                       @if (effectiveSelectionMode() === 'multi') {
                         <input
                           type="checkbox"
@@ -103,14 +104,13 @@
                           data-testid="al-dg-select-all"
                         />
                       }
-                    </th>
+                    </div>
                   }
                   @for (col of visibleColumns(); track col.id; let colIndex = $index) {
                     @let headerFocused = isHeaderFocused(col.id);
-                    <th
+                    <div
                       class="al-data-grid__th"
                       role="columnheader"
-                      scope="col"
                       [attr.data-testid]="'al-dg-col-' + col.id"
                       [attr.draggable]="columnReorder() ? 'true' : null"
                       [attr.tabindex]="headerFocused ? 0 : -1"
@@ -119,8 +119,6 @@
                       [class.al-data-grid__th--pinned-left]="col.pinned === 'left'"
                       [class.al-data-grid__th--pinned-right]="col.pinned === 'right'"
                       [class.al-data-grid__th--focused]="headerFocused"
-                      [style.width.px]="columnWidth(col)"
-                      [style.minWidth.px]="col.minWidth"
                       [style.left.px]="col.pinned === 'left' ? pinnedLeftOffset(col.id) : null"
                       [style.right.px]="col.pinned === 'right' ? pinnedRightOffset(col.id) : null"
                       [attr.aria-sort]="ariaSort(col.id)"
@@ -153,26 +151,26 @@
                         (pointerdown)="startResize($event, col)"
                         aria-hidden="true"
                       ></span>
-                    </th>
+                    </div>
                   }
                   @if (effectiveEditMode() === 'fullRow') {
-                    <th class="al-data-grid__th al-data-grid__th--row-edit" role="columnheader" scope="col">
+                    <div class="al-data-grid__th al-data-grid__th--row-edit" role="columnheader">
                       {{ i18n().editColumnHeader }}
-                    </th>
+                    </div>
                   }
-                </tr>
+                </div>
 
                 @if (floatingFilters() && hasFilters()) {
-                  <tr class="al-data-grid__filter-row" role="row">
+                  <div class="al-data-grid__filter-row" role="row">
                     @if (rowDragEnabled()) {
-                      <th class="al-data-grid__th al-data-grid__th--drag"></th>
+                      <div class="al-data-grid__th al-data-grid__th--drag"></div>
                     }
                     @if (showSelection()) {
-                      <th class="al-data-grid__th al-data-grid__th--select"></th>
+                      <div class="al-data-grid__th al-data-grid__th--select"></div>
                     }
                     @for (col of visibleColumns(); track col.id; let colIndex = $index) {
                       @let filterFocused = isFloatingFilterFocused(col.id);
-                      <th
+                      <div
                         class="al-data-grid__th al-data-grid__th--filter"
                         [attr.data-testid]="'al-dg-filter-' + col.id"
                         [attr.tabindex]="filterFocused ? 0 : -1"
@@ -180,8 +178,6 @@
                         [class.al-data-grid__th--pinned-left]="col.pinned === 'left'"
                         [class.al-data-grid__th--pinned-right]="col.pinned === 'right'"
                         [class.al-data-grid__th--focused]="filterFocused"
-                        [style.width.px]="columnWidth(col)"
-                        [style.minWidth.px]="col.minWidth"
                         [style.left.px]="col.pinned === 'left' ? pinnedLeftOffset(col.id) : null"
                         [style.right.px]="col.pinned === 'right' ? pinnedRightOffset(col.id) : null"
                         (focusin)="focusFloatingFilterColumn(col.id)"
@@ -196,19 +192,19 @@
                             (valueChange)="setFilter(col.id, $event)"
                           />
                         }
-                      </th>
+                      </div>
                     }
                     @if (effectiveEditMode() === 'fullRow') {
-                      <th class="al-data-grid__th al-data-grid__th--row-edit"></th>
+                      <div class="al-data-grid__th al-data-grid__th--row-edit"></div>
                     }
-                  </tr>
+                  </div>
                 }
-              </thead>
+              </div>
 
-              <tbody class="al-data-grid__tbody">
+              <div class="al-data-grid__tbody">
                 @if (loading()) {
-                  <tr class="al-data-grid__state-row">
-                    <td [attr.colspan]="colSpan()">
+                  <div class="al-data-grid__state-row">
+                    <div [style.gridColumn]="'1 / -1'">
                       <div class="al-data-grid__state" data-testid="al-dg-loading">
                         @if (loadingTemplate(); as tpl) {
                           <ng-container [ngTemplateOutlet]="tpl" />
@@ -216,11 +212,11 @@
                           {{ i18n().loading }}
                         }
                       </div>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 } @else if (!pagedDisplayRows().length) {
-                  <tr class="al-data-grid__state-row">
-                    <td [attr.colspan]="colSpan()">
+                  <div class="al-data-grid__state-row">
+                    <div [style.gridColumn]="'1 / -1'">
                       <div class="al-data-grid__state" data-testid="al-dg-empty">
                         @if (emptyTemplate(); as tpl) {
                           <ng-container [ngTemplateOutlet]="tpl" />
@@ -228,15 +224,15 @@
                           {{ emptyMessageText() }}
                         }
                       </div>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 } @else {
                   @if (virtualEnabled() && virtualWindow().offsetY > 0) {
-                    <tr class="al-data-grid__spacer" aria-hidden="true">
-                      <td [attr.colspan]="colSpan()">
+                    <div class="al-data-grid__spacer" aria-hidden="true">
+                      <div [style.gridColumn]="'1 / -1'">
                         <div class="al-data-grid__spacer-pad" [style.height.px]="virtualWindow().offsetY"></div>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   }
 
                   @for (item of renderedRows(); track trackRow($index, item); let viewIndex = $index) {
@@ -244,32 +240,32 @@
                     @switch (item.kind) {
                       @case ('group') {
                         @if (displayViewFor('group'); as view) {
-                          <tr
+                          <div
                             class="al-data-grid__row al-data-grid__row--group"
                             role="row"
                             [attr.data-testid]="'al-dg-group-' + item.id"
                             [style.height.px]="rowHeight()"
                             (click)="toggleGroup(item.id)"
                           >
-                            <td class="al-data-grid__td al-data-grid__td--group" role="gridcell" [attr.colspan]="colSpan()">
+                            <div class="al-data-grid__td al-data-grid__td--group" role="gridcell" [style.gridColumn]="'1 / -1'">
                               <ng-container
                                 [ngComponentOutlet]="view.component"
                                 [ngComponentOutletInputs]="{ item, api }"
                               />
-                            </td>
-                          </tr>
+                            </div>
+                          </div>
                         } @else {
-                      <tr
+                      <div
                         class="al-data-grid__row al-data-grid__row--group"
                         role="row"
                         [attr.data-testid]="'al-dg-group-' + item.id"
                         [style.height.px]="rowHeight()"
                         (click)="toggleGroup(item.id)"
                       >
-                        <td
+                        <div
                           class="al-data-grid__td al-data-grid__td--group"
                           role="gridcell"
-                          [attr.colspan]="colSpan()"
+                          [style.gridColumn]="'1 / -1'"
                           [style.paddingLeft.px]="10 + item.level * 16"
                         >
                           <button
@@ -282,8 +278,8 @@
                           </button>
                           <strong>{{ item.key }}</strong>
                           <span class="al-data-grid__group-count">({{ item.childCount }})</span>
-                        </td>
-                      </tr>
+                        </div>
+                      </div>
                         }
                       }
                       @case ('data') {
@@ -291,7 +287,7 @@
                     @let rowIndex = item.dataIndex;
                     @let id = item.rowId;
                     @let rowEditing = isRowEditing(id);
-                    <tr
+                    <div
                       class="al-data-grid__row"
                       role="row"
                       [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
@@ -301,25 +297,25 @@
                       [class.al-data-grid__row--stripe]="stripe() && rowIndex % 2 === 1"
                       [class.al-data-grid__row--editing]="rowEditing"
                       [class.al-data-grid__row--invalid]="rowEditing && rowFormInvalid()"
+                      [class.al-data-grid__row--dragging]="rowDragFromIndex() === rowIndex"
+                      [class.al-data-grid__row--drag-over]="rowDragOverIndex() === rowIndex"
                       [style.height.px]="rowHeight()"
                       (click)="onRowClick(row, id, rowIndex, $event)"
-                      (dragover)="rowDragEnabled() && $event.preventDefault()"
-                      (drop)="onRowDrop(rowIndex, $event)"
                     >
                       @if (rowDragEnabled()) {
-                        <td
+                        <div
                           class="al-data-grid__td al-data-grid__td--drag"
                           role="gridcell"
-                          draggable="true"
-                          (dragstart)="onRowDragStart(rowIndex, $event)"
+                          (pointerdown)="onRowDragPointerDown(rowIndex, $event)"
                           (click)="$event.stopPropagation()"
                           data-testid="al-dg-row-drag"
+                          [attr.aria-grabbed]="rowDragFromIndex() === rowIndex"
                         >
                           ⋮⋮
-                        </td>
+                        </div>
                       }
                       @if (showSelection()) {
-                        <td class="al-data-grid__td al-data-grid__td--select" role="gridcell">
+                        <div class="al-data-grid__td al-data-grid__td--select" role="gridcell">
                           <input
                             type="checkbox"
                             [checked]="isSelected(id)"
@@ -328,7 +324,7 @@
                             (change)="toggleRowSelection(id, $event)"
                             [attr.aria-label]="i18n().selectRowAriaLabel + ' ' + id"
                           />
-                        </td>
+                        </div>
                       }
                       @for (col of visibleColumns(); track col.id) {
                         @let value = cellValue(row, col, rowIndex);
@@ -342,7 +338,7 @@
                             ? !!(rowEditing && col.editable && field)
                             : editing;
                         @let cellFocused = isCellFocused(displayIndex, col.id);
-                        <td
+                        <div
                           class="al-data-grid__td"
                           role="gridcell"
                           [attr.data-testid]="'al-dg-cell-' + id + '-' + col.id"
@@ -361,8 +357,6 @@
                           [class.al-data-grid__td--focused]="cellFocused"
                           [class.al-data-grid__td--invalid]="cellEditing && fieldInvalid(field)"
                           [style.textAlign]="col.align ?? 'left'"
-                          [style.width.px]="columnWidth(col)"
-                          [style.minWidth.px]="col.minWidth"
                           [style.left.px]="col.pinned === 'left' ? pinnedLeftOffset(col.id) : null"
                           [style.right.px]="col.pinned === 'right' ? pinnedRightOffset(col.id) : null"
                           [style.paddingLeft.px]="
@@ -517,10 +511,10 @@
                           } @else {
                             {{ displayValue(value, row, col, rowIndex) }}
                           }
-                        </td>
+                        </div>
                       }
                       @if (effectiveEditMode() === 'fullRow') {
-                        <td class="al-data-grid__td al-data-grid__td--row-edit" role="gridcell">
+                        <div class="al-data-grid__td al-data-grid__td--row-edit" role="gridcell">
                           @if (rowEditing) {
                             <div class="al-data-grid__row-edit-actions">
                               <button
@@ -551,80 +545,78 @@
                               {{ i18n().editColumnHeader }}
                             </button>
                           }
-                        </td>
+                        </div>
                       }
-                    </tr>
+                    </div>
                       }
                       @case ('plugin') {
                         @if (displayViewFor(item.pluginKind); as view) {
-                          <tr
+                          <div
                             class="al-data-grid__row"
                             role="row"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
                             [style.height.px]="rowHeight()"
                           >
-                            <td class="al-data-grid__td" [attr.colspan]="colSpan()">
+                            <div class="al-data-grid__td" [style.gridColumn]="'1 / -1'">
                               <ng-container
                                 [ngComponentOutlet]="view.component"
                                 [ngComponentOutletInputs]="{ item, api }"
                               />
-                            </td>
-                          </tr>
+                            </div>
+                          </div>
                         } @else {
-                          <tr
+                          <div
                             class="al-data-grid__row al-data-grid__row--plugin-fallback"
                             role="row"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
                             [style.height.px]="rowHeight()"
                           >
-                            <td class="al-data-grid__td" [attr.colspan]="colSpan()"></td>
-                          </tr>
+                            <div class="al-data-grid__td" [style.gridColumn]="'1 / -1'"></div>
+                          </div>
                         }
                       }
                     }
                   }
 
                   @if (virtualEnabled() && virtualWindow().bottomPad > 0) {
-                    <tr class="al-data-grid__spacer" aria-hidden="true">
-                      <td [attr.colspan]="colSpan()">
+                    <div class="al-data-grid__spacer" aria-hidden="true">
+                      <div [style.gridColumn]="'1 / -1'">
                         <div class="al-data-grid__spacer-pad" [style.height.px]="virtualWindow().bottomPad"></div>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   }
                 }
-              </tbody>
+              </div>
 
               @if (aggregateRowEnabled()) {
-                <tfoot class="al-data-grid__tfoot" data-testid="al-dg-agg-row">
-                  <tr class="al-data-grid__agg-row" role="row">
+                <div class="al-data-grid__tfoot" data-testid="al-dg-agg-row">
+                  <div class="al-data-grid__agg-row" role="row">
                     @if (rowDragEnabled()) {
-                      <td class="al-data-grid__td al-data-grid__td--drag al-data-grid__td--agg"></td>
+                      <div class="al-data-grid__td al-data-grid__td--drag al-data-grid__td--agg"></div>
                     }
                     @if (showSelection()) {
-                      <td class="al-data-grid__td al-data-grid__td--select al-data-grid__td--agg"></td>
+                      <div class="al-data-grid__td al-data-grid__td--select al-data-grid__td--agg"></div>
                     }
                     @for (col of visibleColumns(); track col.id) {
-                      <td
+                      <div
                         class="al-data-grid__td al-data-grid__td--agg"
                         role="gridcell"
                         [style.textAlign]="col.align ?? 'left'"
-                        [style.width.px]="columnWidth(col)"
-                        [style.minWidth.px]="col.minWidth"
                         [style.left.px]="col.pinned === 'left' ? pinnedLeftOffset(col.id) : null"
                         [style.right.px]="col.pinned === 'right' ? pinnedRightOffset(col.id) : null"
                         [class.al-data-grid__td--pinned-left]="col.pinned === 'left'"
                         [class.al-data-grid__td--pinned-right]="col.pinned === 'right'"
                       >
                         {{ formatAgg(aggValue(col.id), col) }}
-                      </td>
+                      </div>
                     }
                     @if (effectiveEditMode() === 'fullRow') {
-                      <td class="al-data-grid__td al-data-grid__td--row-edit al-data-grid__td--agg"></td>
+                      <div class="al-data-grid__td al-data-grid__td--row-edit al-data-grid__td--agg"></div>
                     }
-                  </tr>
-                </tfoot>
+                  </div>
+                </div>
               }
-            </table>
+            </div>
           </div>
 
           @if (pagination() || statusBarVisible()) {

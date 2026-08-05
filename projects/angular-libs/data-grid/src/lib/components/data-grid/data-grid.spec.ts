@@ -11,7 +11,12 @@ import { rowsToCsv } from '../../utils/csv';
 import { collectFindMatches, splitFindHighlight } from '../../utils/find';
 import { cloneRowDraft } from '../../utils/row-edit';
 import { applyCellEdit } from '../../utils/apply-edit';
-import { resolveColumnWidths, reconcileColumnOrder, reconcileHiddenColumnIds } from '../../utils/column-layout';
+import {
+  resolveColumnTracks,
+  resolveColumnWidths,
+  reconcileColumnOrder,
+  reconcileHiddenColumnIds,
+} from '../../utils/column-layout';
 import { FocusController } from '../../controllers/focus';
 import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
@@ -31,7 +36,12 @@ import { runClientRowPipeline } from '../../utils/row-pipeline';
 import { buildDisplayRows, collectTreeGroupIds } from '../../utils/row-display';
 import { coerceCellEditValue } from '../../utils/coerce-cell-value';
 import { collectAllGroupIds } from '../../utils/collect-group-ids';
-import { buildRowReorderEvent, isRowDragAllowed, parseDragIndex } from '../../utils/row-interactions';
+import {
+  attachRowReorder,
+  buildRowReorderEvent,
+  isRowDragAllowed,
+  resolveRowDropDataIndex,
+} from '../../utils/row-interactions';
 import { moveColumn, materializeColumnLayout, partitionColumnsByPin, setColumnPin, emptyColumnLayout, reconcileColumnLayout } from '../../utils/column-layout';
 import { formatAggregateValue } from '../../utils/editors';
 import { computeVirtualWindow } from '../../controllers/virtual-window';
@@ -138,6 +148,11 @@ describe('data-grid utils', () => {
     const widths = resolveColumnWidths(cols, {}, 400, 0);
     expect(widths['name']).toBe(100);
     expect(widths['city']).toBe(300);
+
+    const { tracks, widthsPx } = resolveColumnTracks(cols, {}, { select: true });
+    expect(tracks).toBe('40px 100px minmax(80px, 1fr)');
+    expect(widthsPx['name']).toBe(100);
+    expect(widthsPx['city']).toBeNull();
 
     const next = applyCellEdit(
       people,
@@ -372,11 +387,70 @@ describe('data-grid utils', () => {
     expect(nextSortDirection('desc', true)).toBeNull();
   });
 
-  it('parses drag index safely and reorders by absolute indices', () => {
-    expect(parseDragIndex(null, { getData: () => '' } as unknown as DataTransfer)).toBeNaN();
-    expect(parseDragIndex(5, null)).toBe(5);
+  it('resolves row drop index from scroll geometry and reorders by absolute indices', () => {
+    const rows = [
+      { kind: 'data' as const, id: 'd:0', rowId: 0, row: {}, dataIndex: 0, level: 0 },
+      { kind: 'data' as const, id: 'd:1', rowId: 1, row: {}, dataIndex: 1, level: 0 },
+      { kind: 'data' as const, id: 'd:2', rowId: 2, row: {}, dataIndex: 2, level: 0 },
+    ];
+    expect(
+      resolveRowDropDataIndex({
+        clientY: 50,
+        scrollTop: 0,
+        scrollRectTop: 40,
+        rowHeight: 36,
+        contentOffsetY: 72,
+        displayRows: rows,
+      }),
+    ).toBeNull(); // still over sticky header
+    expect(
+      resolveRowDropDataIndex({
+        clientY: 130,
+        scrollTop: 0,
+        scrollRectTop: 40,
+        rowHeight: 36,
+        contentOffsetY: 72,
+        displayRows: rows,
+      }),
+    ).toBe(0); // y = 130 - 40 - 72 = 18 → floor(18/36)=0
+    expect(
+      resolveRowDropDataIndex({
+        clientY: 170,
+        scrollTop: 0,
+        scrollRectTop: 40,
+        rowHeight: 36,
+        contentOffsetY: 72,
+        displayRows: rows,
+      }),
+    ).toBe(1); // y = 58 → floor(58/36)=1
+
     const list = ['a', 'b', 'c', 'd'];
     expect(moveItem(list, 3, 1)).toEqual(['a', 'd', 'b', 'c']);
+  });
+
+  it('attachRowReorder emits drop via window pointer listeners', () => {
+    const overs: Array<number | null> = [];
+    let dropped: [number, number] | null = null;
+    let ended = 0;
+    const cleanup = attachRowReorder({
+      pointerId: 1,
+      fromIndex: 0,
+      getDropIndex: (y) => (y > 100 ? 2 : 1),
+      onOver: (i) => overs.push(i),
+      onDrop: (from, to) => {
+        dropped = [from, to];
+      },
+      onEnd: () => {
+        ended += 1;
+      },
+    });
+    window.dispatchEvent(new PointerEvent('pointermove', { pointerId: 1, clientY: 150 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientY: 150 }));
+    expect(overs).toEqual([2]);
+    expect(dropped).toEqual([0, 2]);
+    expect(ended).toBe(1);
+    cleanup(); // idempotent
+    expect(ended).toBe(1);
   });
 
   it('formats aggregates with column valueFormatter', () => {
@@ -571,6 +645,23 @@ describe('DataGrid header pin context menu', () => {
     fixture.detectChanges();
 
     expect(grid.getColumnPinned('age')).toBe('left');
+  });
+
+  it('opens lean column menu via api.openColumnMenu with sort/hide items', async () => {
+    const { fixture, grid, el } = await mount();
+    grid.openColumnMenu('age');
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-ctx-sort-asc"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-ctx-autosize"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-ctx-hide"]')).toBeTruthy();
+    expect(grid.columnMenuColumnId()).toBe('age');
+
+    (el.querySelector('[data-testid="al-dg-ctx-sort-asc"]') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(grid.getSortModel()).toEqual([{ columnId: 'age', direction: 'asc' }]);
+    expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeNull();
   });
 });
 
@@ -1155,5 +1246,55 @@ describe('createGrid + controller binding', () => {
 
     api!.setSelectedRows([]);
     expect(api!.getSelectedRows()).toEqual([]);
+  });
+
+  it('cellRangePlugin Shift+arrow extends range and prefers range for copy', async () => {
+    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+
+    @Component({
+      imports: [DataGrid],
+      template: `
+        <al-data-grid
+          [controller]="grid"
+          [data]="rows()"
+          [virtual]="false"
+          [pagination]="false"
+        />
+      `,
+    })
+    class RangeHost {
+      readonly rows = signal(people);
+      readonly ranges = cellRangePlugin<Person>();
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        selection: 'multi',
+        plugins: [this.ranges],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [RangeHost] }).compileComponents();
+    const fixture = TestBed.createComponent(RangeHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const host = fixture.componentInstance;
+    const api = host.grid.api();
+    expect(api).toBeTruthy();
+
+    api!.focusCell(0, 'name');
+    expect(api!.extendCellRange(0, 1)).toBe(true);
+    expect(api!.getCellRange()).toEqual({
+      anchor: { rowIndex: 0, columnId: 'name' },
+      active: { rowIndex: 0, columnId: 'age' },
+    });
+
+    const text = api!.getSelectionClipboardText();
+    expect(text).toContain('Ada');
+    expect(text).toContain('36');
+
+    api!.clearCellRange();
+    expect(api!.getCellRange()).toBeNull();
   });
 });

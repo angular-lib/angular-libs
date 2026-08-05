@@ -8,8 +8,7 @@ Breaking changes OK until first publish.
 **Full spec:** [ARCHITECTURE.md](./ARCHITECTURE.md) · **Product map:** [OVERVIEW.md](./OVERVIEW.md) · **Plugins:** [PLUGINS.md](./PLUGINS.md) · **Quick start:** [README.md](./README.md)
 
 **Out of scope (for now):** column virtualization, Excel export, canvas cell layer,
-separate headless product tier, `withX()` DSL. Cell range/fill is **planned**
-(simpler than AG) — see OVERVIEW §5.
+separate headless product tier, `withX()` DSL.
 
 ---
 
@@ -106,9 +105,9 @@ Prioritized product lista lives in [OVERVIEW.md](./OVERVIEW.md) §7. Snapshot:
 | Selection row+range coexistence | OVERVIEW §5d — both allowed |
 | Foundation waves | OVERVIEW §10 |
 | `applyRowTransaction` | Util + `createGrid({ rows })` / `applyTransaction` (Wave 3) |
-| Header / column menu (lean) | Stub `openColumnMenu` / `columnMenuColumnId` (Wave 2); UI Wave 4 |
+| Header / column menu (lean) | ✅ Wave 4 — pin / sort / autosize / hide |
 | Filter extensibility seam | Typed; no AG filter framework |
-| Cell range + fill | Single rectangle + immutable fill — OVERVIEW §5 |
+| Cell range + fill | ✅ Wave 4 — `cellRangePlugin`; single rect + copy-fill |
 | Controller-owned rows + transactions | Opt-in `createGrid({ rows })` + `applyTransaction` — OVERVIEW §5a |
 | Edit start/stop interaction | Presets + sparse overrides — OVERVIEW §5b (design first) |
 | Server-side contract v2 | Hard boundaries vs AG SSRM |

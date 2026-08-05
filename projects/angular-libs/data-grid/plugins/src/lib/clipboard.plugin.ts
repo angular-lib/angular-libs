@@ -90,8 +90,30 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
 
   const focus = context.api.getFocusedCell() ?? null;
   const displayRows = context.api.getPagedDisplayRows();
+  const visible = context.api.getVisibleColumnIds();
+  const cellRange = context.api.getCellRange?.() ?? null;
+
   let startRowIndex = 0;
-  if (focus) {
+  let columnIds = [...visible];
+
+  if (cellRange) {
+    const aCol = visible.indexOf(cellRange.anchor.columnId);
+    const bCol = visible.indexOf(cellRange.active.columnId);
+    const rowStart = Math.min(cellRange.anchor.rowIndex, cellRange.active.rowIndex);
+    const rowEnd = Math.max(cellRange.anchor.rowIndex, cellRange.active.rowIndex);
+    const colStart = Math.min(aCol, bCol);
+    const colEnd = Math.max(aCol, bCol);
+    if (aCol >= 0 && bCol >= 0) {
+      columnIds = visible.slice(colStart, colEnd + 1);
+      for (let i = rowStart; i <= rowEnd; i++) {
+        const item = displayRows[i];
+        if (item?.kind === 'data') {
+          startRowIndex = item.dataIndex;
+          break;
+        }
+      }
+    }
+  } else if (focus) {
     // Prefer focused data row; otherwise the next data row at/after focus.
     for (let i = focus.rowIndex; i < displayRows.length; i++) {
       const item = displayRows[i];
@@ -100,18 +122,15 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
         break;
       }
     }
-  }
-
-  const columnsById = context.api.getColumnsById();
-  const visible = context.api.getVisibleColumnIds();
-  let columnIds = [...visible];
-  if (focus?.columnId) {
-    const start = columnIds.indexOf(focus.columnId);
-    if (start >= 0) {
-      columnIds = columnIds.slice(start);
+    if (focus.columnId) {
+      const start = columnIds.indexOf(focus.columnId);
+      if (start >= 0) {
+        columnIds = columnIds.slice(start);
+      }
     }
   }
 
+  const columnsById = context.api.getColumnsById();
   const processed = context.api.getProcessedRows() as T[];
   const { rows: suggestedRows } = applyPasteMatrix(
     processed,

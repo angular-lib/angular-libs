@@ -36,6 +36,8 @@ export interface GridKernelOptions<T> {
   onHeaderActivate?: (columnId: string, multi: boolean) => void;
   onOpenColumnMenu?: (columnId: string) => void;
   hasFloatingFilters?: () => boolean;
+  onExtendRange?: (dRow: number, dCol: number) => boolean;
+  onClearRange?: () => void;
   getFindMatchCount: () => number;
   getFindActiveIndex: () => number;
   setFindActiveIndex: (index: number) => void;
@@ -98,6 +100,8 @@ export class GridKernel<T = unknown> {
       onHeaderActivate: (columnId, multi) => this.options.onHeaderActivate?.(columnId, multi),
       onOpenColumnMenu: (columnId) => this.options.onOpenColumnMenu?.(columnId),
       hasFloatingFilters: () => this.options.hasFloatingFilters?.() ?? false,
+      onExtendRange: (dRow, dCol) => this.options.onExtendRange?.(dRow, dCol) ?? false,
+      onClearRange: () => this.options.onClearRange?.(),
     });
 
     this.find = new FindController({

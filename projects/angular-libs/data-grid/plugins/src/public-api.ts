@@ -42,6 +42,12 @@ export type {
   FlashCellsParams,
   FlashCellsPluginOptions,
 } from './lib/flash-cells.types';
+export { cellRangePlugin } from './lib/cell-range.plugin';
+export type {
+  CellRangeAdapter,
+  CellRangePlugin,
+  CellRangePluginOptions,
+} from './lib/cell-range.plugin';
 export { rowDragPlugin } from './lib/row-drag.plugin';
 export { aggregateRowPlugin } from './lib/aggregate-row.plugin';
 export { infiniteScrollPlugin } from './lib/infinite-scroll.plugin';

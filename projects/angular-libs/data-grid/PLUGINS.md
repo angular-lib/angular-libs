@@ -231,6 +231,25 @@ flash.clearFlash();
 
 Not included in `defaultGridPlugins()`. Requires a stable `rowId`.
 
+## Cell range
+
+Opt-in single-rectangle cell range (OVERVIEW §5). Coexists with row selection;
+copy prefers the range when present.
+
+```ts
+const ranges = cellRangePlugin();
+plugins = [...defaultGridPlugins(), ranges];
+
+ranges.getRange();   // { anchor, active } | null
+ranges.clearRange();
+```
+
+- **Keyboard:** Shift+arrows extend the active corner
+- **Pointer:** drag-select on cells; fill-handle copy-fills via `(paste)`
+- **Esc** clears the range
+
+Not included in `defaultGridPlugins()`.
+
 ## Chrome slots
 
 Toolbar `actionClick` / `disabled` receive:
@@ -301,6 +320,7 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 | `findPlugin` | `enableFind` + key interaction |
 | `notesPlugin` | `registerCellDecorator` + context menu + hover preview / `Shift+F2` editor |
 | `flashCellsPlugin` | `registerCellDecorator` + held `flashCells` / `clearFlash` adapter |
+| `cellRangePlugin` | decorator + drag/fill interaction + Shift+arrow via focus; binds range adapter on `api` |
 | `statusBarPlugin` / `sideBarPlugin` / `rowDragPlugin` | chrome slots (localized) |
 | `csvExportPlugin` / `autosizePlugin` | toolbar slot actions |
 

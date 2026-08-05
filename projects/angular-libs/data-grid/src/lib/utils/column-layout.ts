@@ -1,9 +1,89 @@
 import type { ColumnPin, ResolvedColumn } from '../components/data-grid/data-grid.types';
 import { moveItem } from './cell-value';
 
+/** Built-in chrome column track sizes (px). */
+export const CHROME_TRACK = {
+  drag: 36,
+  select: 40,
+  rowEdit: 132,
+} as const;
+
+export interface ColumnTracksChrome {
+  drag?: boolean;
+  select?: boolean;
+  rowEdit?: boolean;
+}
+
+export interface ColumnTrackLayout {
+  /** CSS `grid-template-columns` value (chrome + data columns). */
+  tracks: string;
+  /**
+   * Known pixel width per data column id.
+   * `null` = flex/`fr` track (not a fixed px; pin offsets should materialize first).
+   */
+  widthsPx: Record<string, number | null>;
+}
+
+function trackForColumn<T>(
+  col: ResolvedColumn<T>,
+  overrides: Record<string, number>,
+): { track: string; widthPx: number | null } {
+  const override = overrides[col.id];
+  if (override != null) {
+    const px = Math.max(col.minWidth, override);
+    return { track: `${px}px`, widthPx: px };
+  }
+  if (col.width != null) {
+    const px = Math.max(col.minWidth, col.width);
+    return { track: `${px}px`, widthPx: px };
+  }
+  const flex = col.flex ?? 0;
+  if (flex > 0) {
+    return {
+      track: `minmax(${col.minWidth}px, ${flex}fr)`,
+      widthPx: null,
+    };
+  }
+  return { track: `${col.minWidth}px`, widthPx: col.minWidth };
+}
+
 /**
- * Resolve pixel widths for visible columns.
- * Fixed `width` / overrides take precedence; remaining space is shared by `flex`.
+ * Build CSS Grid track list for chrome + visible columns.
+ * Flex columns become `minmax(min, Nfr)` — no viewport measurement.
+ */
+export function resolveColumnTracks<T>(
+  columns: readonly ResolvedColumn<T>[],
+  overrides: Record<string, number> = {},
+  chrome: ColumnTracksChrome = {},
+): ColumnTrackLayout {
+  const parts: string[] = [];
+  if (chrome.drag) {
+    parts.push(`${CHROME_TRACK.drag}px`);
+  }
+  if (chrome.select) {
+    parts.push(`${CHROME_TRACK.select}px`);
+  }
+
+  const widthsPx: Record<string, number | null> = {};
+  for (const col of columns) {
+    const { track, widthPx } = trackForColumn(col, overrides);
+    parts.push(track);
+    widthsPx[col.id] = widthPx;
+  }
+
+  if (chrome.rowEdit) {
+    parts.push(`${CHROME_TRACK.rowEdit}px`);
+  }
+
+  return {
+    tracks: parts.length ? parts.join(' ') : 'none',
+    widthsPx,
+  };
+}
+
+/**
+ * Resolve pixel widths for visible columns against a container.
+ * Prefer {@link resolveColumnTracks} for layout; keep this for tests / legacy px math.
  */
 export function resolveColumnWidths<T>(
   columns: readonly ResolvedColumn<T>[],

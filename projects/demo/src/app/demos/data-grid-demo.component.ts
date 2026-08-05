@@ -21,6 +21,7 @@ import {
 } from '@angular-libs/data-grid';
 import {
   aggregateRowPlugin,
+  cellRangePlugin,
   defaultGridPlugins,
   flashCellsPlugin,
   notesPlugin,
@@ -123,16 +124,9 @@ const STATE_KEY = 'al-data-grid-demo-state';
 
       <aside class="demo__foundation" data-testid="al-dg-demo-foundation">
         <p class="demo__foundation-hint">
-          Keys: arrows · Home/End · PageDown header→body · Enter/F2 edit · Space select · ↑ into
-          header · Enter sort (asc/desc/none) · Alt+↓ menu stub · Esc
+          Keys: arrows · Shift+arrows range · Home/End · Enter/F2 edit · Space select · ↑ header ·
+          Enter sort · Alt+↓ column menu · Esc clears range/menu
         </p>
-        @let menuCol = gridRef.columnMenuColumnId();
-        @if (menuCol) {
-          <div class="demo__foundation-actions">
-            <span class="demo__foundation-menu">Menu stub: {{ menuCol }}</span>
-            <button type="button" class="btn" (click)="gridRef.closeColumnMenu()">Dismiss</button>
-          </div>
-        }
       </aside>
 
       @if (editSession(); as session) {
@@ -375,7 +369,7 @@ export class DataGridDemoComponent {
   readonly rowId = (row: Employee) => row.id;
 
   /** Held plugins — adapters stay stable; toggle chrome via adapter APIs. */
-  readonly groups = rowGroupPlugin<Employee>({ columns: ['department'] });
+  readonly groups = rowGroupPlugin<Employee>({ columns: [] });
   readonly sideBar = sideBarPlugin<Employee>({
     panels: ['columns', 'filters'],
     position: 'right',
@@ -410,6 +404,7 @@ export class DataGridDemoComponent {
     },
   });
   readonly flash = flashCellsPlugin<Employee>();
+  readonly cellRange = cellRangePlugin<Employee>();
 
   readonly columns: ColumnOrGroupDef<Employee>[] = [
     {
@@ -486,6 +481,7 @@ export class DataGridDemoComponent {
       this.sample,
       this.notes,
       this.flash,
+      this.cellRange,
       this.sideBar,
     ],
   });
