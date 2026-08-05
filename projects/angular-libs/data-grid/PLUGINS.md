@@ -233,13 +233,29 @@ Not included in `defaultGridPlugins()`. Requires a stable `rowId`.
 
 ## Chrome slots
 
+Toolbar `actionClick` / `disabled` receive:
+
+| Param | Meaning |
+| --- | --- |
+| `api` | Bound `DataGridApi` (selection, export, focus, …) |
+| `controller` | Required `[controller]` from `createGrid` |
+| `context` | Opaque host bag (`[context]`) — services, notifications, held plugins |
+| `event` | Click event (present for `actionClick`) |
+
+**Call-site rule:** UI ops → `api`; row writes / schema → `controller`; app services → `context`.  
+Prefer `params.api` over `params.controller.api()` in handlers (`controller.api` is bind plumbing).
+
+Do **not** put `GridController` in `context` — use `controller` for `applyTransaction` / `setRows`.
+
 ```ts
 context.slots.registerToolbar({
   id: 'x',
   icon: '★',
   ariaLabel: 'Do thing',
-  actionClick: async ({ api, context }) => {
+  actionClick: async ({ api, controller, context }) => {
     api.exportCsv();
+    controller.applyTransaction({ add: [] }); // when createGrid({ rows }) was used
+    // context = host bag only (e.g. services), never the grid controller
   },
 });
 context.slots.registerStatusBar({ id: 'y', text: () => '…' });
@@ -247,6 +263,17 @@ context.slots.registerSidebar({ id: 'z', label: 'Panel', component: MyPanel });
 context.slots.enableFind({ caseSensitive: false });
 context.slots.enableSideBar(true);
 context.slots.enableRowDrag();
+```
+
+Host-declared actions use the same params via `[toolbarActions]` + `[context]`:
+
+```html
+<al-data-grid
+  [controller]="grid"
+  [context]="hostCtx"
+  [toolbarActions]="actions"
+  [data]="grid.rows()!"
+/>
 ```
 
 Sidebar panels inject `DATA_GRID_SIDEBAR_HOST` (provided by the core shell).
@@ -259,7 +286,7 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 1. Stable `id`
 2. Register via `capabilities` / `slots` only (no patches to `DataGrid`)
 3. Return cleanups from `setup`
-4. Prefer `api` reads over reaching into the component
+4. Prefer `api` / `controller` over reaching into the component; keep `context` host-only
 5. Export a factory from your package; consumers add it to `[plugins]`
 
 ## Reference plugins

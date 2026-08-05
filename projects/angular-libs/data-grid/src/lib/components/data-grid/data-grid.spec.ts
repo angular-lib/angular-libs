@@ -167,9 +167,44 @@ describe('data-grid utils', () => {
       getColumnIds: () => ['name', 'age'],
     });
     focus.focusCell(1, 'name');
-    expect(focus.move(0, 1)).toEqual({ rowIndex: 1, columnId: 'age' });
+    expect(focus.move(0, 1)).toEqual({ rowIndex: 1, columnId: 'age', realm: 'body' });
     expect(focus.handleKeydown(new KeyboardEvent('keydown', { key: 'ArrowUp' }))).toBe(true);
-    expect(focus.getFocus()).toEqual({ rowIndex: 0, columnId: 'age' });
+    expect(focus.getFocus()).toEqual({ rowIndex: 0, columnId: 'age', realm: 'body' });
+  });
+
+  it('bridges body focus into header realm on ArrowUp from row 0', () => {
+    const headers: string[] = [];
+    const focus = new FocusController({
+      getRowCount: () => 2,
+      getColumnIds: () => ['name', 'age'],
+      onHeaderActivate: (id) => headers.push(id),
+      onOpenColumnMenu: (id) => headers.push(`menu:${id}`),
+    });
+    focus.focusCell(0, 'name');
+    expect(focus.handleKeydown(new KeyboardEvent('keydown', { key: 'ArrowUp' }))).toBe(true);
+    expect(focus.getFocus()).toEqual({ rowIndex: 0, columnId: 'name', realm: 'header' });
+    expect(focus.handleKeydown(new KeyboardEvent('keydown', { key: 'Enter' }))).toBe(true);
+    expect(headers).toEqual(['name']);
+    expect(
+      focus.handleKeydown(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true })),
+    ).toBe(true);
+    expect(headers).toEqual(['name', 'menu:name']);
+    expect(focus.handleKeydown(new KeyboardEvent('keydown', { key: 'ArrowDown' }))).toBe(true);
+    expect(focus.getFocus()?.realm).toBe('body');
+  });
+
+  it('restores last focus for Tab re-entry', () => {
+    const focus = new FocusController({
+      getRowCount: () => 3,
+      getColumnIds: () => ['name', 'age'],
+    });
+    focus.focusCell(2, 'age');
+    focus.setFocus(null);
+    expect(focus.restoreOrFocusDefault()).toEqual({
+      rowIndex: 2,
+      columnId: 'age',
+      realm: 'body',
+    });
   });
 
   it('dedupes plugins by id', () => {
@@ -330,8 +365,10 @@ describe('data-grid utils', () => {
     expect(ids.some((id) => id.includes('active=true'))).toBe(true);
   });
 
-  it('cycles multi-sort only when shift/multi is requested', () => {
-    expect(nextSortDirection('desc', false)).toBe('asc');
+  it('cycles sort asc → desc → none (clear)', () => {
+    expect(nextSortDirection(null, false)).toBe('asc');
+    expect(nextSortDirection('asc', false)).toBe('desc');
+    expect(nextSortDirection('desc', false)).toBeNull();
     expect(nextSortDirection('desc', true)).toBeNull();
   });
 
@@ -402,13 +439,10 @@ describe('data-grid utils', () => {
   imports: [DataGrid, DataGridCellDirective],
   template: `
     <al-data-grid
+      [controller]="grid"
       [data]="rows()"
-      [columns]="cols"
-      [rowId]="idOf"
-      selectionMode="multi"
       [pagination]="true"
       [pageSize]="2"
-      [plugins]="plugins"
       [showToolbar]="true"
     >
       <ng-template alGridCell="city" let-row let-value="value">
@@ -419,9 +453,12 @@ describe('data-grid utils', () => {
 })
 class HostGrid {
   readonly rows = signal(people);
-  readonly cols = columns;
-  readonly idOf = (row: Person) => row.id;
-  readonly plugins = [sideBarPlugin<Person>()];
+  readonly grid = createGrid({
+    columns,
+    rowId: (row: Person) => row.id,
+    selection: 'multi',
+    plugins: [sideBarPlugin<Person>()],
+  });
 }
 
 describe('DataGrid', () => {
@@ -467,9 +504,8 @@ describe('DataGrid', () => {
   imports: [DataGrid],
   template: `
     <al-data-grid
+      [controller]="grid"
       [data]="rows()"
-      [columns]="cols"
-      [rowId]="idOf"
       [virtual]="false"
       [pagination]="false"
     />
@@ -477,12 +513,14 @@ describe('DataGrid', () => {
 })
 class PinMenuHostGrid {
   readonly rows = signal(people);
-  readonly cols: ColumnDef<Person>[] = [
-    { field: 'name', pinned: 'left' },
-    { field: 'age' },
-    { field: 'city' },
-  ];
-  readonly idOf = (row: Person) => row.id;
+  readonly grid = createGrid({
+    columns: [
+      { field: 'name', pinned: 'left' },
+      { field: 'age' },
+      { field: 'city' },
+    ] as ColumnDef<Person>[],
+    rowId: (row: Person) => row.id,
+  });
 }
 
 describe('DataGrid header pin context menu', () => {
@@ -738,40 +776,40 @@ describe('row pipeline + display model', () => {
   imports: [DataGrid],
   template: `
     <al-data-grid
+      [controller]="grid"
       [data]="rows()"
-      [columns]="cols"
-      [rowId]="idOf"
       [virtual]="false"
       [pagination]="false"
-      [plugins]="plugins"
     />
   `,
 })
 class GroupHostGrid {
   readonly rows = signal(people);
-  readonly cols = columns;
-  readonly plugins = [rowGroupPlugin<Person>({ columns: ['city'] })];
-  readonly idOf = (row: Person) => row.id;
+  readonly grid = createGrid({
+    columns,
+    rowId: (row: Person) => row.id,
+    plugins: [rowGroupPlugin<Person>({ columns: ['city'] })],
+  });
 }
 
 @Component({
   imports: [DataGrid],
   template: `
     <al-data-grid
+      [controller]="grid"
       [data]="rows()"
-      [columns]="cols"
-      [rowId]="idOf"
       [virtual]="false"
       [pagination]="false"
-      [plugins]="plugins"
     />
   `,
 })
 class TreeHostGrid {
   readonly rows = signal(people);
-  readonly cols = columns;
-  readonly plugins = [treeDataPlugin<Person>({ getDataPath: (row) => row.path ?? [] })];
-  readonly idOf = (row: Person) => row.id;
+  readonly grid = createGrid({
+    columns,
+    rowId: (row: Person) => row.id,
+    plugins: [treeDataPlugin<Person>({ getDataPath: (row) => row.path ?? [] })],
+  });
 }
 
 describe('DataGrid row grouping UI', () => {
@@ -1077,5 +1115,45 @@ describe('createGrid + controller binding', () => {
 
     expect(el.querySelector('[data-testid="al-dg-filter-card-name"]')).toBeFalsy();
     expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ age: '36' });
+  });
+
+  it('api.getSelectedRows / setSelectedRows round-trip selection by row data', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `
+        <al-data-grid
+          [controller]="grid"
+          [data]="rows()"
+          [(selectedIds)]="selectedIds"
+          [virtual]="false"
+          [pagination]="false"
+        />
+      `,
+    })
+    class SelectionHost {
+      readonly rows = signal(people);
+      readonly selectedIds = signal<Array<string | number>>([1, 3]);
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        selection: 'multi',
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [SelectionHost] }).compileComponents();
+    const fixture = TestBed.createComponent(SelectionHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const api = fixture.componentInstance.grid.api();
+    expect(api).toBeTruthy();
+    expect(api!.getSelectedRows().map((r) => r.name)).toEqual(['Ada', 'Alan']);
+
+    api!.setSelectedRows([people[1]!]);
+    expect(api!.getSelectedIds()).toEqual([2]);
+    expect(api!.getSelectedRows().map((r) => r.name)).toEqual(['Grace']);
+
+    api!.setSelectedRows([]);
+    expect(api!.getSelectedRows()).toEqual([]);
   });
 });

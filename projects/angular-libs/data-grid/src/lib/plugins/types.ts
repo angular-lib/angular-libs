@@ -7,15 +7,20 @@ import type {
 } from '../components/data-grid/data-grid.types';
 import type { DataGridApi } from '../api/grid-api';
 import type { GridCapabilities } from './capabilities';
+import type { GridController } from '../create-grid';
 
 /** Named UI contribution points plugins can fill. */
 export type DataGridSlotId = 'toolbar' | 'statusBar' | 'sidebar';
 
 /**
- * Params passed to toolbar action handlers (AG-style `api` + host `context`).
+ * Params passed to toolbar action handlers.
+ * - `api` — bound grid façade (selection, focus, chrome ops)
+ * - `controller` — required `[controller]` from `createGrid` (rows / applyTransaction)
+ * - `context` — opaque host bag only (services, notifications, held plugins)
  */
 export interface DataGridToolbarActionParams<T = unknown, C = unknown> {
   api: DataGridApi<T>;
+  controller: GridController<T>;
   context: C;
   /** Present for `actionClick`; may be omitted when evaluating `disabled`. */
   event?: MouseEvent;

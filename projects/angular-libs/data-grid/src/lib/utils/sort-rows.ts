@@ -56,13 +56,14 @@ export function sortRows<T>(
 
 export function nextSortDirection(
   current: SortDirection | null,
-  multi: boolean,
+  _multi: boolean,
 ): SortDirection | null {
+  // Always cycle asc → desc → none (clear), including single-column sort.
   if (current === 'asc') {
     return 'desc';
   }
   if (current === 'desc') {
-    return multi ? null : 'asc';
+    return null;
   }
   return 'asc';
 }

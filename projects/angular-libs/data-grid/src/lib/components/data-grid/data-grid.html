@@ -12,6 +12,7 @@
         @if (showQuickFilterBar() || findEnabled() || resolvedToolbarActions().length) {
           <al-data-grid-toolbar
             [api]="api"
+            [controller]="controller()"
             [context]="context()"
             [showQuickFilter]="showQuickFilterBar()"
             [quickFilter]="quickFilter()"
@@ -31,8 +32,11 @@
         <div
           class="al-data-grid__frame"
           role="grid"
-          [attr.aria-rowcount]="displayRows().length"
+          tabindex="0"
+          [attr.aria-rowcount]="ariaRowCount()"
           [attr.aria-colcount]="colSpan()"
+          [attr.aria-label]="i18n().gridAriaLabel"
+          data-testid="al-dg-frame"
         >
           <div class="al-data-grid__scroll" (scroll)="onScroll($event)" #scrollViewport>
             <table
@@ -102,20 +106,25 @@
                     </th>
                   }
                   @for (col of visibleColumns(); track col.id; let colIndex = $index) {
+                    @let headerFocused = isHeaderFocused(col.id);
                     <th
                       class="al-data-grid__th"
                       role="columnheader"
                       scope="col"
                       [attr.data-testid]="'al-dg-col-' + col.id"
                       [attr.draggable]="columnReorder() ? 'true' : null"
+                      [attr.tabindex]="headerFocused ? 0 : -1"
+                      [attr.aria-colindex]="ariaColIndex(colIndex)"
                       [class.al-data-grid__th--sortable]="col.sortable"
                       [class.al-data-grid__th--pinned-left]="col.pinned === 'left'"
                       [class.al-data-grid__th--pinned-right]="col.pinned === 'right'"
+                      [class.al-data-grid__th--focused]="headerFocused"
                       [style.width.px]="columnWidth(col)"
                       [style.minWidth.px]="col.minWidth"
                       [style.left.px]="col.pinned === 'left' ? pinnedLeftOffset(col.id) : null"
                       [style.right.px]="col.pinned === 'right' ? pinnedRightOffset(col.id) : null"
                       [attr.aria-sort]="ariaSort(col.id)"
+                      (click)="focusHeaderColumn(col.id)"
                       (dragstart)="onHeaderDragStart(colIndex, $event)"
                       (dragover)="$event.preventDefault()"
                       (drop)="onHeaderDrop(colIndex, $event)"
@@ -161,15 +170,21 @@
                     @if (showSelection()) {
                       <th class="al-data-grid__th al-data-grid__th--select"></th>
                     }
-                    @for (col of visibleColumns(); track col.id) {
+                    @for (col of visibleColumns(); track col.id; let colIndex = $index) {
+                      @let filterFocused = isFloatingFilterFocused(col.id);
                       <th
                         class="al-data-grid__th al-data-grid__th--filter"
+                        [attr.data-testid]="'al-dg-filter-' + col.id"
+                        [attr.tabindex]="filterFocused ? 0 : -1"
+                        [attr.aria-colindex]="ariaColIndex(colIndex)"
                         [class.al-data-grid__th--pinned-left]="col.pinned === 'left'"
                         [class.al-data-grid__th--pinned-right]="col.pinned === 'right'"
+                        [class.al-data-grid__th--focused]="filterFocused"
                         [style.width.px]="columnWidth(col)"
                         [style.minWidth.px]="col.minWidth"
                         [style.left.px]="col.pinned === 'left' ? pinnedLeftOffset(col.id) : null"
                         [style.right.px]="col.pinned === 'right' ? pinnedRightOffset(col.id) : null"
+                        (focusin)="focusFloatingFilterColumn(col.id)"
                       >
                         @if (col.filter) {
                           <al-data-grid-filter-field
@@ -279,6 +294,7 @@
                     <tr
                       class="al-data-grid__row"
                       role="row"
+                      [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                       [attr.data-testid]="'al-dg-row-' + id"
                       [class]="rowClasses(row, rowIndex)"
                       [class.al-data-grid__row--selected]="isSelected(id)"
@@ -307,6 +323,7 @@
                           <input
                             type="checkbox"
                             [checked]="isSelected(id)"
+                            [disabled]="!isRowSelectable(row, id)"
                             (click)="$event.stopPropagation()"
                             (change)="toggleRowSelection(id, $event)"
                             [attr.aria-label]="i18n().selectRowAriaLabel + ' ' + id"
@@ -332,6 +349,8 @@
                           [attr.data-row-id]="id"
                           [attr.data-column-id]="col.id"
                           [attr.tabindex]="cellFocused ? 0 : -1"
+                          [attr.aria-colindex]="ariaColIndex($index)"
+                          [attr.aria-selected]="isSelected(id) ? true : null"
                           [class]="cellClass(row, col, rowIndex, value)"
                           [class.al-data-grid__td--pinned-left]="col.pinned === 'left'"
                           [class.al-data-grid__td--pinned-right]="col.pinned === 'right'"
@@ -447,9 +466,9 @@
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
                               (input)="editDraft.set($any($event.target).value)"
-                              (keydown.enter)="commitEdit(row, id, rowIndex, col)"
+                              (keydown.enter)="onEditorEnter(row, id, rowIndex, col)"
                               (keydown.escape)="cancelEdit()"
-                              (blur)="commitEdit(row, id, rowIndex, col)"
+                              (blur)="onEditorBlur(row, id, rowIndex, col)"
                             />
                           } @else if (editing) {
                             <input
@@ -463,9 +482,9 @@
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
                               (input)="editDraft.set($any($event.target).value)"
-                              (keydown.enter)="commitEdit(row, id, rowIndex, col)"
+                              (keydown.enter)="onEditorEnter(row, id, rowIndex, col)"
                               (keydown.escape)="cancelEdit()"
-                              (blur)="commitEdit(row, id, rowIndex, col)"
+                              (blur)="onEditorBlur(row, id, rowIndex, col)"
                             />
                           } @else if (col.editable && booleanCol && effectiveEditMode() !== 'fullRow') {
                             <input

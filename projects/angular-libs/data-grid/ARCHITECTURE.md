@@ -55,6 +55,7 @@ GridKernel                              ← plugin lifecycle, slots, capabilitie
 
 1. **Do not** put feature logic in `data-grid.ts`.
 2. **Do not** add new feature inputs on `DataGrid` — plugins + controller only.
+   `[controller]` from `createGrid` is **required**; binder schema inputs are overrides only.
 3. Prefer `capabilities` / `slots` over reaching into the component.
 4. Editing is **kernel-adjacent** (always available), not an optional chrome plugin.
 5. Plugin activation is **imperative** on `GridKernel` only — never from an Angular

@@ -16,6 +16,7 @@ export interface DataGridLocale {
   selectAllAriaLabel: string;
   selectRowAriaLabel: string;
   filterColumnAriaLabel: string;
+  gridAriaLabel: string;
   paginationLabel: string;
   paginationPrev: string;
   paginationNext: string;
@@ -65,6 +66,7 @@ export const defaultGridLocale: DataGridLocale = {
   selectAllAriaLabel: 'Select all rows',
   selectRowAriaLabel: 'Select row',
   filterColumnAriaLabel: 'Filter',
+  gridAriaLabel: 'Data grid',
   paginationLabel: 'Page',
   paginationPrev: 'Prev',
   paginationNext: 'Next',

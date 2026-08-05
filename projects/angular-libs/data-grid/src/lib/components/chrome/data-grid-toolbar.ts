@@ -6,6 +6,7 @@ import {
   signal,
 } from '@angular/core';
 import type { DataGridApi } from '../../api/grid-api';
+import type { GridController } from '../../create-grid';
 import type {
   DataGridToolbarActionParams,
   DataGridToolbarSlotItem,
@@ -125,6 +126,8 @@ export interface DataGridToolbarLabels {
 })
 export class DataGridToolbar {
   readonly api = input.required<DataGridApi<any>>();
+  /** Bound `[controller]` from the host grid (always set). */
+  readonly controller = input.required<GridController<any>>();
   readonly context = input<unknown>(null);
   readonly showQuickFilter = input(true);
   readonly quickFilter = input('');
@@ -145,6 +148,7 @@ export class DataGridToolbar {
   actionParams(event?: MouseEvent): DataGridToolbarActionParams {
     return {
       api: this.api(),
+      controller: this.controller(),
       context: this.context(),
       event,
     };

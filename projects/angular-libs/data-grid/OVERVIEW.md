@@ -16,7 +16,8 @@ Breaking changes OK until first publish.
 | | |
 | --- | --- |
 | **For** | Angular 22+ apps that need editable, virtualized tables with signal-first DX |
-| **Not for** | Excel-in-the-browser (pivot, charts, formulas, deep SSRM, column virtualization) |
+| **Not for** | Excel-in-the-browser product identity (pivot, charts, formulas, deep SSRM, column virtualization) |
+| **Capability** | Spreadsheet *interactions* (keyboard, range/fill later) without cloning Excel |
 | **Differentiator** | Host-owned immutable rows + Signal Forms full-row edit + held plugins |
 | **Success** | Minutes to first grid; predictable data flow; a11y baseline; lean default bundle |
 
@@ -122,9 +123,9 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 | Quick / external filter | **Done** | `[(quickFilter)]`, `[externalFilter]` | |
 | Filter API | **Partial** | `get/setFilterModel`, `clearFilters` | No `getColumnFilterInstance` |
 | Custom filter components | **Later** | — | Typed seam; refuse AG filter-module explosion |
-| Row selection | **Done** | `none` \| `single` \| `multi`, `[(selectedIds)]` | |
-| Cell range selection | **Later** | Prepared seam — §5 | Not stuffed into `selectedIds` |
-| Checkbox selection UX | **Partial** | Multi selection column | Polish **Later** |
+| Row selection | **Done** | `none` \| `single` \| `multi`, `[(selectedIds)]` | Depth / coexistence — §5d |
+| Cell range selection | **Later** | Prepared seam — §5 | Coexists with rows — §5d (not AG exclusive) |
+| Checkbox selection UX | **Partial** | Multi selection column | Polish in Wave 3 per §5d |
 
 ### 4.4 Editing
 
@@ -280,7 +281,7 @@ Default remains host-owned `[data]`. Pure `applyRowTransaction` util backs both.
 | `api.applyTransaction` mutating internal copy | 28 | Rejected — AG trap |
 | Grid-owned rows as default | 35 | Rejected — erases north star |
 
-### Target API (sketch — not shipped)
+### Target API (shipped Wave 3)
 
 ```ts
 import { signal } from '@angular/core';
@@ -365,7 +366,7 @@ function applyRowTransaction<T>(
 
 ---
 
-## 5b. Edit start/stop interaction (**design first — do not ship the bag yet**)
+## 5b. Edit start/stop interaction (**shipped: presets + sparse overrides**)
 
 AG [start/stop editing](https://www.ag-grid.com/angular-data-grid/cell-editing-start-stop/) is a useful
 **behavior checklist**. Copying `singleClickEdit` + `enterNavigatesVertically` +
@@ -374,17 +375,20 @@ AG [start/stop editing](https://www.ag-grid.com/angular-data-grid/cell-editing-s
 
 We want the good UX, on `createGrid`, without locking into a wrong nested bag.
 
-### Current behavior (document as contract)
+### Current behavior (with `editInteraction`)
 
-| Action | Today |
-| --- | --- |
-| Pointer start | **Double-click** cell |
-| Keyboard start | **Enter / F2** (group rows: Enter toggles expand) |
-| Boolean cell | Enter/F2 **toggles** value (no draft editor) |
-| Commit | Enter on editor; **input `blur` commits** |
-| Cancel | Escape |
-| API | `api.startEditingRow` / `api.stopEditing(cancel?)` |
-| Full-row | Separate session; Enter commits row (template) |
+| Action | `'default'` | `'excel'` |
+| --- | --- | --- |
+| Pointer start | Double-click | Single click |
+| Keyboard start | Enter / F2 start edit | Same |
+| Enter while editing | Commit | Commit + move down |
+| Editor blur | Commit | Commit |
+| Boolean cell | Enter/F2 toggles value (no draft editor) | Same |
+| Cancel | Escape | Same |
+
+Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur }`.
+`enterIdle: 'moveDown'` moves focus on Enter without opening an editor (F2 still edits).
+`pointerStart: 'none'` ≈ suppress click/dblclick edit (API / custom UI starts edit).
 
 ### Why the first `editInteraction` sketch needs adjustment
 
@@ -466,14 +470,14 @@ Keyboard **F2** always starts edit when idle (unless we later add an explicit su
 
 ### Phased delivery (when scheduled)
 
-| Phase | Ship | Do not ship yet |
+| Phase | Ship | Status |
 | --- | --- | --- |
-| 0 | Document current contract in README/OVERVIEW | Any new public keys |
-| 1 | `editInteraction: 'default' \| 'excel' \| { pointerStart }` | Enter/Tab/typeToEdit |
-| 2 | `enterIdle` + `enterEditing` | Tab, typeToEdit |
-| 3 | `editorBlur` override if anyone needs cancel-on-blur | — |
-| 4 | Tab policy (new keys after real design) | — |
-| 5 | `typeToEdit` after shortcut matrix is stable | — |
+| 0 | Document current contract in README/OVERVIEW | ✅ |
+| 1 | `editInteraction: 'default' \| 'excel' \| { pointerStart }` | ✅ Wave 3 |
+| 2 | `enterIdle` + `enterEditing` | ✅ Wave 3 |
+| 3 | `editorBlur` override | ✅ Wave 3 |
+| 4 | Tab policy (new keys after real design) | Later |
+| 5 | `typeToEdit` after shortcut matrix is stable | Later |
 
 Also: `api.startEditingCell(rowId, columnId)` when we need symmetry with row edit — independent of the policy bag.
 
@@ -554,9 +558,11 @@ Page Tab order:  … → [grid: one stop] → toolbar/pager/outside → …
 Inside grid:     arrows / Home / End / Page / Enter / Space / F2
 ```
 
-### Default key matrix (product contract — draft)
+### Default key matrix (product contract)
 
-**Body (data / group rows)** — mostly Done:
+**K0 published:** see [KEYBOARD.md](./KEYBOARD.md) for the body matrix + checklist.
+
+**Body (data / group rows)** — Done (K0):
 
 | Key | Action |
 | --- | --- |
@@ -621,11 +627,11 @@ custom renderers that contain focusable controls (Tab cycles inside, then moves)
 
 | Phase | Work | Done when |
 | --- | --- | --- |
-| **K0** | Publish Keyboard Matrix (current body behaviour) in docs | Testers can verify without reading source |
-| **K1** | ARIA pass: `role=grid` tree, `aria-rowcount/colcount`, focused cell `aria-selected`/`tabindex` consistency | axe + keyboard checklist green on demo |
-| **K2** | Header focus realm + sort via Enter; roving tabindex on headers | Can sort without mouse |
-| **K3** | Body ↔ header arrow bridge; floating filter Enter/Esc | Continuous surface |
-| **K4** | Tab enter/leave: restore last `GridFocus`; optional `focusGridOnTab` | Grid is a good page citizen |
+| **K0** | Publish Keyboard Matrix (current body behaviour) in docs | ✅ [KEYBOARD.md](./KEYBOARD.md) |
+| **K1** | ARIA pass: `role=grid` tree, row/col indexes, focused header/cell tabindex | ✅ Wave 1 |
+| **K2** | Header focus realm + sort via Enter; roving tabindex on headers | ✅ Wave 2 |
+| **K3** | Body ↔ header arrow bridge; floating filter Enter/Esc | ✅ Wave 2 |
+| **K4** | Tab enter/leave: restore last `GridFocus`; frame tabindex | ✅ Wave 2 |
 | **K5** | Wire §5b Enter-move-down / Tab-while-editing | Edit + nav feel Excel-capable |
 | **K6** | Sparse `navigateFocus` hook + custom-cell inner focus pattern | Escape hatches without AG soup |
 | **K7** | Shift+arrows → cell range (§5) | Range keyboard complete |
@@ -644,6 +650,35 @@ not in `data-grid.ts` feature branches. Unit-test the matrix without the templat
 
 ---
 
+## 5d. Selection policy — row + cell range coexistence (**chosen**)
+
+AG made row selection and cell selection mutually exclusive (painful for apps that
+need both). We do **not**.
+
+### Defaults
+
+| Rule | Choice |
+| --- | --- |
+| Coexistence | Row selection (`selectedIds`) and cell range are **both allowed** |
+| Pointer — rows | Checkbox / selection column toggles **rows** |
+| Pointer — range | Drag / Shift+arrows on cells own **range** (when `cellRangePlugin` is on) |
+| Clearing | Starting a cell range **does not clear** row selection (status can show both) |
+| Space | Toggles **row** under focus (unchanged) |
+| Copy priority | If range is non-empty → copy **range**; else → selected **rows** |
+| Exclusive modes | **Rejected** as default (AG trap) |
+
+### Implementation notes
+
+- Never store cell selection in `selectedIds`.
+- Range state lives on the range plugin / focus anchor+active (§5).
+- `isRowSelectable` and optional `rowClickSelects` shipped in Wave 3 (selection depth).
+- Default: checkbox / Space toggle rows; row click does **not** select unless `rowClickSelects: true`.
+- Clipboard plugins read coexistence rules when both are active.
+
+**Score:** coexistence **90**; AG exclusive default **35**.
+
+---
+
 ## 6. Our public surface (inventory)
 
 ### Outputs (`DataGrid`)
@@ -658,9 +693,13 @@ not in `data-grid.ts` feature branches. Unit-test the matrix without the templat
 Models: `selectedIds`, `quickFilter`, `hiddenColumnIds`, `findQuery`, `rowForm`,
 `rowEditSession`, `rowEditDraft`
 
-Layout / behavior inputs (non-feature): `data`, `controller`, pagination/virtual,
-`serverSide`, `externalFilter`, `editMode`, `locale`, `plugins`, chrome toggles
-like `showToolbar` / `floatingFilters`, etc.
+Layout / behavior inputs (non-feature): **`controller` (required)**, `data` (required),
+pagination/virtual, `serverSide`, `externalFilter`, `editMode`, `locale`, optional
+`[plugins]` / `[columns]` overrides, chrome toggles like `showToolbar` / `floatingFilters`, etc.
+
+Toolbar actions (`[toolbarActions]` / plugin `registerToolbar`) receive
+`{ api, controller, context, event }` — `controller` is always the bound `createGrid`
+instance; `context` stays host-only. See [PLUGINS.md](./PLUGINS.md).
 
 **Rule:** new *features* → plugins, not new feature-flag inputs.
 
@@ -684,31 +723,30 @@ Future: `cellRangePlugin` (§5).
 
 ## 7. Prioritized next backlog
 
-Score ≥ 75 to schedule. Conflicts with §2 principles are out.
+Ordered by **foundation waves** (§10). Score ≥ 75 to schedule.
 
-| Priority | Item | Score | Acceptance sketch |
+| Wave | Item | Score | Acceptance sketch |
 | --- | --- | --- | --- |
-| 1 | **Keyboard + a11y (realms / matrix)** | 94 | §5c K0–K4; header nav + Tab citizen; then §5b / range keys |
-| 2 | **Public surface freeze** | 90 | This OVERVIEW stays accurate; changelog discipline before `0.1` |
-| 3 | **Controller-owned rows + `applyTransaction`** | 88 | §5a; util first, then `createGrid({ rows })`; not on `DataGridApi` |
-| 4 | **Edit interaction (presets first)** | 91 | §5b; document contract → `'default'\|'excel'` → sparse overrides; no AG flag soup |
-| 5 | **Header / column menu (lean)** | 80 | Pin/autosize/hide/sort actions; one menu model — no legacy/new fork |
-| 6 | **Filter extensibility seam** | 79 | Typed custom filter component; still simple filter models |
-| 7 | **Cell range seam → feature** | 86 | §5; ship after a11y + clipboard polish; pairs with §5a for fill write-back |
-| 8 | **Server-side contract v2** | 84 | Explicit query/result types; hard “no block-cache SSRM” boundary unless scored again |
-| 9 | **Publish prep** | 88 | Semver, peers, demo polish, AG→al migration page |
-| 10 | **Performance contract** | 82 | Document row budgets, virtual window guarantees; col-virt remains Never |
+| 0 | **Selection policy §5d** + gap/perf stubs | 90 | Docs locked (this file) |
+| 1 | **Keyboard matrix K0 + ARIA K1** | 94 | §5c; checklist green |
+| 1 | **`applyRowTransaction` util** | 92 | Exported + tests; §5a phase 1 |
+| 2 | **Focus continuum K2–K4** + column-menu stub | 94 | Header realm, bridge, Tab citizen |
+| 3 | **Edit interaction §5b** (presets first) | 91 | ✅ `'default'\|'excel'` + sparse overrides |
+| 3 | **Controller-owned rows §5a** | 88 | ✅ `createGrid({ rows })` + `applyTransaction` |
+| 3 | **Selection depth** per §5d | 86 | ✅ Click/checkbox/Space; `isRowSelectable` |
+| 4 | **Lean column menu** | 80 | Pin / autosize / hide / sort |
+| 4 | **Cell range + fill §5** | 86 | Single rect; copy priority §5d |
+| 5 | **SSRM v2 / publish / filters / …** | — | After foundation — §10 Wave 5 |
 
 Optional / lower:
 
 | Item | Score | Note |
 | --- | --- | --- |
-| Pure `applyRowTransaction` (without controller) | 92 | Phase 1 of §5a — can ship alone |
+| Public surface freeze / changelog | 90 | Continuous until `0.1` |
 | Undo/redo host helper | 81 | Pure util over edit/paste/fill events |
-| Checkbox / select-all UX polish | 76 | |
-| Binder `[(data)]` model mode | 84 | Deferred — prefer §5a unless proven needed |
+| Binder `[(data)]` model mode | 84 | Deferred — prefer §5a |
 | Enterprise package split | 83 | Only if bundle metrics demand |
-| Master/detail via display kind | 74 | Below threshold until a real app needs it |
+| Master/detail via display kind | 74 | Below threshold until needed |
 
 ---
 
@@ -755,6 +793,7 @@ Optional / lower:
 | Doc | Role |
 | --- | --- |
 | **OVERVIEW.md** | Product map, AG-informed line, lista |
+| KEYBOARD.md | Body keyboard matrix (K0) + checklist |
 | ARCHITECTURE.md | Kernel / plugin rules |
 | ROADMAP.md | Delivery checkboxes |
 | README.md | Quick start |
@@ -774,4 +813,64 @@ Breaking OK until first publish / `0.1`. After that: semver + migration notes.
 4. Row write-back follows §5a (controller-owned rows) — not AG `api.applyTransaction`.
 5. Edit start/stop follows §5b (presets + sparse overrides) — do not freeze the full bag early.
 6. Keyboard / focus follows §5c (realms + matrix) — header nav is required for “enterprise”; don’t clone AG’s combo soup.
-7. Update this file in the same PR as surface changes.
+7. Selection coexistence follows §5d — row + range both allowed; range wins copy when present.
+8. Build order follows §10 — don’t pull Wave 5 ahead of the interactive spine.
+9. Update this file in the same PR as surface changes.
+10. Wave 2+ PRs: prefer shrinking or flat `data-grid.ts`; put logic in controllers/modules.
+
+---
+
+## 10. Foundation waves (build order)
+
+Principle: design locks before features that hard-code against them; keyboard/a11y
+spine before spreadsheet layers. Spreadsheet *interactions* without Excel product identity.
+
+| Wave | Focus | Ship |
+| --- | --- | --- |
+| **0** | Design locks | §5d selection, perf stub (§12), this section, §11 gaps |
+| **1** | Interactive spine | K0 matrix docs, K1 ARIA, `applyRowTransaction` |
+| **2** | Focus continuum | K2 header realm, K3 body↔header, K4 Tab citizen, column-menu stub |
+| **3** | Policies | §5b editInteraction, §5a controller rows, selection depth |
+| **4** | Spreadsheet layer | Lean column menu, cell range §5, fill via paste |
+| **5** | Harden & ship | Validation, state, filters, SSRM v2, touch/RTL/SSR notes, publish |
+
+Defer coding range / full menu / edit bag until Waves 0–2 are in place.
+
+---
+
+## 11. Gap checklist (`Review` until designed)
+
+| Topic | Status | Notes |
+| --- | --- | --- |
+| Row selection depth | **Done (Wave 3)** | Checkbox / Space; optional `rowClickSelects`; `isRowSelectable` |
+| Row ↔ cell coexistence | **Done (design)** | §5d |
+| Accessibility (full SR) | **Review** | Beyond §5c K1; announcements / DOM order |
+| Grid state completeness | **Review** | Compare AG save list vs `DataGridState` |
+| Cell edit validation | **Review** | fullRow has Signal Forms; cell mode weak |
+| Column menu design | **Review** | Stub in Wave 2; UI in Wave 4 |
+| Performance contract | **Partial** | §12 stub |
+| Touch / mobile | **Review** | |
+| RTL | **Review** | Locale exists; layout mirroring unknown |
+| Consumer testing guide | **Review** | |
+| AG → al migration outline | **Review** | Publish wave |
+| SSR / hydration | **Review** | |
+| Print / density | **Review** | Theming vars only |
+| Filter extensibility | **Later** | Wave 5 |
+| Master/detail, pinned rows, undo | **Later** | Light mentions only |
+
+**Never (unless revisited):** pivot, Excel export, charts, formulas, AI toolkit,
+column virtualization, canvas, ModuleRegistry, viewport row model, AG theme packs,
+multi-disjoint ranges.
+
+---
+
+## 12. Performance contract (stub)
+
+| Rule | Meaning |
+| --- | --- |
+| Row virtualization | Default on; pagination XOR virtual |
+| Column virtualization | **Never** (for now) |
+| Data updates | Immutable `[data]` replace → full client pipeline (filter→sort→display) |
+| Transactions | Host/controller replace arrays; no AG delta-sort / changed-path until measured pain |
+| Budgets | TBD: document target row counts after first profile of demo (Wave 5) |
+| Binder | Do not grow `data-grid.ts` for features — controllers / plugins |

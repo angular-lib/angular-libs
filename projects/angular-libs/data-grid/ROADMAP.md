@@ -22,7 +22,7 @@ separate headless product tier, `withX()` DSL. Cell range/fill is **planned**
 | **Plugins own behavior** | ✅ clipboard, find keys, infinite scroll, row group, tree, aggregate |
 | **Store-style adapters** | ✅ `rowGroupPlugin()` → `RowGroupAdapter` |
 | **Held-objects DX** | ✅ hold plugin instances; no `withX()` DSL |
-| **`createGrid` / `[controller]`** | ✅ bootstrap columns + plugins; binds `api` on mount |
+| **`createGrid` / `[controller]`** | ✅ **required** on `<al-data-grid>`; schema + plugins + optional rows |
 | **`defaultGridPlugins()`** | ✅ find + clipboard + status + sidebar preset |
 | **Display pipeline** | ✅ filter → sort → plugin stages → `DisplayRow[]` → page/virtual |
 | **Package split** | ✅ core + `@angular-libs/data-grid/plugins` |
@@ -102,8 +102,11 @@ Prioritized product lista lives in [OVERVIEW.md](./OVERVIEW.md) §7. Snapshot:
 | Item | Notes |
 | --- | --- |
 | A11y & keyboard matrix | Kernel quality; unblocks range a11y |
-| Keyboard realms + header nav | Enterprise keystone — OVERVIEW §5c |
-| Header / column menu (lean) | Not AG legacy/new dualism |
+| Keyboard realms + header nav | Enterprise keystone — OVERVIEW §5c / §10; K0–K4 landed |
+| Selection row+range coexistence | OVERVIEW §5d — both allowed |
+| Foundation waves | OVERVIEW §10 |
+| `applyRowTransaction` | Util + `createGrid({ rows })` / `applyTransaction` (Wave 3) |
+| Header / column menu (lean) | Stub `openColumnMenu` / `columnMenuColumnId` (Wave 2); UI Wave 4 |
 | Filter extensibility seam | Typed; no AG filter framework |
 | Cell range + fill | Single rectangle + immutable fill — OVERVIEW §5 |
 | Controller-owned rows + transactions | Opt-in `createGrid({ rows })` + `applyTransaction` — OVERVIEW §5a |

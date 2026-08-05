@@ -44,6 +44,8 @@ export interface DataGridSelectionHost<T = unknown> {
   setSelectedIds(ids: Array<string | number>): void;
   getDisplayedRowCount(): number;
   getProcessedRows(): readonly T[];
+  /** Bound source rows (`[data]`), including filtered-out. */
+  getSourceRows(): readonly T[];
   getQuery(): DataGridQuery;
 }
 
@@ -79,6 +81,7 @@ export interface DataGridViewportHost<T = unknown> {
   getPagedDisplayRows?(): readonly DisplayRow<T>[];
   resolveRowId?(row: T, index: number): string | number;
   notifyNearEnd?(): void;
+  openColumnMenu?(columnId: string): void;
 }
 
 /** Find chrome. */
@@ -211,8 +214,30 @@ export class DataGridApi<T = unknown> {
     return this.host.getSelectedIds();
   }
 
+  /**
+   * Selected row data from the bound source rows (`[data]`).
+   * Includes filtered-out selections; order follows the source array.
+   */
+  getSelectedRows(): T[] {
+    const ids = new Set(this.getSelectedIds());
+    if (!ids.size) {
+      return [];
+    }
+    return this.host.getSourceRows().filter((row, index) =>
+      ids.has(this.resolveRowId(row, index)),
+    );
+  }
+
   setSelectedIds(ids: Array<string | number>): void {
     this.host.setSelectedIds(ids);
+  }
+
+  /**
+   * Select by row objects — IDs are resolved via the grid `rowId` function.
+   * Pass `[]` to clear (same as {@link deselectAll}).
+   */
+  setSelectedRows(rows: readonly T[]): void {
+    this.setSelectedIds(rows.map((row, index) => this.resolveRowId(row, index)));
   }
 
   deselectAll(): void {
@@ -245,6 +270,11 @@ export class DataGridApi<T = unknown> {
 
   focusCell(rowIndex: number, columnId: string): void {
     this.host.focusCell?.(rowIndex, columnId);
+  }
+
+  /** Wave 2 stub — lean menu UI in Wave 4. */
+  openColumnMenu(columnId: string): void {
+    this.host.openColumnMenu?.(columnId);
   }
 
   startEditingRow(rowId: string | number): void {

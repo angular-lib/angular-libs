@@ -488,7 +488,8 @@
 .al-data-grid__row:not(.al-data-grid__row--editing) .al-data-grid__td--editing,
 .al-data-grid__td--focused:not(.al-data-grid__td--find-active):not(.al-data-grid__td--editing),
 .al-data-grid__td--find-active,
-.al-data-grid__td--editing.al-data-grid__td--invalid {
+.al-data-grid__td--editing.al-data-grid__td--invalid,
+.al-data-grid__th--focused {
   outline: 2px solid var(--al-dg-accent, #2563eb);
   outline-offset: -2px;
   z-index: 1;

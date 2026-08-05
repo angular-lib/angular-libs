@@ -4,7 +4,8 @@ Lightweight, **modern Angular-only** data grid (signals, standalone, CSS-variabl
 Inspired by AG Grid’s useful core — not an API clone.
 
 See [OVERVIEW.md](./OVERVIEW.md) for the product map (what we build / refuse,
-AG-informed line, next backlog), [ARCHITECTURE.md](./ARCHITECTURE.md) for the
+AG-informed line, next backlog), [KEYBOARD.md](./KEYBOARD.md) for the body
+keyboard matrix, [ARCHITECTURE.md](./ARCHITECTURE.md) for the
 modularization spec, [ROADMAP.md](./ROADMAP.md) for phased delivery, and
 [PLUGINS.md](./PLUGINS.md) for the kernel + capability plugin authoring guide.
 

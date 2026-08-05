@@ -21,7 +21,16 @@ export type {
   PluginLifecycle,
 } from './lib/api/grid-api';
 export { createGrid, pickAdapter } from './lib/create-grid';
-export type { CreateGridOptions, GridController } from './lib/create-grid';
+export type { CreateGridOptions, GridController, IsRowSelectableFn } from './lib/create-grid';
+export {
+  resolveEditInteraction,
+} from './lib/editing/edit-interaction';
+export type {
+  EditInteractionConfig,
+  EditInteractionInput,
+  EditInteractionPreset,
+  ResolvedEditInteraction,
+} from './lib/editing/edit-interaction';
 export { GridKernel } from './lib/kernel/grid-kernel';
 export type { GridKernelOptions } from './lib/kernel/grid-kernel';
 export { GridCapabilities, ROW_GROUP_ADAPTER, TREE_DATA_ADAPTER } from './lib/plugins/capabilities';
@@ -116,6 +125,13 @@ export type { FindMatch, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';
 export { applyCellEdit, applyRowEdit, writeCellValue } from './lib/utils/apply-edit';
 export {
+  applyRowTransaction,
+} from './lib/utils/apply-row-transaction';
+export type {
+  RowTransaction,
+  RowTransactionResult,
+} from './lib/utils/apply-row-transaction';
+export {
   emptyColumnLayout,
   materializeColumnLayout,
   moveColumn,
@@ -187,8 +203,8 @@ export type {
   FindFeatureConfig,
   InfiniteScrollFeatureConfig,
 } from './lib/plugins/types';
-export { FocusController } from './lib/controllers/focus';
-export type { FocusCell, FocusControllerOptions } from './lib/controllers/focus';
+export { FocusController, focusRealmOf } from './lib/controllers/focus';
+export type { FocusCell, FocusControllerOptions, FocusRealm } from './lib/controllers/focus';
 export { FindController } from './lib/controllers/find';
 export type { FindControllerOptions } from './lib/controllers/find';
 export { computeVirtualWindow } from './lib/controllers/virtual-window';

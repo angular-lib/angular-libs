@@ -1,4 +1,4 @@
-import { Component, resource, signal, viewChild } from '@angular/core';
+import { Component, computed, resource, signal, viewChild } from '@angular/core';
 import { form, min, required } from '@angular/forms/signals';
 import {
   DataGrid,
@@ -40,6 +40,11 @@ interface Employee {
   department: string;
   salary: number;
   active: boolean;
+}
+
+/** Host bag for toolbar `actionClick` — app/plugins only (controller is a separate param). */
+interface DemoGridContext {
+  flash: ReturnType<typeof flashCellsPlugin<Employee>>;
 }
 
 function emptyEmployee(): Employee {
@@ -116,6 +121,20 @@ const STATE_KEY = 'al-data-grid-demo-state';
         </div>
       </header>
 
+      <aside class="demo__foundation" data-testid="al-dg-demo-foundation">
+        <p class="demo__foundation-hint">
+          Keys: arrows · Home/End · PageDown header→body · Enter/F2 edit · Space select · ↑ into
+          header · Enter sort (asc/desc/none) · Alt+↓ menu stub · Esc
+        </p>
+        @let menuCol = gridRef.columnMenuColumnId();
+        @if (menuCol) {
+          <div class="demo__foundation-actions">
+            <span class="demo__foundation-menu">Menu stub: {{ menuCol }}</span>
+            <button type="button" class="btn" (click)="gridRef.closeColumnMenu()">Dismiss</button>
+          </div>
+        }
+      </aside>
+
       @if (editSession(); as session) {
         <aside
           class="demo__form-status"
@@ -151,7 +170,8 @@ const STATE_KEY = 'al-data-grid-demo-state';
           [columnReorder]="true"
           [contextMenu]="true"
           [contextMenuItems]="menuItems"
-          [toolbarActions]="flashToolbar"
+          [context]="demoContext"
+          [toolbarActions]="demoToolbar()"
           [editMode]="fullRowEdit() ? 'fullRow' : 'cell'"
           [rowForm]="employeeForm"
           [(rowEditSession)]="editSession"
@@ -266,6 +286,39 @@ const STATE_KEY = 'al-data-grid-demo-state';
       flex: 0 0 auto;
     }
 
+    .demo__foundation {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px 16px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      flex: 0 0 auto;
+    }
+
+    .demo__foundation-hint {
+      margin: 0;
+      font-size: 12px;
+      color: #6b7280;
+      line-height: 1.4;
+    }
+
+    .demo__foundation-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .demo__foundation-menu {
+      font-size: 13px;
+      color: #0f766e;
+      font-weight: 600;
+    }
+
     .demo__form-status--invalid {
       border-color: #fecaca;
       background: #fef2f2;
@@ -358,40 +411,6 @@ export class DataGridDemoComponent {
   });
   readonly flash = flashCellsPlugin<Employee>();
 
-  /** Toolbar demo: flash selection, or a few sample cells when nothing is selected. */
-  readonly flashToolbar: readonly DataGridToolbarSlotItem[] = [
-    {
-      id: 'demo-flash-cells',
-      order: 85,
-      icon: '✧',
-      color: '#d97706',
-      ariaLabel: 'Flash cells',
-      title: 'Flash selected rows (or sample cells)',
-      actionClick: () => {
-        const selected = this.selectedIds();
-        if (selected.length) {
-          this.flash.flashCells({
-            rowIds: selected,
-            color: '#fbbf24',
-            duration: 1200,
-          });
-          this.lastAction.set(`flashed ${selected.length} row(s)`);
-          return;
-        }
-        this.flash.flashCells({
-          cells: [
-            { rowId: 1, columnId: 'salary' },
-            { rowId: 2, columnId: 'name' },
-            { rowId: 3, columnId: 'role' },
-          ],
-          color: '#34d399',
-          duration: 1200,
-        });
-        this.lastAction.set('flashed sample cells');
-      },
-    },
-  ];
-
   readonly columns: ColumnOrGroupDef<Employee>[] = [
     {
       headerName: 'Identity',
@@ -456,7 +475,9 @@ export class DataGridDemoComponent {
   readonly grid = createGrid<Employee>({
     columns: this.columns,
     rowId: this.rowId,
+    rows: this.rows,
     selection: 'multi',
+    editInteraction: 'default',
     plugins: [
       ...defaultGridPlugins<Employee>({ sideBar: false }),
       this.drag,
@@ -467,6 +488,88 @@ export class DataGridDemoComponent {
       this.flash,
       this.sideBar,
     ],
+  });
+
+  /** Opaque host bag for toolbar actions — not the grid controller. */
+  readonly demoContext: DemoGridContext = {
+    flash: this.flash,
+  };
+
+  /** Host toolbar actions — use `params.controller` / `params.api` / `params.context`. */
+  readonly demoToolbar = computed((): readonly DataGridToolbarSlotItem[] => {
+    const hasSelection = this.selectedIds().length > 0;
+    return [
+      {
+        id: 'demo-add-row',
+        order: 10,
+        icon: '+',
+        color: '#059669',
+        ariaLabel: 'Add row',
+        title: 'Add row (controller applyTransaction)',
+        actionClick: ({ controller }) => {
+          const id = Date.now();
+          controller.applyTransaction({
+            add: [
+              {
+                id,
+                name: `New hire ${id}`,
+                role: 'Engineer',
+                department: 'Platform',
+                salary: 80_000,
+                active: true,
+              },
+            ],
+            addIndex: 0,
+          });
+        },
+      },
+      {
+        id: 'demo-remove-selected',
+        order: 11,
+        icon: '−',
+        color: '#dc2626',
+        ariaLabel: 'Remove selected',
+        title: 'Remove selected rows',
+        disabled: !hasSelection,
+        actionClick: ({ api, controller }) => {
+          const remove = api.getSelectedRows();
+          if (!remove.length) {
+            return;
+          }
+          controller.applyTransaction({ remove });
+          api.setSelectedRows([]);
+        },
+      },
+      {
+        id: 'demo-flash-cells',
+        order: 85,
+        icon: '✧',
+        color: '#d97706',
+        ariaLabel: 'Flash cells',
+        title: 'Flash selected rows (or sample cells)',
+        actionClick: ({ api, context }) => {
+          const { flash } = context as DemoGridContext;
+          const selected = api.getSelectedIds();
+          if (selected.length) {
+            flash.flashCells({
+              rowIds: selected,
+              color: '#fbbf24',
+              duration: 1200,
+            });
+            return;
+          }
+          flash.flashCells({
+            cells: [
+              { rowId: 1, columnId: 'salary' },
+              { rowId: 2, columnId: 'name' },
+              { rowId: 3, columnId: 'role' },
+            ],
+            color: '#34d399',
+            duration: 1200,
+          });
+        },
+      },
+    ];
   });
 
   readonly rowClass = (row: Employee) => (row.active ? null : 'row-inactive');

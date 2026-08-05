@@ -26,13 +26,16 @@ export interface GridKernelOptions<T> {
   getColumnIds: () => string[];
   ensureRowVisible?: (rowIndex: number) => void;
   onFocusChange?: (cell: FocusCell | null) => void;
-  onStartEdit?: (cell: FocusCell) => void;
+  onStartEdit?: (cell: FocusCell, reason: 'enter' | 'f2') => void;
   onCancelEdit?: () => void;
   onToggleSelect?: (rowIndex: number) => void;
   onSelectAll?: () => boolean | void;
   onToggleGroup?: (rowIndex: number) => void;
   isGroupRow?: (rowIndex: number) => boolean;
   getPageRowCount?: () => number;
+  onHeaderActivate?: (columnId: string, multi: boolean) => void;
+  onOpenColumnMenu?: (columnId: string) => void;
+  hasFloatingFilters?: () => boolean;
   getFindMatchCount: () => number;
   getFindActiveIndex: () => number;
   setFindActiveIndex: (index: number) => void;
@@ -85,13 +88,16 @@ export class GridKernel<T = unknown> {
       onFocusChange: (cell) => {
         this.options.onFocusChange?.(cell);
       },
-      onStartEdit: (cell) => this.options.onStartEdit?.(cell),
+      onStartEdit: (cell, reason) => this.options.onStartEdit?.(cell, reason),
       onCancelEdit: () => this.options.onCancelEdit?.(),
       onToggleSelect: (i) => this.options.onToggleSelect?.(i),
       onSelectAll: () => this.options.onSelectAll?.() ?? false,
       onToggleGroup: (i) => this.options.onToggleGroup?.(i),
       isGroupRow: (i) => this.options.isGroupRow?.(i) ?? false,
       getPageRowCount: () => this.options.getPageRowCount?.() ?? 10,
+      onHeaderActivate: (columnId, multi) => this.options.onHeaderActivate?.(columnId, multi),
+      onOpenColumnMenu: (columnId) => this.options.onOpenColumnMenu?.(columnId),
+      hasFloatingFilters: () => this.options.hasFloatingFilters?.() ?? false,
     });
 
     this.find = new FindController({
