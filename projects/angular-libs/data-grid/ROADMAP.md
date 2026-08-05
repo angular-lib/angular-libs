@@ -5,10 +5,11 @@ plugins, no AG `ModuleRegistry` / god `gridOptions`.
 
 Breaking changes OK until first publish.
 
-**Full spec:** [ARCHITECTURE.md](./ARCHITECTURE.md) · **Plugins:** [PLUGINS.md](./PLUGINS.md) · **Quick start:** [README.md](./README.md)
+**Full spec:** [ARCHITECTURE.md](./ARCHITECTURE.md) · **Product map:** [OVERVIEW.md](./OVERVIEW.md) · **Plugins:** [PLUGINS.md](./PLUGINS.md) · **Quick start:** [README.md](./README.md)
 
 **Out of scope (for now):** column virtualization, Excel export, canvas cell layer,
-separate headless product tier, `withX()` DSL.
+separate headless product tier, `withX()` DSL. Cell range/fill is **planned**
+(simpler than AG) — see OVERVIEW §5.
 
 ---
 
@@ -96,9 +97,18 @@ separate headless product tier, `withX()` DSL.
 
 ### Later (optional)
 
+Prioritized product lista lives in [OVERVIEW.md](./OVERVIEW.md) §7. Snapshot:
+
 | Item | Notes |
 | --- | --- |
-| Server-side row model depth + a11y pass | Principle G / F |
+| A11y & keyboard matrix | Kernel quality; unblocks range a11y |
+| Keyboard realms + header nav | Enterprise keystone — OVERVIEW §5c |
+| Header / column menu (lean) | Not AG legacy/new dualism |
+| Filter extensibility seam | Typed; no AG filter framework |
+| Cell range + fill | Single rectangle + immutable fill — OVERVIEW §5 |
+| Controller-owned rows + transactions | Opt-in `createGrid({ rows })` + `applyTransaction` — OVERVIEW §5a |
+| Edit start/stop interaction | Presets + sparse overrides — OVERVIEW §5b (design first) |
+| Server-side contract v2 | Hard boundaries vs AG SSRM |
 | Enterprise packaging for group/tree/agg | Only if bundle size demands it (I / P3) |
 | Publish prep | Changelog, semver, peer-deps note, demo polish |
 

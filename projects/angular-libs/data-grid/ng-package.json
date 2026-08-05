@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/ng-packagr/ng-package.schema.json",
   "dest": "../../../dist/angular-libs/data-grid",
-  "assets": ["PLUGINS.md", "ROADMAP.md"],
+  "assets": ["PLUGINS.md", "ROADMAP.md", "OVERVIEW.md", "ARCHITECTURE.md"],
   "lib": {
     "entryFile": "src/public-api.ts"
   }

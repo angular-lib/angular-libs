@@ -4,7 +4,8 @@ Lightweight, **signal-first Angular grid**: host-owned immutable data, typed
 plugins, Signal Forms for row edit. Inspired by AG Grid’s useful core — not an
 API clone.
 
-See [ROADMAP.md](./ROADMAP.md) for phased delivery and [PLUGINS.md](./PLUGINS.md)
+See [OVERVIEW.md](./OVERVIEW.md) for the product map and next backlog,
+[ROADMAP.md](./ROADMAP.md) for phased delivery, and [PLUGINS.md](./PLUGINS.md)
 for authoring. Breaking changes OK until first publish.
 
 ---

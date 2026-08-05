@@ -3,9 +3,10 @@
 Lightweight, **modern Angular-only** data grid (signals, standalone, CSS-variable theming).
 Inspired by AG Grid’s useful core — not an API clone.
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the modularization spec,
-[ROADMAP.md](./ROADMAP.md) for phased delivery, and [PLUGINS.md](./PLUGINS.md)
-for the kernel + capability plugin authoring guide.
+See [OVERVIEW.md](./OVERVIEW.md) for the product map (what we build / refuse,
+AG-informed line, next backlog), [ARCHITECTURE.md](./ARCHITECTURE.md) for the
+modularization spec, [ROADMAP.md](./ROADMAP.md) for phased delivery, and
+[PLUGINS.md](./PLUGINS.md) for the kernel + capability plugin authoring guide.
 
 **Governance:** do not add new feature inputs on `DataGrid` — compose plugins +
 `createGrid` instead.
