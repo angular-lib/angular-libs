@@ -71,8 +71,8 @@ export interface DataGridStatusBarLabels {
       justify-content: space-between;
       gap: 12px;
       padding: 8px 10px;
-      border-top: 1px solid var(--al-dg-border, #e5e7eb);
-      background: var(--al-dg-header-bg, #f9fafb);
+      border-top: 1px solid var(--al-dg-border, #babfc7);
+      background: var(--al-dg-header-bg, #f8f8f8);
       flex: 0 0 auto;
     }
     .al-data-grid__status {
@@ -83,7 +83,7 @@ export interface DataGridStatusBarLabels {
       min-width: 0;
     }
     .al-data-grid__meta {
-      color: var(--al-dg-muted, #6b7280);
+      color: var(--al-dg-muted, #5f6368);
     }
     .al-data-grid__pager {
       display: inline-flex;
@@ -91,7 +91,7 @@ export interface DataGridStatusBarLabels {
       gap: 8px;
     }
     .al-data-grid__page-btn {
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      border: 1px solid var(--al-dg-border, #babfc7);
       background: var(--al-dg-bg, #fff);
       color: inherit;
       border-radius: 4px;

@@ -18,19 +18,30 @@ export type {
   DataGridLocaleApiHost,
   DataGridRowGroupHost,
   DataGridSelectionHost,
+  DataGridSideBarApiHost,
   DataGridViewportHost,
   PluginLifecycle,
 } from './lib/api/grid-api';
+export { GridEventBus } from './lib/api/grid-events';
+export type {
+  DataGridEventMap,
+  DataGridEventName,
+  GridEventUnsubscribe,
+} from './lib/api/grid-events';
 export { createGrid, pickAdapter } from './lib/create-grid';
 export type { CreateGridOptions, GridController, IsRowSelectableFn } from './lib/create-grid';
 export {
   resolveEditInteraction,
+  isTypeToEditKey,
+  resolveTypeToEditSeed,
 } from './lib/editing/edit-interaction';
 export type {
   EditInteractionConfig,
   EditInteractionInput,
   EditInteractionPreset,
   ResolvedEditInteraction,
+  TypeToEditColumn,
+  TypeToEditSeed,
 } from './lib/editing/edit-interaction';
 export { GridKernel } from './lib/kernel/grid-kernel';
 export type { GridKernelOptions } from './lib/kernel/grid-kernel';

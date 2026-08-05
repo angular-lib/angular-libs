@@ -30,10 +30,10 @@ const NOTES_CSS = `
   gap: 8px;
   width: min(280px, calc(100vw - 16px));
   padding: 10px;
-  border: 1px solid var(--al-dg-border, #e5e7eb);
+  border: 1px solid var(--al-dg-border, #babfc7);
   border-radius: 8px;
   background: var(--al-dg-bg, #fff);
-  color: var(--al-dg-fg, #111827);
+  color: var(--al-dg-fg, #181d1f);
   box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
   font: 13px/1.35 ui-sans-serif, system-ui, sans-serif;
 }
@@ -45,7 +45,7 @@ const NOTES_CSS = `
 .al-dg-note-popover__title {
   font-size: 12px;
   font-weight: 650;
-  color: var(--al-dg-muted, #6b7280);
+  color: var(--al-dg-muted, #5f6368);
 }
 .al-dg-note-popover__body {
   white-space: pre-wrap;
@@ -58,7 +58,7 @@ const NOTES_CSS = `
   min-height: 88px;
   resize: vertical;
   box-sizing: border-box;
-  border: 1px solid var(--al-dg-border, #e5e7eb);
+  border: 1px solid var(--al-dg-border, #babfc7);
   border-radius: 6px;
   padding: 8px;
   font: inherit;
@@ -71,21 +71,21 @@ const NOTES_CSS = `
   justify-content: flex-end;
 }
 .al-dg-note-popover__btn {
-  border: 1px solid var(--al-dg-border, #e5e7eb);
+  border: 1px solid var(--al-dg-border, #babfc7);
   border-radius: 6px;
   padding: 6px 10px;
   font: inherit;
   cursor: pointer;
-  background: var(--al-dg-header-bg, #f9fafb);
+  background: var(--al-dg-header-bg, #f8f8f8);
   color: inherit;
 }
 .al-dg-note-popover__btn--primary {
-  background: var(--al-dg-accent, #2563eb);
-  border-color: var(--al-dg-accent, #2563eb);
+  background: var(--al-dg-accent, #2196f3);
+  border-color: var(--al-dg-accent, #2196f3);
   color: #fff;
 }
 .al-dg-note-popover__btn--danger {
-  color: var(--al-dg-danger, #dc2626);
+  color: var(--al-dg-danger, #d32f2f);
 }
 `;
 

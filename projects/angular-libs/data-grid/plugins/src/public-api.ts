@@ -49,6 +49,11 @@ export type {
   CellRangePluginOptions,
 } from './lib/cell-range.plugin';
 export { rowDragPlugin } from './lib/row-drag.plugin';
+export type {
+  RowDragAdapter,
+  RowDragPlugin,
+  RowDragPluginOptions,
+} from './lib/row-drag.plugin';
 export { aggregateRowPlugin } from './lib/aggregate-row.plugin';
 export { infiniteScrollPlugin } from './lib/infinite-scroll.plugin';
 export type { InfiniteScrollPluginOptions } from './lib/infinite-scroll.plugin';

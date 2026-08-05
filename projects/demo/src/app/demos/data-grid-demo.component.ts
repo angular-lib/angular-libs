@@ -10,7 +10,6 @@ import {
   type ColumnOrGroupDef,
   type DataGridContextMenuContext,
   type DataGridContextMenuItem,
-  type DataGridState,
   type DataGridToolbarSlotItem,
   type PasteEvent,
   type RowEditContext,
@@ -32,6 +31,7 @@ import {
   type Note,
   type NotesMap,
 } from '@angular-libs/data-grid/plugins';
+import { eventLogPlugin } from './plugins/event-log.plugin';
 import { sampleStatusPlugin } from './plugins/sample-status.plugin';
 
 interface Employee {
@@ -116,6 +116,14 @@ const STATE_KEY = 'al-data-grid-demo-state';
             />
             Full-row edit
           </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              [checked]="drag.enabled()"
+              (change)="drag.setEnabled($any($event.target).checked)"
+            />
+            Row drag
+          </label>
           <button type="button" class="btn" (click)="saveState()">Save state</button>
           <button type="button" class="btn" (click)="restoreState()">Restore</button>
           <span class="meta">{{ selectedIds().length }} selected · last: {{ lastAction() }}</span>
@@ -128,28 +136,6 @@ const STATE_KEY = 'al-data-grid-demo-state';
           Enter sort · Alt+↓ column menu · Esc clears range/menu
         </p>
       </aside>
-
-      @if (editSession(); as session) {
-        <aside
-          class="demo__form-status"
-          [class.demo__form-status--invalid]="employeeForm().invalid()"
-          data-testid="al-dg-demo-form-status"
-        >
-          <strong>Editing #{{ session.rowId }}</strong>
-          <span>{{ employeeForm().valid() ? 'valid' : 'invalid' }}</span>
-          <span>dirty: {{ employeeForm().dirty() }}</span>
-          <span>name: {{ employeeForm.name().value() || '—' }}</span>
-          @for (err of employeeForm().errors(); track err.kind + (err.message ?? '')) {
-            <span class="err">{{ err.message ?? err.kind }}</span>
-          }
-          @for (err of employeeForm.name().errors(); track err.kind + (err.message ?? '')) {
-            <span class="err">name: {{ err.message ?? err.kind }}</span>
-          }
-          @for (err of employeeForm.salary().errors(); track err.kind + (err.message ?? '')) {
-            <span class="err">salary: {{ err.message ?? err.kind }}</span>
-          }
-        </aside>
-      }
 
       <div class="demo__grid">
         <al-data-grid
@@ -174,7 +160,6 @@ const STATE_KEY = 'al-data-grid-demo-state';
           (rowEdit)="onRowEdit($event)"
           (rowReorder)="onReorder($event)"
           (paste)="onPaste($event)"
-          (stateChange)="onStateChange($event)"
         >
           <ng-template alGridCell="role" let-value="value">
             <span class="role">{{ value }}</span>
@@ -266,20 +251,6 @@ const STATE_KEY = 'al-data-grid-demo-state';
       margin-top: 16px;
     }
 
-    .demo__form-status {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px 14px;
-      align-items: center;
-      padding: 8px 12px;
-      border-radius: 8px;
-      border: 1px solid #99f6e4;
-      background: #f0fdfa;
-      font-size: 13px;
-      color: #134e4a;
-      flex: 0 0 auto;
-    }
-
     .demo__foundation {
       display: flex;
       flex-wrap: wrap;
@@ -309,18 +280,8 @@ const STATE_KEY = 'al-data-grid-demo-state';
 
     .demo__foundation-menu {
       font-size: 13px;
-      color: #0f766e;
+      color: #2196f3;
       font-weight: 600;
-    }
-
-    .demo__form-status--invalid {
-      border-color: #fecaca;
-      background: #fef2f2;
-      color: #7f1d1d;
-    }
-
-    .demo__form-status .err {
-      color: #b91c1c;
     }
 
     .demo__grid {
@@ -332,15 +293,11 @@ const STATE_KEY = 'al-data-grid-demo-state';
     al-data-grid {
       height: 100%;
       min-height: 0;
-      --al-dg-accent: #0f766e;
-      --al-dg-header-bg: #f0fdfa;
-      --al-dg-row-selected: #ccfbf1;
-      --al-dg-row-hover: #ecfdf5;
     }
 
     .role {
       font-weight: 600;
-      color: #0f766e;
+      color: #1565c0;
     }
 
     :host ::ng-deep .row-inactive {
@@ -373,11 +330,13 @@ export class DataGridDemoComponent {
   readonly sideBar = sideBarPlugin<Employee>({
     panels: ['columns', 'filters'],
     position: 'right',
-    defaultPanel: 'filters',
+    // Events is registered by eventLogPlugin.
+    defaultPanel: 'events',
   });
-  private readonly drag = rowDragPlugin<Employee>();
+  readonly drag = rowDragPlugin<Employee>(false);
   private readonly aggregate = aggregateRowPlugin<Employee>();
   private readonly sample = sampleStatusPlugin<Employee>();
+  private readonly events = eventLogPlugin<Employee>();
   /** Host-owned notes bag (simulates async API load). */
   private readonly notesBackend = new Map<string, Note>([
     [noteKey(2, 'name'), { text: 'Check salary band before review.' }],
@@ -466,7 +425,7 @@ export class DataGridDemoComponent {
     },
   ];
 
-  /** Compose plugins once — toggle sidebar with `sideBar.setEnabled`, not `setPlugins`. */
+  /** Compose plugins once — toggle sidebar / row drag with adapters, not `setPlugins`. */
   readonly grid = createGrid<Employee>({
     columns: this.columns,
     rowId: this.rowId,
@@ -483,6 +442,7 @@ export class DataGridDemoComponent {
       this.flash,
       this.cellRange,
       this.sideBar,
+      this.events,
     ],
   });
 
@@ -644,10 +604,6 @@ export class DataGridDemoComponent {
       return next;
     });
     this.lastAction.set(`pasted ${event.matrix.length}×${event.columnIds.length}`);
-  }
-
-  onStateChange(_state: DataGridState): void {
-    // Host can persist continuously; demo saves explicitly.
   }
 
   saveState(): void {

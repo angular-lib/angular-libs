@@ -126,6 +126,44 @@ export class FocusController {
     this.setFocus({ rowIndex, columnId, realm });
   }
 
+  /**
+   * Move horizontally with row wrap (Excel-style Tab after commit).
+   * Stays put when already at the first/last body cell.
+   */
+  moveHorizontalWrap(dCol: number): FocusCell | null {
+    const cols = this.options.getColumnIds();
+    if (!cols.length || focusRealmOf(this.focused) !== 'body') {
+      return this.move(0, dCol);
+    }
+
+    const rowCount = this.options.getRowCount();
+    if (rowCount <= 0) {
+      return this.focused;
+    }
+
+    let rowIndex = this.focused?.rowIndex ?? 0;
+    let colIndex = this.focused
+      ? Math.max(0, cols.indexOf(this.focused.columnId))
+      : 0;
+
+    colIndex += dCol;
+    if (colIndex >= cols.length) {
+      colIndex = 0;
+      rowIndex += 1;
+    } else if (colIndex < 0) {
+      colIndex = cols.length - 1;
+      rowIndex -= 1;
+    }
+
+    if (rowIndex < 0 || rowIndex >= rowCount) {
+      return this.focused;
+    }
+
+    this.options.onClearRange?.();
+    this.setFocus({ rowIndex, columnId: cols[colIndex]!, realm: 'body' });
+    return this.focused;
+  }
+
   move(dRow: number, dCol: number): FocusCell | null {
     const cols = this.options.getColumnIds();
     if (!cols.length) {

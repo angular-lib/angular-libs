@@ -85,6 +85,16 @@ export function cellRangePlugin<T = unknown>(
     ) as HTMLElement | null;
   };
 
+  const overlayHost = (): HTMLElement | null => {
+    if (!liveContext) {
+      return null;
+    }
+    return (
+      (liveContext.element.querySelector('.al-data-grid__range-layer') as HTMLElement | null) ??
+      liveContext.element
+    );
+  };
+
   const buildClipboardText = (current: CellRange): string | null => {
     const cols = getVisibleColumnIds();
     const norm = normalizeCellRange(current, cols);
@@ -134,8 +144,8 @@ export function cellRangePlugin<T = unknown>(
   };
 
   /**
-   * Fixed ring + fill handle, clipped to the scroll viewport so the scrollbar
-   * gutter never slices the border (and overlays never inflate scrollWidth).
+   * Ring + fill handle in the in-grid range layer (layer-local coords).
+   * Clipped to the scroll viewport so the scrollbar gutter never slices the border.
    */
   const syncOverlays = (): void => {
     if (!liveContext) {
@@ -161,10 +171,16 @@ export function cellRangePlugin<T = unknown>(
       return;
     }
 
+    const host = overlayHost();
+    if (!host) {
+      removeOverlays();
+      return;
+    }
     const scroll = liveContext.element.querySelector(
       '.al-data-grid__scroll',
     ) as HTMLElement | null;
     const clip = scroll?.getBoundingClientRect();
+    const origin = host.getBoundingClientRect();
     const a = tl.getBoundingClientRect();
     const b = br.getBoundingClientRect();
     let left = Math.min(a.left, b.left);
@@ -187,27 +203,27 @@ export function cellRangePlugin<T = unknown>(
     }
 
     ensureOverlayEls();
-    document.body.appendChild(rangeRingEl!);
-    rangeRingEl!.style.left = `${left}px`;
-    rangeRingEl!.style.top = `${top}px`;
+    host.appendChild(rangeRingEl!);
+    rangeRingEl!.style.left = `${left - origin.left}px`;
+    rangeRingEl!.style.top = `${top - origin.top}px`;
     rangeRingEl!.style.width = `${width}px`;
     rangeRingEl!.style.height = `${height}px`;
 
     if (fillHandleEnabled && fillHandleEl) {
-      const handleLeft = right - 8;
-      const handleTop = bottom - 8;
+      const handleLeft = right - 10;
+      const handleTop = bottom - 10;
       const outsideClip =
         !!clip &&
-        (handleLeft + 7 > clip.right ||
-          handleTop + 7 > clip.bottom ||
+        (handleLeft + 11 > clip.right ||
+          handleTop + 11 > clip.bottom ||
           handleLeft < clip.left ||
           handleTop < clip.top);
       if (outsideClip) {
         fillHandleEl.remove();
       } else {
-        document.body.appendChild(fillHandleEl);
-        fillHandleEl.style.left = `${handleLeft}px`;
-        fillHandleEl.style.top = `${handleTop}px`;
+        host.appendChild(fillHandleEl);
+        fillHandleEl.style.left = `${handleLeft - origin.left}px`;
+        fillHandleEl.style.top = `${handleTop - origin.top}px`;
       }
     }
   };
@@ -304,10 +320,7 @@ export function cellRangePlugin<T = unknown>(
               let fillSource: CellRange | null = null;
               let pointerId: number | null = null;
 
-              const cellFromEvent = (event: Event): FocusCell | null => {
-                const td = (event.target as HTMLElement | null)?.closest?.(
-                  '[data-row-id][data-column-id]',
-                ) as HTMLElement | null;
+              const cellFromTd = (td: HTMLElement | null): FocusCell | null => {
                 if (!td || !element.contains(td)) {
                   return null;
                 }
@@ -328,7 +341,36 @@ export function cellRangePlugin<T = unknown>(
                 return { rowIndex, columnId, realm: 'body' };
               };
 
+              /** Coordinate hit-test — needed under pointer capture. */
+              const cellFromEvent = (event: PointerEvent): FocusCell | null => {
+                if (fillHandleEl) {
+                  fillHandleEl.style.pointerEvents = 'none';
+                }
+                const hit = document.elementFromPoint(
+                  event.clientX,
+                  event.clientY,
+                ) as HTMLElement | null;
+                if (fillHandleEl) {
+                  fillHandleEl.style.pointerEvents = '';
+                }
+                return (
+                  cellFromTd(
+                    hit?.closest?.('[data-row-id][data-column-id]') as HTMLElement | null,
+                  ) ??
+                  cellFromTd(
+                    (event.target as HTMLElement | null)?.closest?.(
+                      '[data-row-id][data-column-id]',
+                    ) as HTMLElement | null,
+                  )
+                );
+              };
+
               const onPointerDown = (event: PointerEvent): void => {
+                // Primary button only — right/middle click must reach the cell
+                // contextmenu handler (setPointerCapture suppresses it in Chromium).
+                if (event.button !== 0) {
+                  return;
+                }
                 const target = event.target as HTMLElement | null;
                 if (fillHandleEnabled && target?.closest?.('.al-dg-fill-handle')) {
                   const current = range();
@@ -339,23 +381,26 @@ export function cellRangePlugin<T = unknown>(
                   fillSource = current;
                   dragging = false;
                   pointerId = event.pointerId;
-                  (event.target as HTMLElement).setPointerCapture?.(event.pointerId);
                   event.preventDefault();
                   event.stopPropagation();
+                  element.setPointerCapture(event.pointerId);
                   return;
                 }
                 if (!dragSelect) {
                   return;
                 }
-                if (
+                // Whitelist: only start a range from a body data-cell click.
+                // Do not use elementFromPoint here — filter/header popups can sit
+                // over body cells and would otherwise steal the hit-test.
+                const cell = cellFromTd(
                   target?.closest?.(
-                    'input, select, textarea, button, .al-data-grid__td--select, .al-data-grid__td--drag',
-                  )
-                ) {
+                    '.al-data-grid__td[data-row-id][data-column-id]',
+                  ) as HTMLElement | null,
+                );
+                if (!cell) {
                   return;
                 }
-                const cell = cellFromEvent(event);
-                if (!cell) {
+                if (target?.closest?.('input, select, textarea, button, a, .al-data-grid__editor-host')) {
                   return;
                 }
                 dragging = true;
@@ -369,6 +414,9 @@ export function cellRangePlugin<T = unknown>(
 
               const onPointerMove = (event: PointerEvent): void => {
                 if (pointerId != null && event.pointerId !== pointerId) {
+                  return;
+                }
+                if (!dragging && !filling) {
                   return;
                 }
                 const cell = cellFromEvent(event);

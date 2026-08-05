@@ -89,32 +89,41 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
   styles: `
     :host {
       display: block;
+      width: 100%;
       min-width: 0;
+      box-sizing: border-box;
     }
     .al-dg-filter-field__input {
+      display: block;
       width: 100%;
       box-sizing: border-box;
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      border: 1px solid var(--al-dg-border, #babfc7);
       border-radius: 6px;
       padding: 6px 8px;
       font: inherit;
       font-size: 12px;
-      color: var(--al-dg-fg, #111827);
+      color: var(--al-dg-fg, #181d1f);
       background: var(--al-dg-bg, #fff);
     }
     .al-dg-filter-field__hint {
-      color: var(--al-dg-muted, #6b7280);
+      color: var(--al-dg-muted, #5f6368);
       font-size: 12px;
     }
     .al-dg-filter-field__set {
+      display: block;
+      width: 100%;
       font-size: 12px;
       position: relative;
+      box-sizing: border-box;
     }
     .al-dg-filter-field__set > summary {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
       cursor: pointer;
       list-style: none;
       padding: 2px 4px;
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      border: 1px solid var(--al-dg-border, #babfc7);
       border-radius: 4px;
       background: var(--al-dg-bg, #fff);
     }
@@ -127,17 +136,18 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
     }
     .al-dg-filter-field__set .al-dg-filter-field__set-list {
       position: absolute;
-      z-index: 5;
+      z-index: 20;
       left: 0;
       top: 100%;
-      min-width: 140px;
+      min-width: 100%;
+      width: max-content;
       margin-top: 4px;
       padding: 6px;
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      border: 1px solid var(--al-dg-border, #babfc7);
       border-radius: 6px;
       background: var(--al-dg-bg, #fff);
-      box-shadow: none;
-      outline: 1px solid var(--al-dg-border, #e5e7eb);
+      box-shadow: 0 4px 12px color-mix(in srgb, #000 12%, transparent);
+      outline: none;
     }
     .al-dg-filter-field__set-item {
       display: flex;
@@ -146,7 +156,7 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
       cursor: pointer;
       white-space: nowrap;
       font-size: 12px;
-      color: var(--al-dg-fg, #111827);
+      color: var(--al-dg-fg, #181d1f);
     }
   `,
 })

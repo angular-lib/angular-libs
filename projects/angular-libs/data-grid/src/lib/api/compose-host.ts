@@ -11,6 +11,7 @@ import type {
   DataGridFindHost,
   DataGridRowGroupHost,
   DataGridSelectionHost,
+  DataGridSideBarApiHost,
   DataGridViewportHost,
 } from './grid-api';
 import type { DataGridLocale } from '../locale/default-locale';
@@ -30,6 +31,7 @@ export function composeDataGridApiHost<T>(parts: {
   rowGroup?: DataGridRowGroupHost;
   clipboard?: DataGridClipboardHost<T>;
   locale: DataGridLocaleHost;
+  sideBar?: DataGridSideBarApiHost;
 }): ComposedDataGridApiHost<T> {
   return {
     ...parts.selection,
@@ -40,5 +42,6 @@ export function composeDataGridApiHost<T>(parts: {
     ...(parts.viewport ?? {}),
     ...(parts.rowGroup ?? {}),
     ...(parts.clipboard ?? {}),
+    ...(parts.sideBar ?? {}),
   };
 }

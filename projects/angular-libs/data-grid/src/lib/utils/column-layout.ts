@@ -50,6 +50,10 @@ function trackForColumn<T>(
 /**
  * Build CSS Grid track list for chrome + visible columns.
  * Flex columns become `minmax(min, Nfr)` — no viewport measurement.
+ *
+ * When every data column is fixed px (e.g. after resize lock), the last
+ * unpinned column becomes `minmax(px, 1fr)` so leftover viewport space is
+ * filled instead of leaving a gap before sticky right chrome.
  */
 export function resolveColumnTracks<T>(
   columns: readonly ResolvedColumn<T>[],
@@ -64,9 +68,29 @@ export function resolveColumnTracks<T>(
     parts.push(`${CHROME_TRACK.select}px`);
   }
 
+  const resolved = columns.map((col) => trackForColumn(col, overrides));
+  const allFixed = resolved.length > 0 && resolved.every((r) => r.widthPx != null);
+  let fillIndex = -1;
+  if (allFixed) {
+    for (let i = columns.length - 1; i >= 0; i--) {
+      const pinned = columns[i]!.pinned;
+      if (pinned !== 'left' && pinned !== 'right') {
+        fillIndex = i;
+        break;
+      }
+    }
+    if (fillIndex < 0) {
+      fillIndex = columns.length - 1;
+    }
+  }
+
   const widthsPx: Record<string, number | null> = {};
-  for (const col of columns) {
-    const { track, widthPx } = trackForColumn(col, overrides);
+  for (let i = 0; i < columns.length; i++) {
+    const col = columns[i]!;
+    let { track, widthPx } = resolved[i]!;
+    if (i === fillIndex && widthPx != null) {
+      track = `minmax(${widthPx}px, 1fr)`;
+    }
     parts.push(track);
     widthsPx[col.id] = widthPx;
   }

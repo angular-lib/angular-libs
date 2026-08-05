@@ -29,6 +29,7 @@ import {
   type BoundTreeDataAdapter,
   type DataGridApiHost,
 } from '../../api/grid-api';
+import type { DataGridEventMap } from '../../api/grid-events';
 import { GridKernel } from '../../kernel/grid-kernel';
 import type { GridController } from '../../create-grid';
 import {
@@ -55,7 +56,10 @@ import {
 } from '../../locale/default-locale';
 import { RowEditSession } from '../../editing/row-edit-session';
 import {
+  isTypeToEditKey,
+  resolveTypeToEditSeed,
   type ResolvedEditInteraction,
+  type TypeToEditSeed,
 } from '../../editing/edit-interaction';
 import {
   CellEditorRegistry,
@@ -79,10 +83,7 @@ import {
   resolveSelectValues,
 } from '../../utils/editors';
 import { runGridRowModel } from '../../utils/grid-row-model';
-import {
-  attachColumnResize,
-  nextWidthOverride,
-} from '../../utils/column-interactions';
+import { attachColumnResize } from '../../utils/column-interactions';
 import {
   emptyColumnLayout,
   materializeColumnLayout,
@@ -119,6 +120,7 @@ import {
   hasColumnGroups as defsHaveColumnGroups,
   resolveColumnOrGroupDefs,
   sameColumnGroup,
+  type HeaderGroupCell,
 } from '../../utils/column-groups';
 import {
   defaultContextMenuItems,
@@ -388,6 +390,11 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     getLocale: () => this.getLocale(),
   };
 
+  private readonly sideBarApiHost = {
+    openToolPanel: (panelId: string | null) => this.activeSidePanel.set(panelId),
+    getOpenedToolPanel: () => this.activeSidePanel(),
+  };
+
   private readonly cellTemplates = contentChildren(DataGridCellDirective);
   private readonly headerTemplates = contentChildren(DataGridHeaderDirective);
   private readonly loadingOverlay = contentChild(DataGridLoadingDirective);
@@ -440,9 +447,9 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     parentInjector: inject(EnvironmentInjector),
     onSession: (ctx) => this.rowEditSession.set(ctx),
     onDraft: (draft) => this.rowEditDraft.set(draft),
-    onStart: (ctx) => this.rowEditStart.emit(ctx),
-    onCommit: (event) => this.rowEdit.emit(event),
-    onCancel: (payload) => this.rowEditCancel.emit(payload),
+    onStart: (ctx) => this.publish('rowEditStart', this.rowEditStart, ctx),
+    onCommit: (event) => this.publish('rowEdit', this.rowEdit, event),
+    onCancel: (payload) => this.publish('rowEditCancel', this.rowEditCancel, payload),
   });
   /** Imperative adapter for full-row edit (optional DX sugar). */
   readonly rowEditAdapter: RowEditAdapter<T> = this.rowEditMgr;
@@ -666,6 +673,9 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       }
       if (typeof cfg === 'object' && cfg.defaultPanel !== undefined) {
         const requested = cfg.defaultPanel;
+        if (requested === null) {
+          return null;
+        }
         if (panels.some((p) => p.id === requested)) {
           return requested;
         }
@@ -870,6 +880,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
         rowGroup: this.rowGroupHost,
         clipboard: this.clipboardHost,
         locale: this.localeHost,
+        sideBar: this.sideBarApiHost,
       }),
     );
 
@@ -881,7 +892,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
         ensureRowVisible: (rowIndex) => this.ensureRowVisible(rowIndex),
         onFocusChange: (cell) => {
           this.focusedCell.set(cell);
-          this.syncDomFocus(cell);
+          this.syncDomFocus(cell, { force: true });
         },
         onStartEdit: (cell, reason) =>
           this.startEditAtFocus(cell.rowIndex, cell.columnId, reason),
@@ -974,7 +985,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       this.kernel.activatePlugins(this.effectivePlugins(), this.host.nativeElement);
       this.pluginsMounted = true;
       this.lastPluginKey = this.pluginListKey(this.effectivePlugins());
-      this.apiReady.emit(this.api);
+      this.publish('apiReady', this.apiReady, this.api);
       this.controller().bindApi(this.api);
     });
 
@@ -1004,6 +1015,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       this.destroyRowEditSession();
       this.rowDragCleanup?.();
       this.rowDragCleanup = null;
+      this.api.events.clear();
     });
   }
 
@@ -1301,7 +1313,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       ? [{ columnId: column.id, direction }]
       : this.sorts().filter((s) => s.columnId !== column.id);
     this.sorts.set(sorts);
-    this.sortChange.emit(sorts);
+    this.publish('sortChange', this.sortChange, sorts);
     this.emitState();
     this.emitQueryIfServer();
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', sorts);
@@ -1415,7 +1427,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
 
     this.sorts.set(sorts);
-    this.sortChange.emit(sorts);
+    this.publish('sortChange', this.sortChange, sorts);
     this.emitState();
     this.emitQueryIfServer();
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', sorts);
@@ -1427,7 +1439,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       delete next[columnId];
     }
     this.filters.set(next);
-    this.filterChange.emit(next);
+    this.publish('filterChange', this.filterChange, next);
     this.emitState();
     this.emitQueryIfServer();
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onFilterChange', next);
@@ -1442,7 +1454,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   clearFilters(): void {
     this.filters.set({});
     this.quickFilter.set('');
-    this.filterChange.emit({});
+    this.publish('filterChange', this.filterChange, {});
     this.emitState();
     this.emitQueryIfServer();
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onFilterChange', {});
@@ -1466,7 +1478,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
   /** Called by `infiniteScrollPlugin` via `api.notifyNearEnd()`. */
   notifyNearEnd(): void {
-    this.nearEnd.emit();
+    this.publish('nearEnd', this.nearEnd, undefined);
   }
 
   toggleGroup(groupId: string): void {
@@ -1540,7 +1552,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     if (this.effectiveSelectionMode() === 'single') {
       const next = checked ? [id] : [];
       this.selectedIds.set(next);
-      this.selectionChange.emit(next);
+      this.publish('selectionChange', this.selectionChange, next);
       notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', next);
       return;
     }
@@ -1552,7 +1564,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
     const next = [...set];
     this.selectedIds.set(next);
-    this.selectionChange.emit(next);
+    this.publish('selectionChange', this.selectionChange, next);
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', next);
   }
 
@@ -1560,7 +1572,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     const checked = (event.target as HTMLInputElement).checked;
     if (!checked) {
       this.selectedIds.set([]);
-      this.selectionChange.emit([]);
+      this.publish('selectionChange', this.selectionChange, []);
       notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', []);
       return;
     }
@@ -1569,7 +1581,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       return !row || this.isRowSelectable(row, id);
     });
     this.selectedIds.set(ids);
-    this.selectionChange.emit(ids);
+    this.publish('selectionChange', this.selectionChange, ids);
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', ids);
   }
 
@@ -1586,7 +1598,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       } as unknown as Event;
       this.toggleRowSelection(rowId, fake);
     }
-    this.rowClick.emit({ row, rowId, rowIndex, event });
+    this.publish('rowClick', this.rowClick, { row, rowId, rowIndex, event });
   }
 
   onCellClick(
@@ -1605,7 +1617,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
     const focusIndex = displayIndex ?? rowIndex;
     this.kernel.focus.focusCell(focusIndex, column.id);
-    this.cellClick.emit({
+    this.publish('cellClick', this.cellClick, {
       row,
       rowId,
       rowIndex,
@@ -1676,12 +1688,61 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       return;
     }
 
-    if (inField) {
+    const interaction = this.effectiveEditInteraction();
+    const fullRowEditing =
+      this.effectiveEditMode() === 'fullRow' && this.rowEditMgr.editingId() != null;
+    const passHorizontal =
+      fullRowEditing &&
+      interaction.arrowEditing === 'moveHorizontal' &&
+      (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
+    if (inField && !passHorizontal) {
       return;
     }
+
+    if (!inField && this.tryTypeToEdit(event)) {
+      event.preventDefault();
+      return;
+    }
+
     if (this.kernel.focus.handleKeydown(event)) {
       event.preventDefault();
     }
+  }
+
+  /**
+   * Type-to-edit: printable / Backspace / Delete → startEdit + optional draft seed.
+   * DOM focus is owned by {@link syncDomFocus}.
+   */
+  private tryTypeToEdit(event: KeyboardEvent): boolean {
+    if (this.effectiveEditInteraction().typeToEdit !== 'replace') {
+      return false;
+    }
+    if (!isTypeToEditKey(event)) {
+      return false;
+    }
+    const focus = this.kernel.focus.getFocus();
+    if (!focus || focusRealmOf(focus) !== 'body') {
+      return false;
+    }
+    const item = this.pagedDisplayRows()[focus.rowIndex];
+    const col = this.columnsById().get(focus.columnId);
+    if (!item || !isDataDisplayRow(item) || !col?.editable) {
+      return false;
+    }
+
+    const seedKey =
+      event.key === 'Backspace' || event.key === 'Delete' ? '' : event.key;
+    const value = this.cellValue(item.row, col, item.dataIndex);
+    const editMode = this.effectiveEditMode() === 'fullRow' ? 'fullRow' : 'cell';
+    const resolved = resolveTypeToEditSeed(col, value, seedKey, editMode);
+    if (resolved.action === 'ignore') {
+      return false;
+    }
+
+    this.startEdit(item.row, item.rowId, item.dataIndex, col, value, {
+      seed: resolved,
+    });
+    return true;
   }
 
   onEscapeKey(event?: Event): void {
@@ -1721,11 +1782,21 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
   }
 
-  syncDomFocus(cell: FocusCell | null): void {
+  /**
+   * Sole owner of TD vs editor DOM focus.
+   * When the focused cell is in a cell/row edit session, focus the nested editor.
+   * If the editor is not in the DOM yet, retries once after the next render.
+   *
+   * @param force — keyboard/focus-model moves must update DOM focus even if another
+   *   cell still holds `document.activeElement`. Omit for edit-stop so blur-away
+   *   (outside grid / other control) is not stolen back.
+   */
+  syncDomFocus(cell: FocusCell | null, opts?: { force?: boolean }): void {
     if (!cell) {
       return;
     }
-    queueMicrotask(() => {
+    const force = opts?.force === true;
+    const apply = (allowRetry: boolean): void => {
       const realm = focusRealmOf(cell);
       if (realm === 'header') {
         const el = this.host.nativeElement.querySelector(
@@ -1738,7 +1809,15 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
         const el = this.host.nativeElement.querySelector(
           `[data-testid="al-dg-filter-${cell.columnId}"]`,
         ) as HTMLElement | null;
-        el?.focus({ preventScroll: true });
+        if (!el) {
+          return;
+        }
+        const active = typeof document !== 'undefined' ? document.activeElement : null;
+        // Keep caret in the nested filter control (mouse click / Tab into input).
+        if (active instanceof HTMLElement && el.contains(active) && active !== el) {
+          return;
+        }
+        el.focus({ preventScroll: true });
         return;
       }
       const item = this.pagedDisplayRows()[cell.rowIndex];
@@ -1758,13 +1837,73 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       const el = this.host.nativeElement.querySelector(
         `[data-testid="al-dg-cell-${item.rowId}-${cell.columnId}"]`,
       ) as HTMLElement | null;
-      // Keep caret/selection inside an active editor (e.g. double-click select-all).
+      const col = this.columnsById().get(cell.columnId);
+      const cellEditing =
+        this.editingCell()?.rowId === item.rowId &&
+        this.editingCell()?.columnId === cell.columnId;
+      const rowEditing = this.rowEditMgr.isEditing(item.rowId) && !!col?.editable;
+      const wantsEditor = cellEditing || rowEditing;
       const active = typeof document !== 'undefined' ? document.activeElement : null;
-      if (el && active instanceof HTMLElement && el.contains(active) && this.isEditorEventTarget(active)) {
+
+      // Keep caret inside an active editor only while that cell is still editing.
+      if (
+        wantsEditor &&
+        el &&
+        active instanceof HTMLElement &&
+        el.contains(active) &&
+        this.isEditorEventTarget(active)
+      ) {
+        return;
+      }
+      if (wantsEditor && this.focusEditorInCell(item.rowId, cell.columnId)) {
+        return;
+      }
+      if (wantsEditor && allowRetry) {
+        afterNextRender(() => apply(false), { injector: this.injector });
+        return;
+      }
+      // Edit-stop: don't yank focus back if it already left this cell.
+      if (
+        !force &&
+        active instanceof HTMLElement &&
+        el &&
+        !el.contains(active) &&
+        active !== document.body &&
+        active !== this.host.nativeElement
+      ) {
         return;
       }
       el?.focus({ preventScroll: true });
-    });
+    };
+
+    queueMicrotask(() => apply(true));
+  }
+
+  /** Focus nested editor in a cell. Returns true when found. */
+  private focusEditorInCell(rowId: string | number, columnId: string, select = true): boolean {
+    const root = this.host.nativeElement.querySelector(
+      `[data-testid="al-dg-cell-${rowId}-${columnId}"]`,
+    ) as HTMLElement | null;
+    if (!root) {
+      return false;
+    }
+    const editor = root.querySelector(
+      '.al-data-grid__edit-input, .al-data-grid__edit-check, .al-data-grid__editor-host input, .al-data-grid__editor-host textarea, .al-data-grid__editor-host select',
+    ) as HTMLElement | null;
+    if (!editor) {
+      return false;
+    }
+    editor.focus({ preventScroll: true });
+    if (
+      select &&
+      editor instanceof HTMLInputElement &&
+      editor.type !== 'checkbox' &&
+      editor.type !== 'date' &&
+      typeof editor.select === 'function'
+    ) {
+      editor.select();
+    }
+    return true;
   }
 
   /** Tab / focusin on the grid frame — restore last cell or default (K4). */
@@ -1929,7 +2068,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
     const pos = positionMenu(event.clientX, event.clientY, 200, 8 + items.length * 36);
     this.contextMenuState.set({ left: pos.left, top: pos.top, ctx, source: 'cell', items });
-    this.contextMenuOpened.emit(ctx);
+    this.publish('contextMenuOpened', this.contextMenuOpened, ctx);
   }
 
   /**
@@ -1976,7 +2115,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
     this.contextMenuState.set(null);
     this.columnMenuColumnId.set(null);
-    this.contextMenuClosed.emit();
+    this.publish('contextMenuClosed', this.contextMenuClosed, undefined);
   }
 
   onDocumentPointerDown(event: Event): void {
@@ -2055,12 +2194,30 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     };
   }
 
-  startEdit(row: T, rowId: string | number, rowIndex: number, column: ColumnDef<T>, value: unknown): void {
+  startEdit(
+    row: T,
+    rowId: string | number,
+    rowIndex: number,
+    column: ColumnDef<T>,
+    value: unknown,
+    opts?: { seed?: TypeToEditSeed },
+  ): void {
     if (!column.editable) {
       return;
     }
+    const columnId = column.id ?? column.field ?? '';
+    const seed = opts?.seed;
+
     if (this.effectiveEditMode() === 'fullRow') {
-      this.startRowEdit(row, rowId, rowIndex);
+      this.editingCell.set(null);
+      this.rowEditMgr.start(row, rowId, rowIndex);
+      if (seed?.action === 'set') {
+        const key = column.field ?? column.id;
+        if (key) {
+          this.rowEditMgr.patchField(key, seed.value);
+        }
+      }
+      this.syncDomFocus(this.kernel.focus.getFocus());
       return;
     }
     if (isBooleanColumn(column, value) && !isSelectEditor(column) && !isCustomEditorComponent(column)) {
@@ -2075,12 +2232,15 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       return;
     }
     this.rowEditMgr.destroy();
-    this.editingCell.set({ rowId, columnId: column.id ?? column.field ?? '' });
-    if (isDateColumn(column) || column.cellEditor === 'date') {
+    this.editingCell.set({ rowId, columnId });
+    if (seed?.action === 'set') {
+      this.editDraft.set(seed.value == null ? '' : String(seed.value));
+    } else if (isDateColumn(column) || column.cellEditor === 'date') {
       this.editDraft.set(toDateKey(value) ?? '');
     } else {
       this.editDraft.set(value == null ? '' : String(value));
     }
+    this.syncDomFocus(this.kernel.focus.getFocus());
   }
 
   startRowEdit(row: T, rowId: string | number, rowIndex: number): void {
@@ -2089,14 +2249,20 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
     this.editingCell.set(null);
     this.rowEditMgr.start(row, rowId, rowIndex);
+    this.syncDomFocus(this.kernel.focus.getFocus());
   }
 
   commitRowEdit(): boolean {
-    return this.rowEditMgr.commit();
+    const ok = this.rowEditMgr.commit();
+    if (ok) {
+      this.syncDomFocus(this.kernel.focus.getFocus());
+    }
+    return ok;
   }
 
   cancelRowEdit(): void {
     this.rowEditMgr.cancel();
+    this.syncDomFocus(this.kernel.focus.getFocus());
   }
 
   private destroyRowEditSession(): void {
@@ -2111,7 +2277,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     checked: boolean,
   ): void {
     const previousValue = getCellValue(row, column, rowIndex);
-    this.cellEdit.emit({
+    this.publish('cellEdit', this.cellEdit, {
       row,
       rowId,
       column,
@@ -2130,6 +2296,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     const previousValue = getCellValue(row, column, rowIndex);
     const value = coerceCellEditValue(column, this.editDraft(), previousValue);
     this.editingCell.set(null);
+    this.syncDomFocus(this.kernel.focus.getFocus());
     if (Object.is(value, previousValue)) {
       return;
     }
@@ -2140,7 +2307,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     ) {
       return;
     }
-    this.cellEdit.emit({
+    this.publish('cellEdit', this.cellEdit, {
       row,
       rowId,
       column,
@@ -2159,6 +2326,27 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     }
   }
 
+  /**
+   * Tab in built-in cell editor — `'commitAndMove'` commits and wraps horizontally;
+   * `'browser'` leaves Tab to the page (default preset).
+   */
+  onEditorTab(
+    event: Event,
+    row: T,
+    rowId: string | number,
+    rowIndex: number,
+    column: ResolvedColumn<T>,
+  ): void {
+    if (this.effectiveEditInteraction().tabEditing !== 'commitAndMove') {
+      return;
+    }
+    const keyEvent = event as KeyboardEvent;
+    keyEvent.preventDefault();
+    keyEvent.stopPropagation();
+    this.commitEdit(row, rowId, rowIndex, column);
+    this.kernel.focus.moveHorizontalWrap(keyEvent.shiftKey ? -1 : 1);
+  }
+
   /** Blur of built-in cell editor — commit or cancel per §5b. */
   onEditorBlur(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
     if (this.effectiveEditInteraction().editorBlur === 'cancel') {
@@ -2169,13 +2357,17 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   }
 
   cancelEdit(): void {
+    if (this.editingCell() == null) {
+      return;
+    }
     this.editingCell.set(null);
+    this.syncDomFocus(this.kernel.focus.getFocus());
   }
 
   setFindQuery(value: string): void {
     this.findQuery.set(value);
     this.findActiveIndex.set(0);
-    this.findMatchesChange.emit(this.findMatches());
+    this.publish('findMatchesChange', this.findMatchesChange, this.findMatches());
   }
 
   findNext(): void {
@@ -2253,17 +2445,72 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   }
 
   startResize(event: PointerEvent, column: ResolvedColumn<T>): void {
+    this.beginResize(event, [column.id]);
+  }
+
+  startGroupResize(event: PointerEvent, cell: HeaderGroupCell): void {
+    if (cell.columnId) {
+      return;
+    }
+    const cols = this.visibleColumns();
+    const from = cols.findIndex((c) => c.id === cell.startColumnId);
+    const to = cols.findIndex((c) => c.id === cell.endColumnId);
+    if (from < 0 || to < from) {
+      return;
+    }
+    this.beginResize(
+      event,
+      cols.slice(from, to + 1).map((c) => c.id),
+    );
+  }
+
+  /**
+   * Lock every column to its rendered px width, then drag `columnIds`.
+   * Delta is split evenly (1 column = normal resize; many = group resize).
+   * Other columns stay put and are pushed via horizontal scroll.
+   */
+  private beginResize(event: PointerEvent, columnIds: readonly string[]): void {
     event.preventDefault();
     event.stopPropagation();
-    // Prefer rendered track width so flex (`fr`) columns don't jump from minWidth.
-    const header = (event.currentTarget as HTMLElement | null)?.closest('.al-data-grid__th');
-    const rendered = header?.getBoundingClientRect().width;
+    if (!columnIds.length) {
+      return;
+    }
+
+    const byId = this.columnsById();
+    const locked: Record<string, number> = { ...this.widthOverrides() };
+    const root = this.host.nativeElement;
+    for (const col of this.visibleColumns()) {
+      const el = root.querySelector(
+        `[data-testid="al-dg-col-${CSS.escape(col.id)}"]`,
+      ) as HTMLElement | null;
+      locked[col.id] = Math.max(
+        col.minWidth,
+        Math.round(el?.getBoundingClientRect().width ?? locked[col.id] ?? col.minWidth),
+      );
+    }
+    this.widthOverrides.set(locked);
+
+    const targets = columnIds.map((id) => ({
+      id,
+      start: locked[id]!,
+      min: byId.get(id)?.minWidth ?? 48,
+    }));
+    const startTotal = targets.reduce((sum, t) => sum + t.start, 0);
+    const minTotal = targets.reduce((sum, t) => sum + t.min, 0);
+
     attachColumnResize({
       startX: event.clientX,
-      startWidth: Math.round(rendered ?? this.columnWidth(column) ?? column.minWidth),
-      minWidth: column.minWidth,
-      onWidth: (width) => {
-        this.widthOverrides.update((widths) => nextWidthOverride(widths, column.id, width, column.minWidth));
+      startWidth: startTotal,
+      minWidth: minTotal,
+      onWidth: (nextTotal) => {
+        const share = (nextTotal - startTotal) / targets.length;
+        this.widthOverrides.update((widths) => {
+          const next = { ...widths };
+          for (const t of targets) {
+            next[t.id] = Math.max(t.min, Math.round(t.start + share));
+          }
+          return next;
+        });
       },
       onEnd: () => this.emitState(),
     });
@@ -2371,7 +2618,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
   private applyColumnLayout(layout: ColumnLayout): void {
     this.columnLayout.set(layout);
-    this.columnOrderChange.emit(layout.order);
+    this.publish('columnOrderChange', this.columnOrderChange, layout.order);
     this.emitState();
   }
 
@@ -2432,7 +2679,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
   setFilterModel(filters: DataGridFilterState): void {
     this.filters.set({ ...filters });
-    this.filterChange.emit(this.filters());
+    this.publish('filterChange', this.filterChange, this.filters());
     this.emitState();
     this.emitQueryIfServer();
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onFilterChange', this.filters());
@@ -2444,7 +2691,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
   setSortModel(sorts: SortState[]): void {
     this.sorts.set([...sorts]);
-    this.sortChange.emit(this.sorts());
+    this.publish('sortChange', this.sortChange, this.sorts());
     this.emitState();
     this.emitQueryIfServer();
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', this.sorts());
@@ -2461,7 +2708,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   setSelectedIds(ids: Array<string | number>): void {
     const next = [...ids];
     this.selectedIds.set(next);
-    this.selectionChange.emit(next);
+    this.publish('selectionChange', this.selectionChange, next);
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', next);
   }
 
@@ -2565,7 +2812,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   }
 
   emitPaste(event: PasteEvent<T>): void {
-    this.paste.emit(event);
+    this.publish('paste', this.paste, event);
   }
 
   bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {
@@ -2629,7 +2876,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
           (row, i) => this.resolveRowId(row, i),
         );
         if (payload) {
-          this.rowReorder.emit(payload);
+          this.publish('rowReorder', this.rowReorder, payload);
         }
       },
       onEnd: () => {
@@ -2648,12 +2895,25 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     if (!this.serverSide()) {
       return;
     }
-    this.queryChange.emit(this.getQuery());
+    this.publish('queryChange', this.queryChange, this.getQuery());
   }
 
   private emitState(): void {
     const state = this.getState();
-    this.stateChange.emit(state);
+    this.publish('stateChange', this.stateChange, state);
     notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onStateChange', state);
+  }
+
+  /**
+   * Fan-out: Angular `output()` + typed {@link DataGridApi.events} bus.
+   * Hosts bind outputs; tool panels / plugins subscribe via `api.events`.
+   */
+  private publish<K extends keyof DataGridEventMap<T>>(
+    name: K,
+    outputRef: { emit(value: DataGridEventMap<T>[K]): void },
+    payload: DataGridEventMap<T>[K],
+  ): void {
+    outputRef.emit(payload);
+    this.api.events.emit(name, payload);
   }
 }

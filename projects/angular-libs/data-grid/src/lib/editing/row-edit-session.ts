@@ -61,6 +61,38 @@ export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
     return this.editingRowId() === rowId;
   }
 
+  /**
+   * Patch one field on the active draft (type-to-edit seed).
+   * Prefers Signal Forms field().value.set; falls back to rewriting the draft object.
+   */
+  patchField(fieldKey: string, value: unknown): void {
+    if (!fieldKey) {
+      return;
+    }
+    const tree = this.hooks.getHostForm();
+    if (tree) {
+      const col = this.hooks.resolveColumn(fieldKey) ?? { field: fieldKey, id: fieldKey };
+      const field = formFieldForColumn(tree, col as ColumnDef<T>);
+      if (field) {
+        const state = field();
+        const valueSignal = state.value as { set?: (v: unknown) => void };
+        if (typeof valueSignal?.set === 'function') {
+          valueSignal.set(value);
+          return;
+        }
+      }
+    }
+    const draft = this.rowDraftSignal;
+    if (!draft) {
+      return;
+    }
+    const current = draft();
+    if (current == null || typeof current !== 'object' || Array.isArray(current)) {
+      return;
+    }
+    draft.set({ ...(current as object), [fieldKey]: value } as T);
+  }
+
   start(row: T, rowId: string | number, rowIndex: number): void {
     if (this.editingRowId() === rowId) {
       // Same id — intentional no-op even if `row` is a fresh object after a data refresh.

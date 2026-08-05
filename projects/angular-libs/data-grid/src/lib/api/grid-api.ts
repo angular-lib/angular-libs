@@ -10,6 +10,7 @@ import type { FindMatch } from '../utils/find';
 import type { DisplayRow } from '../utils/row-display';
 import type { FocusCell } from '../controllers/focus';
 import type { DataGridPlugin } from '../plugins/types';
+import { GridEventBus } from './grid-events';
 
 /** Kernel-owned plugin lifecycle — attached by DataGrid; not a host concern. */
 export interface PluginLifecycle<T = unknown> {
@@ -126,6 +127,13 @@ export interface DataGridLocaleApiHost {
   getLocale(): import('../locale/default-locale').DataGridLocale;
 }
 
+/** Tool-panel chrome (sidebar open/collapse). */
+export interface DataGridSideBarApiHost {
+  /** Open a registered panel by id, or pass `null` to collapse. */
+  openToolPanel?(panelId: string | null): void;
+  getOpenedToolPanel?(): string | null;
+}
+
 /**
  * Combined host surface the API façade calls into.
  * Prefer depending on a focused host interface when extracting features.
@@ -138,13 +146,21 @@ export type DataGridApiHost<T = unknown> = DataGridSelectionHost<T> &
   DataGridFindHost &
   DataGridRowGroupHost &
   DataGridClipboardHost<T> &
-  DataGridLocaleApiHost;
+  DataGridLocaleApiHost &
+  DataGridSideBarApiHost;
 
 /**
  * Imperative grid façade (AG-inspired, intentionally smaller).
  */
 export class DataGridApi<T = unknown> {
   exportDataAsCsv = (filename?: string): string => this.exportCsv(filename);
+
+  /**
+   * Typed event bus mirroring Angular `output()`s.
+   * Tool panels / plugins: `api.events.on('cellClick', …)` or `onAny(…)`.
+   * Host apps should still bind template outputs.
+   */
+  readonly events = new GridEventBus<T>();
 
   /** Bound by `rowGroupPlugin` during setup. */
   private rowGroupAdapter: BoundRowGroupAdapter | null = null;
@@ -428,6 +444,16 @@ export class DataGridApi<T = unknown> {
 
   getLocale(): import('../locale/default-locale').DataGridLocale {
     return this.host.getLocale();
+  }
+
+  /** Open a registered tool panel by id, or pass `null` to collapse. */
+  openToolPanel(panelId: string | null): void {
+    this.host.openToolPanel?.(panelId);
+  }
+
+  /** Currently open tool panel id, or `null` when collapsed / sidebar off. */
+  getOpenedToolPanel(): string | null {
+    return this.host.getOpenedToolPanel?.() ?? null;
   }
 
   /**

@@ -15,17 +15,20 @@ keys move focus inside the grid; Tab leaves to the next page control.
 | Ctrl/Cmd+Home / End | First / last **row** (same column) |
 | PageUp / PageDown | Jump by viewport-sized page |
 | Enter / F2 | Start cell/row edit (group row: Enter toggles expand) |
+| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; Space reserved for selection) |
 | Space | Toggle row selection (group: expand/collapse) |
 | Escape | Cancel edit / close context menu |
 | Ctrl/Cmd+A | Select all visible rows when `selection: 'multi'` |
 
-## Body — planned (not yet)
+## Body — edit (cell editor open)
 
-| Key | Action | When |
-| --- | --- | --- |
-| Shift+arrows | Extend cell range | ✅ `cellRangePlugin` (§5) |
-| Tab while editing | Commit and move | §5b `tab` policy |
-| Type-to-edit | Printable / Backspace starts edit | §5b phase 5 |
+| Key | Action |
+| --- | --- |
+| Enter | Commit (`excel`: commit + move down) |
+| Tab / Shift+Tab | `tabEditing: 'commitAndMove'` → commit + next/prev cell (wrap); `'browser'` → leave page (default) |
+| Escape | Cancel edit |
+| ← → (fullRow + `arrowEditing: 'moveHorizontal'`) | Move to adjacent cell editor |
+| Home / End / ↑ ↓ while editing | Stay with the input |
 
 ## Header — Wave 2+
 
@@ -51,7 +54,9 @@ keys move focus inside the grid; Tab leaves to the next page control.
 - [ ] Arrow keys move focus without mouse
 - [ ] Only one cell has `tabindex="0"` at a time
 - [ ] Home/End and PageUp/PageDown behave as above
-- [ ] Enter/F2 starts edit on editable columns
+- [ ] Enter/F2 / type-to-edit / double-click start edit on editable columns
+- [ ] `syncDomFocus` puts focus on the editor when the cell is in an edit session
+- [ ] fullRow + excel: ←→ move between cell editors; default: caret stays in field
 - [ ] Space toggles selection in multi mode
 - [ ] Escape cancels edit
 - [ ] Group Enter expands/collapses

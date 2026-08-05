@@ -312,12 +312,19 @@ export interface DataGridQuery {
 }
 
 export interface SideBarConfig {
-  /** Panels to show. Defaults to columns + filters. */
+  /**
+   * Built-in panels to register (`sideBarPlugin`).
+   * Custom panels use `registerSidebar` with any string id.
+   * Defaults to columns + filters.
+   */
   panels?: SideBarPanelId[];
   /** Dock side. Default `right`. */
   position?: SideBarPosition;
-  /** Initially open panel. Default first panel. */
-  defaultPanel?: SideBarPanelId | null;
+  /**
+   * Initially open panel id (built-in or custom `registerSidebar` id).
+   * Default first registered panel.
+   */
+  defaultPanel?: string | null;
   /** Start collapsed (icons only / closed). Default false. */
   collapsed?: boolean;
 }

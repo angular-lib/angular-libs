@@ -350,14 +350,25 @@ We want the good UX, on `createGrid`, without locking into a wrong nested bag.
 | --- | --- | --- |
 | Pointer start | Double-click | Single click |
 | Keyboard start | Enter / F2 start edit | Same |
+| Type-to-edit | Printable / Backspace / Delete → replace | Same |
 | Enter while editing | Commit | Commit + move down |
+| Tab while editing | Browser (leave cell / page) | Commit + next/prev cell (wrap) |
 | Editor blur | Commit | Commit |
 | Boolean cell | Enter/F2 toggles value (no draft editor) | Same |
 | Cancel | Escape | Same |
 
-Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur }`.
+Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur, tabEditing, typeToEdit, arrowEditing }`.
 `enterIdle: 'moveDown'` moves focus on Enter without opening an editor (F2 still edits).
 `pointerStart: 'none'` ≈ suppress click/dblclick edit (API / custom UI starts edit).
+`tabEditing: 'commitAndMove'` commits and moves horizontally with row wrap (Shift+Tab reverse).
+`typeToEdit: 'off'` disables type-to-edit (Enter / F2 / pointer still work).
+`arrowEditing: 'moveHorizontal'` (excel) moves ←→ between fullRow editors; `'caret'` (default) keeps arrows in the field.
+
+**Focus model:** `syncDomFocus` is the sole owner of TD vs editor DOM focus — when the
+focused cell is in a cell or fullRow edit session, focus goes to the nested editor
+(with one `afterNextRender` retry if the editor is not mounted yet). `startEdit` only
+mutates session/draft state (plus optional type-to-edit seed via `resolveTypeToEditSeed`),
+then re-syncs.
 
 ### Why the first `editInteraction` sketch needs adjustment
 
@@ -365,9 +376,9 @@ Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur }`.
 | --- | --- | --- |
 | `start: 'dblclick' \| 'click' \| 'keyboard-only'` | Mixes pointer + keyboard into one axis; “keyboard-only” hides that Enter/F2 should usually stay on | Split **pointer** vs **keyboard** |
 | `enter: 'edit' \| 'moveDown' \| 'editThenMoveDown'` | Idle vs editing are different moments; one enum forces awkward combos | Split **idle Enter** vs **editing Enter**, or use a **preset** |
-| `tab: 'commitAndMove' \| 'browser'` | Underspecified (next cell vs next *editable*; Shift+Tab; fullRow) | Defer until Tab is implemented; don’t freeze the union early |
+| `tab: 'commitAndMove' \| 'browser'` | Next cell vs next *editable*; fullRow | Ship next **visible** cell + wrap; skip-to-editable later if needed |
 | `blur: 'commit' \| 'cancel'` | Blur of editor ≠ focus leaving the grid; AG’s painful case is “save button outside” | Name as **editor blur**; grid-leave can follow later |
-| `typeToEdit: boolean` | Too coarse; fights find/selection shortcuts | Later: `'off' \| 'replace'` (maybe more) — not in v1 |
+| `typeToEdit: boolean` | Too coarse; fights find/selection shortcuts | `'off' \| 'replace'` (Space reserved for selection) |
 | Fat nested object on day one | Becomes mini-`gridOptions`; hard to evolve | Prefer **presets** + sparse overrides; ship fields only when wired |
 
 ### Design principles (anti lock-in)
@@ -407,9 +418,23 @@ interface EditInteractionConfig {
   /** Built-in text/number (etc.) editor blur. Default: 'commit' (current). */
   editorBlur?: 'commit' | 'cancel';
 
-  // --- not in v1 (documented intent only) ---
-  // tabEditing?: 'commitAndMove' | 'browser';
-  // typeToEdit?: 'off' | 'replace';
+  /**
+   * Tab while cell editor is open.
+   * Default: 'browser'. Excel: 'commitAndMove' (next/prev visible cell, row wrap).
+   */
+  tabEditing?: 'commitAndMove' | 'browser';
+
+  /**
+   * Printable / Backspace / Delete on idle focused cell.
+   * Default: 'replace'. Space stays selection / group toggle.
+   */
+  typeToEdit?: 'off' | 'replace';
+
+  /**
+   * While a fullRow editor is focused: 'caret' (default) or 'moveHorizontal' (excel).
+   * Cell mode always uses caret.
+   */
+  arrowEditing?: 'caret' | 'moveHorizontal';
 }
 
 type EditInteractionInput = EditInteractionPreset | EditInteractionConfig;
@@ -422,10 +447,10 @@ createGrid({
 
 **Preset meanings (draft):**
 
-| Preset | pointerStart | enterIdle | enterEditing | editorBlur |
-| --- | --- | --- | --- | --- |
-| `'default'` | `dblclick` | `startEdit` | `commit` | `commit` |
-| `'excel'` | `click` | `startEdit` | `commitAndMoveDown` | `commit` |
+| Preset | pointerStart | enterIdle | enterEditing | editorBlur | tabEditing | typeToEdit | arrowEditing |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `'default'` | `dblclick` | `startEdit` | `commit` | `commit` | `browser` | `replace` | `caret` |
+| `'excel'` | `click` | `startEdit` | `commitAndMoveDown` | `commit` | `commitAndMove` | `replace` | `moveHorizontal` |
 
 Keyboard **F2** always starts edit when idle (unless we later add an explicit suppress).  
 `pointerStart: 'none'` ≈ AG `suppressClickEdit` (API / custom UI starts edit).
@@ -445,8 +470,8 @@ Keyboard **F2** always starts edit when idle (unless we later add an explicit su
 | 1 | `editInteraction: 'default' \| 'excel' \| { pointerStart }` | ✅ Wave 3 |
 | 2 | `enterIdle` + `enterEditing` | ✅ Wave 3 |
 | 3 | `editorBlur` override | ✅ Wave 3 |
-| 4 | Tab policy (new keys after real design) | Later |
-| 5 | `typeToEdit` after shortcut matrix is stable | Later |
+| 4 | Tab policy (`tabEditing`) | ✅ |
+| 5 | `typeToEdit` after shortcut matrix is stable | ✅ |
 
 Also: `api.startEditingCell(rowId, columnId)` when we need symmetry with row edit — independent of the policy bag.
 
@@ -601,7 +626,7 @@ custom renderers that contain focusable controls (Tab cycles inside, then moves)
 | **K2** | Header focus realm + sort via Enter; roving tabindex on headers | ✅ Wave 2 |
 | **K3** | Body ↔ header arrow bridge; floating filter Enter/Esc | ✅ Wave 2 |
 | **K4** | Tab enter/leave: restore last `GridFocus`; frame tabindex | ✅ Wave 2 |
-| **K5** | Wire §5b Enter-move-down / Tab-while-editing | Edit + nav feel Excel-capable |
+| **K5** | Wire §5b Enter-move-down / Tab-while-editing | ✅ Enter + `tabEditing` |
 | **K6** | Sparse `navigateFocus` hook + custom-cell inner focus pattern | Escape hatches without AG soup |
 | **K7** | Shift+arrows → cell range (§5) | ✅ Wave 4 |
 

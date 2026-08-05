@@ -81,27 +81,28 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
       display: inline-flex;
       align-items: center;
       gap: 2px;
-      flex: 0 0 auto;
-      min-width: 200px;
-      max-width: 280px;
+      flex: 0 1 200px;
+      width: 200px;
+      max-width: 200px;
+      min-width: 0;
       height: 32px;
       padding: 0 4px 0 8px;
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      border: 1px solid var(--al-dg-border, #babfc7);
       border-radius: 6px;
       background: var(--al-dg-bg, #fff);
-      color: var(--al-dg-muted, #6b7280);
+      color: var(--al-dg-muted, #5f6368);
       box-sizing: border-box;
     }
     .al-dg-find:focus-within {
-      border-color: var(--al-dg-accent, #2563eb);
-      color: var(--al-dg-fg, #111827);
+      border-color: var(--al-dg-accent, #2196f3);
+      color: var(--al-dg-fg, #181d1f);
     }
     .al-dg-find__icon {
       display: inline-flex;
       flex: 0 0 auto;
       align-items: center;
       justify-content: center;
-      color: var(--al-dg-muted, #9ca3af);
+      color: var(--al-dg-muted, #80868b);
     }
     .al-dg-find__input {
       flex: 1 1 auto;
@@ -112,17 +113,17 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
       font: inherit;
       font-size: 13px;
       background: transparent;
-      color: var(--al-dg-fg, #111827);
+      color: var(--al-dg-fg, #181d1f);
     }
     .al-dg-find__input::placeholder {
-      color: var(--al-dg-muted, #9ca3af);
+      color: var(--al-dg-muted, #80868b);
     }
     .al-dg-find__count {
       flex: 0 0 auto;
       padding: 0 2px;
       font-size: 11px;
       font-variant-numeric: tabular-nums;
-      color: var(--al-dg-muted, #6b7280);
+      color: var(--al-dg-muted, #5f6368);
       white-space: nowrap;
     }
     .al-dg-find__nav {
@@ -137,12 +138,12 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
       border: 0;
       border-radius: 4px;
       background: transparent;
-      color: var(--al-dg-muted, #9ca3af);
+      color: var(--al-dg-muted, #80868b);
       cursor: pointer;
     }
     .al-dg-find__nav:hover:not(:disabled) {
-      background: var(--al-dg-row-hover, #f3f4f6);
-      color: var(--al-dg-fg, #111827);
+      background: var(--al-dg-row-hover, #f0f1f3);
+      color: var(--al-dg-fg, #181d1f);
     }
     .al-dg-find__nav:disabled {
       opacity: 0.35;

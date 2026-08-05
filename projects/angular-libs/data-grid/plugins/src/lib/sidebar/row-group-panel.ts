@@ -65,14 +65,14 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
       padding: 12px; box-sizing: border-box;
     }
     .al-dg-panel__title { font-weight: 650; font-size: 13px; }
-    .al-dg-panel__hint { margin: 0; color: var(--al-dg-muted, #6b7280); font-size: 12px; }
+    .al-dg-panel__hint { margin: 0; color: var(--al-dg-muted, #5f6368); font-size: 12px; }
     .al-dg-panel__list {
       list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1;
       display: flex; flex-direction: column; gap: 4px;
     }
     .al-dg-panel__item {
       display: flex; align-items: center; gap: 8px;
-      border: 1px solid var(--al-dg-border, #e5e7eb); border-radius: 6px;
+      border: 1px solid var(--al-dg-border, #babfc7); border-radius: 6px;
       padding: 6px 8px; background: var(--al-dg-bg, #fff);
     }
     .al-dg-panel__check {
@@ -80,19 +80,19 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
       cursor: pointer; flex: 1; min-width: 0;
     }
     .al-dg-panel__level {
-      font-size: 11px; color: var(--al-dg-muted, #6b7280); font-weight: 650;
+      font-size: 11px; color: var(--al-dg-muted, #5f6368); font-weight: 650;
     }
     .al-dg-panel__move { display: inline-flex; gap: 2px; }
     .al-dg-panel__icon-btn {
-      border: 1px solid var(--al-dg-border, #e5e7eb);
-      background: var(--al-dg-header-bg, #f9fafb); border-radius: 4px;
+      border: 1px solid var(--al-dg-border, #babfc7);
+      background: var(--al-dg-header-bg, #f8f8f8); border-radius: 4px;
       width: 24px; height: 24px; font: inherit; cursor: pointer; padding: 0;
     }
     .al-dg-panel__icon-btn:disabled { opacity: 0.4; cursor: default; }
     .al-dg-panel__actions { display: flex; gap: 8px; }
     .al-dg-panel__btn {
-      flex: 1; border: 1px solid var(--al-dg-border, #e5e7eb);
-      background: var(--al-dg-header-bg, #f9fafb); border-radius: 6px;
+      flex: 1; border: 1px solid var(--al-dg-border, #babfc7);
+      background: var(--al-dg-header-bg, #f8f8f8); border-radius: 6px;
       padding: 6px 8px; font: inherit; cursor: pointer;
     }
     .al-dg-panel__btn:disabled { opacity: 0.45; cursor: default; }

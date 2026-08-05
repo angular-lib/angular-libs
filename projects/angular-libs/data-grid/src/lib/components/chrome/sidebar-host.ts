@@ -1,4 +1,6 @@
 import { InjectionToken, type Signal } from '@angular/core';
+import type { DataGridApi } from '../../api/grid-api';
+import type { GridController } from '../../create-grid';
 import type { ResolvedColumn } from '../data-grid/data-grid.types';
 
 /**
@@ -6,6 +8,15 @@ import type { ResolvedColumn } from '../data-grid/data-grid.types';
  * Provided by the core sidebar shell via a per-panel injector.
  */
 export interface DataGridSidebarHost {
+  /** Imperative grid façade — subscribe via `api.events` (AG-style tool panels). */
+  readonly api: DataGridApi<unknown>;
+  /** Required `[controller]` from `createGrid` — row writes / schema. */
+  readonly controller: GridController<unknown>;
+  /**
+   * Host `[context]` bag (same as toolbar `actionClick` context) —
+   * app services / notifications / held plugins, never the grid controller.
+   */
+  readonly context: unknown;
   readonly columns: Signal<readonly ResolvedColumn<unknown>[]>;
   readonly filterableColumns: Signal<readonly ResolvedColumn<unknown>[]>;
   readonly hiddenColumnIds: Signal<readonly string[]>;

@@ -109,7 +109,7 @@ Prioritized product lista lives in [OVERVIEW.md](./OVERVIEW.md) §7. Snapshot:
 | Filter extensibility seam | Typed; no AG filter framework |
 | Cell range + fill | ✅ Wave 4 — `cellRangePlugin`; single rect + copy-fill |
 | Controller-owned rows + transactions | Opt-in `createGrid({ rows })` + `applyTransaction` — OVERVIEW §5a |
-| Edit start/stop interaction | Presets + sparse overrides — OVERVIEW §5b (design first) |
+| Edit start/stop interaction | Presets + sparse overrides — OVERVIEW §5b (✅ Tab; ✅ type-to-edit) |
 | Server-side contract v2 | Hard boundaries vs AG SSRM |
 | Enterprise packaging for group/tree/agg | Only if bundle size demands it (I / P3) |
 | Publish prep | Changelog, semver, peer-deps note, demo polish |

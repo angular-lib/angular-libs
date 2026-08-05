@@ -1,7 +1,6 @@
 import type {
   ColumnPin,
   DataGridState,
-  SideBarPanelId,
 } from '../components/data-grid/data-grid.types';
 
 export function createEmptyGridState(): DataGridState {
@@ -54,7 +53,8 @@ export function parseGridState(raw: string): DataGridState | null {
           : {},
       columnPins: parseColumnPins(parsed.columnPins),
       pageIndex: typeof parsed.pageIndex === 'number' ? parsed.pageIndex : 0,
-      activeSidePanel: (parsed.activeSidePanel as SideBarPanelId | null | undefined) ?? null,
+      activeSidePanel:
+        typeof parsed.activeSidePanel === 'string' ? parsed.activeSidePanel : null,
     };
   } catch {
     return null;

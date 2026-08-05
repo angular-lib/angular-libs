@@ -296,6 +296,45 @@ Host-declared actions use the same params via `[toolbarActions]` + `[context]`:
 ```
 
 Sidebar panels inject `DATA_GRID_SIDEBAR_HOST` (provided by the core shell).
+The host includes `api`, `controller`, and host `[context]` — same call-site
+rule as toolbar actions: UI ops → `api`; row writes → `controller`; app
+services → `context`.
+
+Subscribe to grid events like AG tool panels:
+
+```ts
+inject(DATA_GRID_SIDEBAR_HOST).api.events.on('selectionChange', (ids) => { … });
+inject(DATA_GRID_SIDEBAR_HOST).api.events.onAny((name, payload) => { … });
+```
+
+Pass typed config into the panel via Angular `input()`s (preferred over AG’s
+opaque `toolPanelParams`):
+
+```ts
+context.slots.registerSidebar({
+  id: 'stats',
+  label: 'Stats',
+  component: StatsPanel,
+  // Factory keeps signal reads reactive while the panel is open
+  inputs: () => ({
+    title: 'Live stats',
+    threshold: threshold(),
+  }),
+  // Optional: panel-local services / stores
+  providers: [{ provide: MY_STORE, useValue: store }],
+});
+
+@Component({ … })
+export class StatsPanel {
+  readonly title = input.required<string>();
+  readonly threshold = input(10);
+  readonly host = inject(DATA_GRID_SIDEBAR_HOST); // api · controller · context
+}
+```
+
+`api.events` mirrors every Angular `output()` on `DataGrid`. Host apps should still
+bind template outputs for app logic; the bus is for plugins / tool panels.
+
 Built-in columns/filters panels are registered by `sideBarPlugin()`; the groups
 panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 (add/remove/expand); filter values set elsewhere auto-open a card.

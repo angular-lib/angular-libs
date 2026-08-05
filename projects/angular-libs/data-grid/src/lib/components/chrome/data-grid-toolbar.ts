@@ -83,20 +83,24 @@ export interface DataGridToolbarLabels {
       gap: 8px;
       align-items: center;
       padding: 8px 10px;
-      border-bottom: 1px solid var(--al-dg-border, #e5e7eb);
-      background: var(--al-dg-header-bg, #f9fafb);
+      border-bottom: 1px solid var(--al-dg-border, #babfc7);
+      background: var(--al-dg-header-bg, #f8f8f8);
     }
     .al-data-grid__quick-input {
-      flex: 1;
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      flex: 0 1 200px;
+      width: 200px;
+      max-width: 200px;
+      min-width: 0;
+      border: 1px solid var(--al-dg-border, #babfc7);
       border-radius: 6px;
       padding: 6px 8px;
       font: inherit;
       background: var(--al-dg-bg, #fff);
       color: inherit;
+      box-sizing: border-box;
     }
     .al-data-grid__tool-btn {
-      border: 1px solid var(--al-dg-border, #e5e7eb);
+      border: 1px solid var(--al-dg-border, #babfc7);
       background: var(--al-dg-bg, #fff);
       border-radius: 6px;
       padding: 6px 10px;
@@ -108,7 +112,11 @@ export interface DataGridToolbarLabels {
       min-width: 34px;
       padding: 6px 8px;
       color: var(--al-dg-action-color, inherit);
-      border-color: color-mix(in srgb, var(--al-dg-action-color, var(--al-dg-border, #e5e7eb)) 45%, var(--al-dg-border, #e5e7eb));
+      border-color: color-mix(in srgb, var(--al-dg-action-color, var(--al-dg-border, #babfc7)) 45%, var(--al-dg-border, #babfc7));
+    }
+    /* Keep filter/find left; push registered actions to the right. */
+    .al-data-grid__toolbar > .al-data-grid__tool-btn:first-of-type {
+      margin-left: auto;
     }
     .al-data-grid__tool-icon {
       display: inline-block;

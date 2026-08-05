@@ -1,4 +1,10 @@
-import { signal, type Signal, type Type, type WritableSignal } from '@angular/core';
+import {
+  signal,
+  type Provider,
+  type Signal,
+  type Type,
+  type WritableSignal,
+} from '@angular/core';
 import type {
   DataGridFilterState,
   DataGridState,
@@ -58,6 +64,13 @@ export interface DataGridSidebarSlotItem {
   label: string;
   order?: number;
   component?: Type<unknown>;
+  /**
+   * Bound as `[ngComponentOutletInputs]` on the panel component.
+   * Prefer a factory so signal reads stay reactive while the panel is open.
+   */
+  inputs?: Record<string, unknown> | (() => Record<string, unknown>);
+  /** Extra DI providers merged into this panel's NgComponentOutlet injector. */
+  providers?: readonly Provider[];
 }
 
 export interface FindFeatureConfig {

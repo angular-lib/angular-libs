@@ -122,6 +122,24 @@ Sidebar panel components (`DataGridColumnsPanel`, `DataGridFiltersPanel`,
 The filters tool panel shows filter cards (add / remove / expand) for open
 filters — values set from floating filters are auto-added.
 
+### Custom tool panels
+
+Register your own sidebar panels from a plugin:
+
+```ts
+context.slots.registerSidebar({
+  id: 'events',
+  label: 'Events',
+  component: EventsPanel,
+  inputs: () => ({ title: 'Live events' }), // Angular input()s — reactive
+  providers: [/* optional panel stores */],
+});
+```
+
+Panels inject `DATA_GRID_SIDEBAR_HOST` (`api`, `controller`, `context`) and can
+subscribe with `api.events.on` / `onAny`. Open/collapse imperatively via
+`api.openToolPanel(id)` / `api.getOpenedToolPanel()`. See [PLUGINS.md](./PLUGINS.md).
+
 `clipboardPlugin` owns paste **and** copy listeners. `findPlugin` owns Ctrl/Cmd+F / F3 navigation.
 
 Use plugins for find / sidebar / clipboard — there are no legacy feature-shortcut
@@ -226,9 +244,14 @@ tabs, Expand/Collapse/Ungroup, and panel titles.
 
 ## Theming
 
+Defaults follow a spreadsheet-style palette (visible grid lines, cool header, selection blue).
+Override any `--al-dg-*` token on the host:
+
 ```css
 al-data-grid {
   --al-dg-accent: #0f766e;
   --al-dg-header-bg: #f0fdfa;
+  --al-dg-border: #99f6e4;
+  --al-dg-row-selected: #ccfbf1;
 }
 ```

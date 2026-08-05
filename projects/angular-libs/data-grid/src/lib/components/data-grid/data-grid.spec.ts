@@ -1,9 +1,10 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core';
 import { By } from '@angular/platform-browser';
 import { DataGrid } from './data-grid';
 import { DataGridCellDirective } from '../../data-grid-cell.directive';
 import type { ColumnDef, ColumnOrGroupDef } from './data-grid.types';
+import type { DataGridPlugin } from '../../plugins/types';
 import { filterRows, quickFilterRows, toDateKey } from '../../utils/filter-rows';
 import { sortRows, nextSortDirection } from '../../utils/sort-rows';
 import { resolveColumns, getCellValue, formatCellValue, moveItem } from '../../utils/cell-value';
@@ -153,6 +154,15 @@ describe('data-grid utils', () => {
     expect(tracks).toBe('40px 100px minmax(80px, 1fr)');
     expect(widthsPx['name']).toBe(100);
     expect(widthsPx['city']).toBeNull();
+
+    // After resize lock (all fixed), last unpinned column fills leftover space.
+    const locked = resolveColumnTracks(
+      cols,
+      { name: 120, city: 200 },
+      { select: true, rowEdit: true },
+    );
+    expect(locked.tracks).toBe('40px 120px minmax(200px, 1fr) 132px');
+    expect(locked.widthsPx['city']).toBe(200);
 
     const next = applyCellEdit(
       people,
@@ -571,6 +581,31 @@ describe('DataGrid', () => {
     expect(bodyText.indexOf('Alan')).toBeGreaterThan(-1);
     expect(bodyText.indexOf('Ada')).toBeLessThan(bodyText.indexOf('Alan'));
     expect(bodyText).not.toContain('Grace');
+  });
+
+  it('keeps focus in floating filter input on click so typing works', async () => {
+    const el: HTMLElement = fixture.nativeElement;
+    const input = el.querySelector<HTMLInputElement>(
+      '[data-testid="al-dg-filter-name"] [data-testid="al-dg-filter-field-text"]',
+    );
+    expect(input).toBeTruthy();
+
+    input!.focus();
+    input!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await fixture.whenStable();
+    fixture.detectChanges();
+    // syncDomFocus is queued on a microtask after focus-model updates
+    await Promise.resolve();
+    await fixture.whenStable();
+
+    expect(document.activeElement).toBe(input);
+
+    input!.value = 'Ada';
+    input!.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: 'Ada' });
   });
 });
 
@@ -1208,6 +1243,70 @@ describe('createGrid + controller binding', () => {
     expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ age: '36' });
   });
 
+  it('custom tool panel: inputs + api.openToolPanel', async () => {
+    @Component({
+      selector: 'al-dg-test-panel',
+      changeDetection: ChangeDetectionStrategy.OnPush,
+      template: `<div data-testid="al-dg-test-panel">{{ title() }}</div>`,
+    })
+    class TestPanel {
+      readonly title = input('default');
+    }
+
+    function testPanelPlugin(): DataGridPlugin<Person> {
+      return {
+        id: 'test-panel',
+        setup(ctx) {
+          return ctx.slots.registerSidebar({
+            id: 'custom',
+            label: 'Custom',
+            order: 50,
+            component: TestPanel,
+            inputs: () => ({ title: 'Hello panel' }),
+          });
+        },
+      };
+    }
+
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+    })
+    class CustomPanelHost {
+      readonly rows = signal(people);
+      readonly sideBar = sideBarPlugin<Person>({ panels: [], defaultPanel: null });
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        plugins: [this.sideBar, testPanelPlugin()],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [CustomPanelHost] }).compileComponents();
+    const fixture = TestBed.createComponent(CustomPanelHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const api = fixture.componentInstance.grid.api();
+    expect(api).toBeTruthy();
+    expect(api!.getOpenedToolPanel()).toBeNull();
+    expect(fixture.nativeElement.querySelector('[data-testid="al-dg-test-panel"]')).toBeFalsy();
+
+    api!.openToolPanel('custom');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(api!.getOpenedToolPanel()).toBe('custom');
+    const panel = fixture.nativeElement.querySelector('[data-testid="al-dg-test-panel"]');
+    expect(panel).toBeTruthy();
+    expect(panel!.textContent).toContain('Hello panel');
+
+    api!.openToolPanel(null);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(api!.getOpenedToolPanel()).toBeNull();
+  });
+
   it('api.getSelectedRows / setSelectedRows round-trip selection by row data', async () => {
     @Component({
       imports: [DataGrid],
@@ -1296,5 +1395,130 @@ describe('createGrid + controller binding', () => {
 
     api!.clearCellRange();
     expect(api!.getCellRange()).toBeNull();
+  });
+
+  it('does not start a cell range from set-filter label clicks', async () => {
+    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+
+    @Component({
+      imports: [DataGrid],
+      template: `
+        <al-data-grid
+          [controller]="grid"
+          [data]="rows()"
+          [virtual]="false"
+          [pagination]="false"
+          [floatingFilters]="true"
+        />
+      `,
+    })
+    class SetFilterRangeHost {
+      readonly rows = signal(people);
+      readonly ranges = cellRangePlugin<Person>();
+      readonly grid = createGrid({
+        columns: [
+          { field: 'name', filter: 'set' },
+          { field: 'age', filter: 'number' },
+        ],
+        rowId: (r: Person) => r.id,
+        plugins: [this.ranges],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [SetFilterRangeHost] }).compileComponents();
+    const fixture = TestBed.createComponent(SetFilterRangeHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const el: HTMLElement = fixture.nativeElement;
+    const gridEl = el.querySelector('al-data-grid') as HTMLElement;
+    const details = el.querySelector<HTMLDetailsElement>(
+      '[data-testid="al-dg-filter-name"] [data-testid="al-dg-set-filter"]',
+    );
+    expect(details).toBeTruthy();
+    details!.open = true;
+    fixture.detectChanges();
+
+    const label = el.querySelector<HTMLLabelElement>(
+      '[data-testid="al-dg-filter-name"] .al-dg-filter-field__set-item',
+    );
+    expect(label).toBeTruthy();
+
+    label!.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 1,
+      }),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
+    expect(gridEl.querySelector('[data-testid="al-dg-range-ring"]')).toBeNull();
+  });
+
+  it('opens cell context menu on right-click even with cellRangePlugin', async () => {
+    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+
+    @Component({
+      imports: [DataGrid],
+      template: `
+        <al-data-grid
+          [controller]="grid"
+          [data]="rows()"
+          [virtual]="false"
+          [pagination]="false"
+          [contextMenu]="true"
+        />
+      `,
+    })
+    class CtxRangeHost {
+      readonly rows = signal(people);
+      readonly ranges = cellRangePlugin<Person>();
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        plugins: [this.ranges],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [CtxRangeHost] }).compileComponents();
+    const fixture = TestBed.createComponent(CtxRangeHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const el: HTMLElement = fixture.nativeElement;
+    const cell = el.querySelector('[data-testid="al-dg-cell-1-name"]') as HTMLElement;
+    expect(cell).toBeTruthy();
+
+    // Simulate real right-click: pointerdown (button 2) then contextmenu.
+    cell.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        bubbles: true,
+        button: 2,
+        pointerId: 1,
+        clientX: 40,
+        clientY: 40,
+      }),
+    );
+    cell.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: 40,
+        clientY: 40,
+      }),
+    );
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeTruthy();
+    // Right-click must not start a range selection.
+    expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
   });
 });

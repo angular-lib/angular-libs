@@ -11,6 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
+import type { DataGridApi } from '../../api/grid-api';
 import type { ResolvedColumn } from '../data-grid/data-grid.types';
 import type { DataGridSidebarSlotItem } from '../../plugins/types';
 import {
@@ -53,7 +54,8 @@ import {
           @if (panelComponent(panelId); as Comp) {
             <ng-container
               [ngComponentOutlet]="Comp"
-              [ngComponentOutletInjector]="panelInjector"
+              [ngComponentOutletInjector]="panelInjectorFor(panelId)"
+              [ngComponentOutletInputs]="activePanelInputs()"
             />
           }
         </div>
@@ -70,8 +72,8 @@ import {
     .al-dg-sidebar {
       display: flex;
       flex-direction: row;
-      border-left: 1px solid var(--al-dg-border, #e5e7eb);
-      background: var(--al-dg-header-bg, #f9fafb);
+      border-left: 1px solid var(--al-dg-border, #babfc7);
+      background: var(--al-dg-header-bg, #f8f8f8);
       min-width: 44px;
       height: 100%;
       min-height: 0;
@@ -79,24 +81,24 @@ import {
     .al-dg-sidebar--left {
       flex-direction: row-reverse;
       border-left: 0;
-      border-right: 1px solid var(--al-dg-border, #e5e7eb);
+      border-right: 1px solid var(--al-dg-border, #babfc7);
     }
     .al-dg-sidebar__tabs {
       display: flex;
       flex-direction: column;
       gap: 4px;
       padding: 8px 6px;
-      border-right: 1px solid var(--al-dg-border, #e5e7eb);
+      border-right: 1px solid var(--al-dg-border, #babfc7);
     }
     .al-dg-sidebar--left .al-dg-sidebar__tabs {
       border-right: 0;
-      border-left: 1px solid var(--al-dg-border, #e5e7eb);
+      border-left: 1px solid var(--al-dg-border, #babfc7);
     }
     .al-dg-sidebar__tab {
       writing-mode: vertical-rl;
       border: 1px solid transparent;
       background: transparent;
-      color: var(--al-dg-muted, #6b7280);
+      color: var(--al-dg-muted, #5f6368);
       border-radius: 6px;
       padding: 10px 4px;
       font: inherit;
@@ -108,8 +110,8 @@ import {
     }
     .al-dg-sidebar__tab--active {
       background: var(--al-dg-bg, #fff);
-      border-color: var(--al-dg-border, #e5e7eb);
-      color: var(--al-dg-accent, #2563eb);
+      border-color: var(--al-dg-border, #babfc7);
+      color: var(--al-dg-accent, #2196f3);
     }
     .al-dg-sidebar__body {
       width: 280px;
@@ -128,6 +130,12 @@ export class DataGridSidebar {
   readonly panels = input<readonly DataGridSidebarSlotItem[]>([]);
   readonly position = input<'left' | 'right'>('right');
   readonly openPanel = input<string | null>(null);
+  /** Bound grid API — exposed to panels via {@link DATA_GRID_SIDEBAR_HOST}. */
+  readonly api = input.required<DataGridApi<any>>();
+  /** Required `[controller]` — exposed to panels via {@link DATA_GRID_SIDEBAR_HOST}. */
+  readonly controller = input.required<import('../../create-grid').GridController<any>>();
+  /** Host `[context]` — same bag as toolbar actions. */
+  readonly context = input<unknown>(null);
 
   readonly columns = input.required<readonly ResolvedColumn<any>[]>();
   readonly filterableColumns = input.required<readonly ResolvedColumn<any>[]>();
@@ -155,8 +163,26 @@ export class DataGridSidebar {
   private readonly openFilterIds = signal<string[]>([]);
   private readonly expandedFilterIds = signal<ReadonlySet<string>>(new Set());
 
-  /** Stable injector — host methods close over this component's inputs. */
-  readonly panelInjector: Injector;
+  /** Shared host object — getters close over inputs. */
+  private readonly host: DataGridSidebarHost;
+  private readonly injectorCache = new Map<string, Injector>();
+
+  /**
+   * Inputs for the open panel — factory form tracks signals so outlet
+   * bindings update without AG-style refresh().
+   */
+  readonly activePanelInputs = computed((): Record<string, unknown> => {
+    const id = this.openPanel();
+    if (!id) {
+      return {};
+    }
+    const panel = this.panels().find((p) => p.id === id);
+    const raw = panel?.inputs;
+    if (!raw) {
+      return {};
+    }
+    return typeof raw === 'function' ? raw() : raw;
+  });
 
   constructor() {
     // Auto-include filter cards when a filter value is set outside the panel.
@@ -189,7 +215,23 @@ export class DataGridSidebar {
       });
     });
 
-    const host: DataGridSidebarHost = {
+    // Drop cached injectors when the panel registry identity changes.
+    effect(() => {
+      this.panels();
+      untracked(() => this.injectorCache.clear());
+    });
+
+    const self = this;
+    this.host = {
+      get api() {
+        return self.api();
+      },
+      get controller() {
+        return self.controller();
+      },
+      get context() {
+        return self.context();
+      },
       columns: computed(() => this.columns()),
       filterableColumns: computed(() => this.filterableColumns()),
       hiddenColumnIds: computed(() => this.hiddenColumnIds()),
@@ -213,14 +255,27 @@ export class DataGridSidebar {
       removeFilterColumn: (columnId) => this.removeFilterColumn(columnId),
       toggleFilterColumnExpanded: (columnId) => this.toggleFilterColumnExpanded(columnId),
     };
-    this.panelInjector = Injector.create({
-      providers: [{ provide: DATA_GRID_SIDEBAR_HOST, useValue: host }],
-      parent: this.parentInjector,
-    });
   }
 
   panelComponent(panelId: string) {
     return this.panels().find((p) => p.id === panelId)?.component ?? null;
+  }
+
+  panelInjectorFor(panelId: string): Injector {
+    const cached = this.injectorCache.get(panelId);
+    if (cached) {
+      return cached;
+    }
+    const panel = this.panels().find((p) => p.id === panelId);
+    const injector = Injector.create({
+      providers: [
+        { provide: DATA_GRID_SIDEBAR_HOST, useValue: this.host },
+        ...(panel?.providers ?? []),
+      ],
+      parent: this.parentInjector,
+    });
+    this.injectorCache.set(panelId, injector);
+    return injector;
   }
 
   togglePanel(panel: string): void {

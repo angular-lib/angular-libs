@@ -37,7 +37,7 @@ const TOOLTIP_CSS = `
   transform: scale(1);
 }
 .al-dg-tooltip[data-variant='error'] {
-  background: var(--al-dg-danger, #dc2626);
+  background: var(--al-dg-danger, #d32f2f);
   color: #fff;
 }
 .al-dg-tooltip[data-position='top'] { transform-origin: bottom center; }
