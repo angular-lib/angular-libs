@@ -1,23 +1,26 @@
 import { signal } from '@angular/core';
 import {
   applyPasteMatrix,
-  cellInNormalizedRange,
   coerceCellEditValue,
   formatCellValue,
   getCellValue,
-  isDataDisplayRow,
+  writeCellValue,
+  type CellRange,
+  type PasteEvent,
+} from '@angular-libs/data-grid';
+import {
+  cellInNormalizedRange,
   moveFocusWithinGrid,
   normalizeCellRange,
   singleCellRange,
-  writeCellValue,
-  type CellRange,
   type DataGridPlugin,
   type DataGridPluginContext,
-  type DisplayRow,
   type FocusCell,
-  type PasteEvent,
-} from '@angular-libs/data-grid';
-import { ensureCellRangeStyles } from './cell-range-styles';
+} from '@angular-libs/data-grid/plugin';
+import {
+  isDataDisplayRow,
+  type DisplayRow,
+} from '@angular-libs/data-grid/internals';
 
 /** Held adapter — single contiguous cell range (OVERVIEW §5). */
 export interface CellRangeAdapter {
@@ -49,6 +52,9 @@ export interface CellRangePluginOptions {
  * the grid's focus continuum (bound automatically on setup).
  *
  * Not included in `defaultGridPlugins()` — add explicitly.
+ *
+ * Overlay paint is binder-owned (from `api.getCellRange()`); this plugin owns
+ * range state, drag-select, fill, and cell decorator only.
  */
 export function cellRangePlugin<T = unknown>(
   options: CellRangePluginOptions = {},
@@ -58,8 +64,6 @@ export function cellRangePlugin<T = unknown>(
 
   const range = signal<CellRange | null>(null);
   let liveContext: DataGridPluginContext<T> | null = null;
-  let fillHandleEl: HTMLDivElement | null = null;
-  let rangeRingEl: HTMLDivElement | null = null;
 
   const getVisibleColumnIds = (): string[] =>
     liveContext?.api.getVisibleColumnIds() ?? [];
@@ -70,29 +74,6 @@ export function cellRangePlugin<T = unknown>(
   const displayIndexForRowId = (rowId: string | number): number => {
     const rows = getDisplayRows();
     return rows.findIndex((r) => isDataDisplayRow(r) && r.rowId === rowId);
-  };
-
-  const findCellTd = (rowIndex: number, columnId: string): HTMLElement | null => {
-    if (!liveContext) {
-      return null;
-    }
-    const item = getDisplayRows()[rowIndex];
-    if (!item || !isDataDisplayRow(item)) {
-      return null;
-    }
-    return liveContext.element.querySelector(
-      `div[data-row-id="${cssEscape(String(item.rowId))}"][data-column-id="${cssEscape(columnId)}"]`,
-    ) as HTMLElement | null;
-  };
-
-  const overlayHost = (): HTMLElement | null => {
-    if (!liveContext) {
-      return null;
-    }
-    return (
-      (liveContext.element.querySelector('.al-data-grid__range-layer') as HTMLElement | null) ??
-      liveContext.element
-    );
   };
 
   const buildClipboardText = (current: CellRange): string | null => {
@@ -125,112 +106,13 @@ export function cellRangePlugin<T = unknown>(
     return lines.length ? lines.join('\n') : null;
   };
 
-  const ensureOverlayEls = (): void => {
-    if (!rangeRingEl) {
-      rangeRingEl = document.createElement('div');
-      rangeRingEl.className = 'al-dg-range-ring';
-      rangeRingEl.setAttribute('data-testid', 'al-dg-range-ring');
-    }
-    if (fillHandleEnabled && !fillHandleEl) {
-      fillHandleEl = document.createElement('div');
-      fillHandleEl.className = 'al-dg-fill-handle';
-      fillHandleEl.setAttribute('data-testid', 'al-dg-fill-handle');
-    }
-  };
-
-  const removeOverlays = (): void => {
-    rangeRingEl?.remove();
-    fillHandleEl?.remove();
-  };
-
-  /**
-   * Ring + fill handle in the in-grid range layer (layer-local coords).
-   * Clipped to the scroll viewport so the scrollbar gutter never slices the border.
-   */
-  const syncOverlays = (): void => {
-    if (!liveContext) {
-      removeOverlays();
-      return;
-    }
-    const current = range();
-    if (!current) {
-      removeOverlays();
-      return;
-    }
-    const cols = getVisibleColumnIds();
-    const norm = normalizeCellRange(current, cols);
-    if (!norm) {
-      removeOverlays();
-      return;
-    }
-
-    const tl = findCellTd(norm.rowStart, norm.columnIds[0]!);
-    const br = findCellTd(norm.rowEnd, norm.columnIds[norm.columnIds.length - 1]!);
-    if (!tl || !br) {
-      removeOverlays();
-      return;
-    }
-
-    const host = overlayHost();
-    if (!host) {
-      removeOverlays();
-      return;
-    }
-    const scroll = liveContext.element.querySelector(
-      '.al-data-grid__scroll',
-    ) as HTMLElement | null;
-    const clip = scroll?.getBoundingClientRect();
-    const origin = host.getBoundingClientRect();
-    const a = tl.getBoundingClientRect();
-    const b = br.getBoundingClientRect();
-    let left = Math.min(a.left, b.left);
-    let top = Math.min(a.top, b.top);
-    let right = Math.max(a.right, b.right);
-    let bottom = Math.max(a.bottom, b.bottom);
-
-    if (clip) {
-      left = Math.max(left, clip.left);
-      top = Math.max(top, clip.top);
-      right = Math.min(right, clip.right);
-      bottom = Math.min(bottom, clip.bottom);
-    }
-
-    const width = right - left;
-    const height = bottom - top;
-    if (width < 2 || height < 2) {
-      removeOverlays();
-      return;
-    }
-
-    ensureOverlayEls();
-    host.appendChild(rangeRingEl!);
-    rangeRingEl!.style.left = `${left - origin.left}px`;
-    rangeRingEl!.style.top = `${top - origin.top}px`;
-    rangeRingEl!.style.width = `${width}px`;
-    rangeRingEl!.style.height = `${height}px`;
-
-    if (fillHandleEnabled && fillHandleEl) {
-      const handleLeft = right - 10;
-      const handleTop = bottom - 10;
-      const outsideClip =
-        !!clip &&
-        (handleLeft + 11 > clip.right ||
-          handleTop + 11 > clip.bottom ||
-          handleLeft < clip.left ||
-          handleTop < clip.top);
-      if (outsideClip) {
-        fillHandleEl.remove();
-      } else {
-        host.appendChild(fillHandleEl);
-        fillHandleEl.style.left = `${handleLeft - origin.left}px`;
-        fillHandleEl.style.top = `${handleTop - origin.top}px`;
-      }
-    }
+  const invalidatePaint = (): void => {
+    liveContext?.capabilities.invalidateOverlays();
   };
 
   const setRangeInternal = (next: CellRange | null): void => {
     range.set(next);
-    queueMicrotask(() => syncOverlays());
+    queueMicrotask(() => invalidatePaint());
   };
 
   const adapter: CellRangeAdapter = {
@@ -283,7 +165,6 @@ export function cellRangePlugin<T = unknown>(
     extendRange: (dRow, dCol) => adapter.extendRange(dRow, dCol),
 
     setup(context: DataGridPluginContext<T>): () => void {
-      ensureCellRangeStyles();
       liveContext = context;
       context.api.bindCellRangeAdapter(adapter);
 
@@ -343,16 +224,17 @@ export function cellRangePlugin<T = unknown>(
 
               /** Coordinate hit-test — needed under pointer capture. */
               const cellFromEvent = (event: PointerEvent): FocusCell | null => {
-                if (fillHandleEl) {
-                  fillHandleEl.style.pointerEvents = 'none';
-                }
+                const handles = element.querySelectorAll('.al-dg-fill-handle');
+                handles.forEach((h) => {
+                  (h as HTMLElement).style.pointerEvents = 'none';
+                });
                 const hit = document.elementFromPoint(
                   event.clientX,
                   event.clientY,
                 ) as HTMLElement | null;
-                if (fillHandleEl) {
-                  fillHandleEl.style.pointerEvents = '';
-                }
+                handles.forEach((h) => {
+                  (h as HTMLElement).style.pointerEvents = '';
+                });
                 return (
                   cellFromTd(
                     hit?.closest?.('[data-row-id][data-column-id]') as HTMLElement | null,
@@ -372,6 +254,7 @@ export function cellRangePlugin<T = unknown>(
                   return;
                 }
                 const target = event.target as HTMLElement | null;
+                // Event delegation on range-layer / grid for binder-painted fill handle.
                 if (fillHandleEnabled && target?.closest?.('.al-dg-fill-handle')) {
                   const current = range();
                   if (!current) {
@@ -458,7 +341,7 @@ export function cellRangePlugin<T = unknown>(
                 } catch {
                   /* already released */
                 }
-                syncOverlays();
+                invalidatePaint();
               };
 
               element.addEventListener('pointerdown', onPointerDown);
@@ -466,8 +349,8 @@ export function cellRangePlugin<T = unknown>(
               element.addEventListener('pointerup', onPointerUp);
               element.addEventListener('pointercancel', onPointerUp);
 
-              const scrollEl = element.querySelector('.al-data-grid__scroll');
-              const onScrollOrResize = (): void => syncOverlays();
+              const scrollEl = context.api.getScrollRoot();
+              const onScrollOrResize = (): void => invalidatePaint();
               scrollEl?.addEventListener('scroll', onScrollOrResize, { passive: true });
               window.addEventListener('resize', onScrollOrResize, { passive: true });
 
@@ -478,7 +361,6 @@ export function cellRangePlugin<T = unknown>(
                 element.removeEventListener('pointercancel', onPointerUp);
                 scrollEl?.removeEventListener('scroll', onScrollOrResize);
                 window.removeEventListener('resize', onScrollOrResize);
-                removeOverlays();
               };
             },
           }),
@@ -489,9 +371,6 @@ export function cellRangePlugin<T = unknown>(
         for (const cleanup of [...cleanups].reverse()) {
           cleanup();
         }
-        removeOverlays();
-        fillHandleEl = null;
-        rangeRingEl = null;
         context.api.bindCellRangeAdapter(null);
         range.set(null);
         liveContext = null;
@@ -597,11 +476,4 @@ function escapeTsv(value: string): string {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
-}
-
-function cssEscape(value: string): string {
-  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
-    return CSS.escape(value);
-  }
-  return value.replace(/"/g, '\\"');
 }

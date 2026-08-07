@@ -6,36 +6,22 @@ import {
   EnvironmentInjector,
   Injector,
   afterNextRender,
-  booleanAttribute,
   computed,
   contentChild,
   contentChildren,
   effect,
   inject,
   input,
-  linkedSignal,
   model,
   output,
-  signal,
   untracked,
   type Type,
 } from '@angular/core';
 import { NgComponentOutlet, NgTemplateOutlet } from '@angular/common';
 import { FormField, type FieldTree } from '@angular/forms/signals';
-import { composeDataGridApiHost } from '../../api/compose-host';
-import {
-  DataGridApi,
-  type BoundRowGroupAdapter,
-  type BoundTreeDataAdapter,
-  type DataGridApiHost,
-} from '../../api/grid-api';
+import { DataGridApi } from '../../api/grid-api';
 import type { DataGridEventMap } from '../../api/grid-events';
-import { GridKernel } from '../../kernel/grid-kernel';
 import type { GridController } from '../../create-grid';
-import {
-  computeVirtualWindow,
-  type VirtualWindow,
-} from '../../controllers/virtual-window';
 import { focusRealmOf, type FocusCell } from '../../controllers/focus';
 import {
   DataGridCellDirective,
@@ -54,94 +40,57 @@ import {
   toolbarLabelsFromLocale,
   type DataGridLocale,
 } from '../../locale/default-locale';
-import { RowEditSession } from '../../editing/row-edit-session';
 import {
-  isTypeToEditKey,
-  resolveTypeToEditSeed,
   type ResolvedEditInteraction,
-  type TypeToEditSeed,
 } from '../../editing/edit-interaction';
 import {
   CellEditorRegistry,
   defaultCellEditorRegistry,
   resolveCellEditor,
-  type RowEditAdapter,
 } from '../../editing/cell-editor-registry';
 import {
-  notifyPlugins,
   type DataGridPlugin,
-  type DataGridPluginContext,
   type DataGridToolbarSlotItem,
 } from '../../plugins/types';
-import { estimateColumnWidth } from '../../utils/autosize';
-import { coerceCellEditValue } from '../../utils/coerce-cell-value';
 import {
   formatAggregateValue,
-  isCustomEditorComponent,
   isCustomRendererComponent,
   isSelectEditor,
   resolveSelectValues,
 } from '../../utils/editors';
-import { runGridRowModel } from '../../utils/grid-row-model';
-import { attachColumnResize } from '../../utils/column-interactions';
 import {
-  emptyColumnLayout,
-  materializeColumnLayout,
-  moveColumn,
   reconcileColumnLayout,
   reconcileHiddenColumnIds,
-  resolveColumnTracks,
-  setColumnPin,
-  CHROME_TRACK,
-  type ColumnLayout,
 } from '../../utils/column-layout';
-import {
-  attachRowReorder,
-  buildRowReorderEvent,
-  isRowDragAllowed,
-  resolveRowDropDataIndex,
-} from '../../utils/row-interactions';
-import {
-  isDataDisplayRow,
-  isGroupDisplayRow,
-  type DisplayRow,
-} from '../../utils/row-display';
+import { type DisplayRow } from '../../utils/row-display';
 import {
   formatCellValue,
   getCellValue,
   isBooleanColumn,
   isDateColumn,
-  resolveCellClass,
   resolveRowClass,
 } from '../../utils/cell-value';
+import { type FindMatch } from '../../utils/find';
 import {
-  buildLeafGroupMap,
-  buildVisibleGroupHeaderRow,
-  hasColumnGroups as defsHaveColumnGroups,
-  resolveColumnOrGroupDefs,
-  sameColumnGroup,
-  type HeaderGroupCell,
-} from '../../utils/column-groups';
+  createDataGridSession,
+  type GridSession,
+} from '../../session/create-session';
+import type {
+  ColumnLayoutHost,
+  EditSyncHost,
+  MenuHost,
+  SelectionHost,
+  ViewportHost,
+} from '../../hosts';
 import {
-  defaultContextMenuItems,
-  positionMenu,
-  resolveContextMenuItems,
-  writeClipboardText,
-} from '../../utils/context-menu';
-import { buildLeanColumnMenuItems } from '../../utils/column-menu';
-import { downloadCsv, rowsToCsv } from '../../utils/csv';
-import {
-  collectFindMatches,
-  splitFindHighlight,
-  type FindMatch,
-} from '../../utils/find';
-import {
-  collectSetFilterValues,
-  toDateKey,
-} from '../../utils/filter-rows';
-import { formFieldForColumn } from '../../utils/row-edit';
-import { nextSortDirection } from '../../utils/sort-rows';
-import { createEmptyGridState } from '../../utils/state';
+  ariaBodyRowIndexOf,
+  ariaColIndexOf,
+  ariaRowCountOf,
+  cellAriaSelectedOf,
+  headerRowCountOf,
+  mergeCellClass,
+  resolveBaseCellClass,
+} from '../../hosts/binder-template.helpers';
 import type {
   CellClickEvent,
   CellEditEvent,
@@ -149,10 +98,8 @@ import type {
   CellRendererParams,
   ColumnDef,
   ColumnOrGroupDef,
-  ColumnPin,
   CreateRowFormFn,
   DataGridContextMenuContext,
-  DataGridContextMenuItem,
   DataGridContextMenuItems,
   DataGridFilterState,
   DataGridQuery,
@@ -167,7 +114,6 @@ import type {
   RowEditSchema,
   RowReorderEvent,
   SelectionMode,
-  SideBarConfig,
   SortState,
 } from './data-grid.types';
 
@@ -195,33 +141,14 @@ import type {
   templateUrl: './data-grid.html',
   styleUrl: './data-grid.css',
 })
-export class DataGrid<T = unknown> implements DataGridApiHost<T> {
+export class DataGrid<T = unknown> {
   readonly data = input.required<readonly T[]>();
-  /**
-   * Override leaf/group columns from `[controller]`. Prefer setting columns on `createGrid`.
-   */
-  readonly columns = input<readonly ColumnOrGroupDef<T>[] | null>(null);
-  /** Override `rowId` from `[controller]`. Prefer `createGrid({ rowId })`. */
-  readonly rowId = input<((row: T, index: number) => string | number) | null>(null);
-  /** Override selection mode from `[controller]`. Prefer `createGrid({ selection })`. */
-  readonly selectionMode = input<SelectionMode | null>(null);
   /**
    * Required bootstrap from `createGrid()` — columns, plugins, selection, edit policy, optional rows.
    */
   readonly controller = input.required<GridController<T>>();
-  readonly pagination = input(false);
-  readonly pageSize = input(25);
-  readonly virtual = input(true);
-  readonly rowHeight = input(36);
-  readonly overscan = input(8);
   readonly loading = input(false);
   readonly emptyMessage = input<string | null>(null);
-  readonly stripe = input(true);
-  readonly multiSort = input(true);
-  /** Show floating filter row under headers. Default true when any column is filterable. */
-  readonly floatingFilters = input(true);
-  /** Show toolbar quick-filter. Default true. CSV/autosize are opt-in plugins. */
-  readonly showToolbar = input(true);
   /**
    * Opaque host bag passed into toolbar `actionClick` params.
    * Host-only: services, permissions, notifications, held plugins — not the grid controller.
@@ -232,26 +159,13 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
    * Each `actionClick` receives `{ api, controller, context, event }`.
    */
   readonly toolbarActions = input<readonly DataGridToolbarSlotItem[]>([]);
-  /** Drag header to reorder columns. */
-  readonly columnReorder = input(true);
-  /** Skip client sort/filter; emit `queryChange` instead. */
-  readonly serverSide = input(false);
   /** Host-owned row predicate applied after column filters. */
   readonly externalFilter = input<((row: T) => boolean) | null>(null);
-  /** Enable context menu.
-   * - `true` → built-in defaults (copy / csv / autosize / clear filters)
-   * - provide `contextMenuItems` and/or `alGridContextMenu` template to customize
-   */
-  readonly contextMenu = input(false, { transform: booleanAttribute });
-  /** Typed menu items or factory. Takes priority over defaults when set. */
-  readonly contextMenuItems = input<DataGridContextMenuItems<T> | null>(null);
   /**
-   * Editing mode.
-   * - `cell` (default): double-click a cell
-   * - `fullRow`: signal-forms FieldTree for the whole row (validation-aware)
-   * Override `[controller].editMode` when set.
+   * Typed menu items or factory (chrome enablement is `createGrid({ chrome: { contextMenu } })`).
+   * Takes priority over defaults when set.
    */
-  readonly editMode = input<EditMode | null>(null);
+  readonly contextMenuItems = input<DataGridContextMenuItems<T> | null>(null);
   /**
    * Signal Forms `FieldTree` for full-row editing — the powerful path.
    *
@@ -280,11 +194,6 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   readonly rowClass = input<RowClassFn<T> | null>(null);
   /** Chrome string overrides (merged with defaults). */
   readonly locale = input<Partial<DataGridLocale> | null>(null);
-  /**
-   * Extensibility plugins (dialog/store-style factories).
-   * @example `[plugins]="[findPlugin(), sideBarPlugin(), statusBarPlugin()]"`
-   */
-  readonly plugins = input<readonly DataGridPlugin<T>[]>([]);
 
   readonly selectedIds = model<Array<string | number>>([]);
   readonly quickFilter = model('');
@@ -316,144 +225,25 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   /** Fires once with the imperative API (AG-style `api`). */
   readonly apiReady = output<DataGridApi<T>>();
 
+  /** Runtime ownership root — hosts, kernel, pipeline, api. */
+  readonly session!: GridSession<T>;
+
   /** Imperative façade for hosts and plugins. */
-  readonly api: DataGridApi<T>;
+  readonly api!: DataGridApi<T>;
 
-  private readonly selectionHost = {
-    getSelectedIds: () => this.getSelectedIds(),
-    setSelectedIds: (ids: Array<string | number>) => this.setSelectedIds(ids),
-    getDisplayedRowCount: () => this.getDisplayedRowCount(),
-    getProcessedRows: () => this.getProcessedRows(),
-    getSourceRows: () => this.data(),
-    getQuery: () => this.getQuery(),
-  };
-
-  private readonly columnsHost = {
-    exportCsv: (filename?: string) => this.exportCsv(filename),
-    autoSizeColumns: (columnIds?: string[]) => this.autoSizeColumns(columnIds),
-    clearFilters: () => this.clearFilters(),
-    getState: () => this.getState(),
-    setState: (state: Partial<DataGridState>) => this.setState(state),
-    getFilterModel: () => this.getFilterModel(),
-    setFilterModel: (filters: DataGridFilterState) => this.setFilterModel(filters),
-    getSortModel: () => this.getSortModel(),
-    setSortModel: (sorts: SortState[]) => this.setSortModel(sorts),
-    getQuickFilter: () => this.getQuickFilter(),
-    setQuickFilter: (value: string) => this.setQuickFilter(value),
-    setColumnPinned: (columnId: string, pinned: ColumnPin | null) =>
-      this.setColumnPinned(columnId, pinned),
-    getColumnPinned: (columnId: string) => this.getColumnPinned(columnId),
-    setColumnVisible: (columnId: string, visible: boolean) =>
-      this.setColumnVisible(columnId, visible),
-    getColumnsById: () => this.getColumnsById(),
-    getVisibleColumnIds: () => this.getVisibleColumnIds(),
-  };
-
-  private readonly editingHost = {
-    startRowEditById: (rowId: string | number) => this.startRowEditById(rowId),
-    stopEditing: (cancel?: boolean) => this.stopEditing(cancel),
-  };
-
-  private readonly viewportHost = {
-    focusCell: (rowIndex: number, columnId: string) => this.focusCell(rowIndex, columnId),
-    getFocusedCell: () => this.getFocusedCell(),
-    getPagedDisplayRows: () => this.getPagedDisplayRows(),
-    resolveRowId: (row: T, index: number) => this.resolveRowId(row, index),
-    notifyNearEnd: () => this.notifyNearEnd(),
-    openColumnMenu: (columnId: string) => this.openColumnMenu(columnId),
-  };
-
-  private readonly findHost = {
-    findNext: () => this.findNext(),
-    findPrev: () => this.findPrev(),
-    getFindMatches: () => this.getFindMatches(),
-    focusFindInput: () => this.focusFindInput(),
-  };
-
-  private readonly rowGroupHost = {
-    expandAll: () => this.expandAll(),
-    collapseAll: () => this.collapseAll(),
-    toggleGroup: (groupId: string) => this.toggleGroup(groupId),
-    setRowGroupColumns: (columns: readonly string[]) => this.setRowGroupColumns(columns),
-    getRowGroupColumns: () => this.getRowGroupColumns(),
-    clearRowGroup: () => this.clearRowGroup(),
-    bindRowGroupAdapter: (adapter: BoundRowGroupAdapter | null) => this.bindRowGroupAdapter(adapter),
-    bindTreeDataAdapter: (adapter: BoundTreeDataAdapter | null) => this.bindTreeDataAdapter(adapter),
-  };
-
-  private readonly clipboardHost = {
-    getSelectionClipboardText: () => this.getSelectionClipboardText(),
-    emitPaste: (event: PasteEvent<T>) => this.emitPaste(event),
-  };
-
-  private readonly localeHost = {
-    getLocale: () => this.getLocale(),
-  };
-
-  private readonly sideBarApiHost = {
-    openToolPanel: (panelId: string | null) => this.activeSidePanel.set(panelId),
-    getOpenedToolPanel: () => this.activeSidePanel(),
-  };
+  /** Template aliases — hosts owned by session (F3: no signal façades). */
+  readonly columnLayoutHost!: ColumnLayoutHost<T>;
+  readonly viewportHost!: ViewportHost<T>;
+  readonly selectionHost!: SelectionHost<T>;
+  readonly editSyncHost!: EditSyncHost<T>;
+  readonly menuHost!: MenuHost<T>;
 
   private readonly cellTemplates = contentChildren(DataGridCellDirective);
   private readonly headerTemplates = contentChildren(DataGridHeaderDirective);
-  private readonly loadingOverlay = contentChild(DataGridLoadingDirective);
-  private readonly emptyOverlay = contentChild(DataGridEmptyDirective);
+  readonly loadingOverlay = contentChild(DataGridLoadingDirective);
+  readonly emptyOverlay = contentChild(DataGridEmptyDirective);
   private readonly contextMenuOverlay = contentChild(DataGridContextMenuDirective);
 
-  readonly sorts = signal<SortState[]>([]);
-  readonly filters = signal<DataGridFilterState>({});
-  /** Order + explicit pins — single layout source of truth. */
-  readonly columnLayout = signal<ColumnLayout>(emptyColumnLayout());
-  readonly pageIndex = linkedSignal({
-    source: () =>
-      [this.data(), this.filters(), this.quickFilter(), this.pageSize(), this.externalFilter()] as const,
-    computation: () => 0,
-  });
-  readonly scrollTop = signal(0);
-  readonly viewportHeight = signal(480);
-  readonly viewportWidth = signal(800);
-  readonly widthOverrides = signal<Record<string, number>>({});
-  readonly editDraft = signal('');
-  readonly contextMenuState = signal<{
-    left: number;
-    top: number;
-    /** Present for cell menus; omitted for header pin menu. */
-    ctx: DataGridContextMenuContext<T> | null;
-    /** `'header'` skips custom cell template and shows built-in pin items. */
-    source: 'cell' | 'header';
-    items: DataGridContextMenuItem<T>[];
-  } | null>(null);
-  readonly findActiveIndex = signal(0);
-  readonly focusedCell = signal<FocusCell | null>(null);
-  /**
-   * Column id for the open lean column menu (Alt+↓ / `api.openColumnMenu`).
-   * Cleared when the menu closes.
-   */
-  readonly columnMenuColumnId = signal<string | null>(null);
-  /** Collapsed tree node ids (row-group collapse lives on the plugin adapter). */
-  readonly collapsedGroupIds = signal<ReadonlySet<string>>(new Set());
-  private readonly boundRowGroupAdapter = signal<BoundRowGroupAdapter | null>(null);
-  readonly boundTreeDataAdapter = signal<BoundTreeDataAdapter | null>(null);
-
-  private readonly editingCell = signal<{ rowId: string | number; columnId: string } | null>(null);
-  private readonly rowEditMgr = new RowEditSession<T>({
-    getHostForm: () => this.rowForm(),
-    setHostForm: (tree) => this.rowForm.set(tree),
-    getSchema: () => this.effectiveRowEditSchema(),
-    getFactory: () => this.effectiveCreateRowForm(),
-    resolveColumn: (key) =>
-      this.columnsById().get(key) ?? this.resolvedColumns().find((c) => c.field === key),
-    parentInjector: inject(EnvironmentInjector),
-    onSession: (ctx) => this.rowEditSession.set(ctx),
-    onDraft: (draft) => this.rowEditDraft.set(draft),
-    onStart: (ctx) => this.publish('rowEditStart', this.rowEditStart, ctx),
-    onCommit: (event) => this.publish('rowEdit', this.rowEdit, event),
-    onCancel: (payload) => this.publish('rowEditCancel', this.rowEditCancel, payload),
-  });
-  /** Imperative adapter for full-row edit (optional DX sugar). */
-  readonly rowEditAdapter: RowEditAdapter<T> = this.rowEditMgr;
-  private headerDragFrom: number | null = null;
   private knownColumnIds = new Set<string>();
   private pluginsMounted = false;
   private lastPluginKey = '';
@@ -461,11 +251,6 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   private readonly parentInjector = inject(EnvironmentInjector);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
-  private readonly kernel!: GridKernel<T>;
-
-  readonly toolbarSlotItems!: GridKernel<T>['toolbarSlotItems'];
-  readonly statusBarSlotItems!: GridKernel<T>['statusBarSlotItems'];
-  readonly sidebarSlotItems!: GridKernel<T>['sidebarSlotItems'];
 
   readonly resolvedLocale = computed(() => mergeGridLocale(this.locale()));
 
@@ -473,22 +258,21 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     () => this.emptyMessage() ?? this.resolvedLocale().emptyMessage,
   );
 
-  /** Columns from binder override or `[controller]`. */
+  /** Schema from `[controller]` only — no binder overrides. */
   readonly effectiveColumns = computed(
-    (): readonly ColumnOrGroupDef<T>[] =>
-      this.columns() ?? this.controller().columns,
+    (): readonly ColumnOrGroupDef<T>[] => this.controller().columns,
   );
 
   readonly effectiveRowId = computed((): ((row: T, index: number) => string | number) => {
-    return this.rowId() ?? this.controller().rowId;
+    return this.controller().rowId;
   });
 
   readonly effectiveSelectionMode = computed(
-    (): SelectionMode => this.selectionMode() ?? this.controller().selection,
+    (): SelectionMode => this.controller().selection,
   );
 
   readonly effectiveEditMode = computed(
-    (): EditMode => this.editMode() ?? this.controller().editMode,
+    (): EditMode => this.controller().editMode(),
   );
 
   readonly effectiveEditInteraction = computed((): ResolvedEditInteraction => {
@@ -507,69 +291,30 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     () => this.createRowForm() ?? this.controller().createRowForm,
   );
 
-  /** Prefer explicit `[plugins]` when non-empty; else controller plugins. */
-  readonly effectivePlugins = computed((): readonly DataGridPlugin<T>[] => {
-    const fromInput = this.plugins();
-    if (fromInput.length) {
-      return fromInput;
-    }
-    return this.controller().plugins();
-  });
-
-  readonly resolvedColumns = computed(() => resolveColumnOrGroupDefs(this.effectiveColumns()));
-
-  readonly leafGroupMap = computed(() => buildLeafGroupMap(this.effectiveColumns()));
-
-  readonly hasColumnGroups = computed(() => defsHaveColumnGroups(this.effectiveColumns()));
-
-  /** Group header cells aligned to current visible leaf order. */
-  readonly groupHeaderRow = computed(() => {
-    if (!this.hasColumnGroups()) {
-      return [];
-    }
-    return buildVisibleGroupHeaderRow(this.visibleColumns(), this.leafGroupMap());
-  });
-
-  readonly orderedColumns = computed(() =>
-    materializeColumnLayout(this.resolvedColumns(), this.columnLayout()),
+  /** Plugins come only from `[controller]` / `createGrid` / `setPlugins`. */
+  readonly effectivePlugins = computed(
+    (): readonly DataGridPlugin<T>[] => this.controller().plugins(),
   );
 
-  readonly columnsById = computed(() => {
-    const map = new Map<string, ResolvedColumn<T>>();
-    for (const col of this.resolvedColumns()) {
-      map.set(col.id, col);
-    }
-    return map;
-  });
+  /** Viewport / chrome accessors — templates + hosts read controller signals. */
+  pagination(): boolean { return this.controller().viewport.pagination(); }
+  pageSize(): number { return this.controller().viewport.pageSize(); }
+  virtual(): boolean { return this.controller().viewport.virtual(); }
+  rowHeight(): number { return this.controller().viewport.rowHeight(); }
+  overscan(): number { return this.controller().viewport.overscan(); }
+  stripe(): boolean { return this.controller().chrome.stripe(); }
+  multiSort(): boolean { return this.controller().multiSort(); }
+  floatingFilters(): boolean { return this.controller().chrome.floatingFilters(); }
+  showToolbar(): boolean { return this.controller().chrome.showToolbar(); }
+  columnReorder(): boolean { return this.controller().chrome.columnReorder(); }
+  serverSide(): boolean { return this.controller().serverSide(); }
+  contextMenu(): boolean { return this.controller().chrome.contextMenu(); }
 
-  readonly visibleColumns = computed(() => {
-    const hidden = new Set(this.hiddenColumnIds());
-    return this.orderedColumns().filter((c) => !hidden.has(c.id));
-  });
-
-  readonly filterableColumns = computed(() =>
-    this.orderedColumns().filter((c) => !!c.filter),
-  );
-
-  /** Set-filter option lists for sidebar / shared filter field (keyed by column id). */
-  readonly setFilterOptionsById = computed(() => {
-    const map = new Map<string, string[]>();
-    const rows = this.data();
-    for (const col of this.filterableColumns()) {
-      if (col.filter === 'set') {
-        map.set(col.id, collectSetFilterValues(rows, col));
-      }
-    }
-    return map;
-  });
-
-  readonly showSelection = computed(() => this.effectiveSelectionMode() !== 'none');
-  readonly hasFilters = computed(() => this.resolvedColumns().some((c) => !!c.filter));
   readonly showQuickFilterBar = computed(() => this.showToolbar());
   /** Host `[toolbarActions]` + plugin slot items, sorted by `order`. */
   readonly resolvedToolbarActions = computed((): readonly DataGridToolbarSlotItem[] => {
     const byId = new Map<string, DataGridToolbarSlotItem>();
-    for (const item of this.toolbarSlotItems()) {
+    for (const item of this.session.kernel.toolbarSlotItems()) {
       byId.set(item.id, item);
     }
     for (const item of this.toolbarActions()) {
@@ -580,227 +325,32 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     );
   });
 
-  readonly findMatches = computed((): FindMatch[] => {
-    if (!this.findEnabled() || !this.findQuery().trim()) {
-      return [];
-    }
-    return collectFindMatches(this.processedRows(), this.visibleColumns(), this.findQuery(), {
-      caseSensitive: this.findCaseSensitiveEffective(),
-      rowId: (row, index) => this.resolveRowId(row, index),
-    });
-  });
-
-  readonly findMatchKeys = computed(() => {
-    const set = new Set<string>();
-    for (const m of this.findMatches()) {
-      set.add(`${m.rowId}::${m.columnId}`);
-    }
-    return set;
-  });
-
-  readonly activeFindMatch = computed((): FindMatch | null => {
-    const matches = this.findMatches();
-    if (!matches.length) {
-      return null;
-    }
-    const idx = ((this.findActiveIndex() % matches.length) + matches.length) % matches.length;
-    return matches[idx] ?? null;
-  });
-
-  readonly findEnabled = computed((): boolean => !!this.kernel.findConfig());
-  readonly findCaseSensitiveEffective = computed(
-    (): boolean => !!this.kernel.findConfig()?.caseSensitive,
-  );
-  readonly resolvedSideBarConfig = computed(
-    (): boolean | SideBarConfig | null => this.kernel.sideBarConfig(),
-  );
-  /** Row drag only when the display model is flat (no active group/tree headers). */
-  readonly rowDragEnabled = computed(() =>
-    isRowDragAllowed({
-      pluginEnabled: this.kernel.rowDragEnabled(),
-      serverSide: this.serverSide(),
-      hasActiveSort: this.sorts().length > 0,
-      hasActiveFilter:
-        !!this.quickFilter().trim() ||
-        Object.values(this.filters()).some((v) => !!v?.trim()),
-      displayIsFlat: !this.displayRows().some((row) => row.kind !== 'data'),
-    }),
-  );
-  readonly pasteEnabled = computed(() => this.kernel.pasteEnabled());
+  readonly pasteEnabled = computed(() => this.session.kernel.pasteEnabled());
   /** Copy via `clipboardPlugin` (`slots.enableCopy`). */
-  readonly copyEnabled = computed(() => this.kernel.copyEnabled());
-  readonly aggregateRowEnabled = computed(() => this.kernel.capabilities.hasAggregate());
-  readonly rowGroupColumnIds = computed(() => this.boundRowGroupAdapter()?.columns() ?? []);
+  readonly copyEnabled = computed(() => this.session.kernel.copyEnabled());
+  readonly aggregateRowEnabled = computed(() => this.session.kernel.capabilities.hasAggregate());
   readonly infiniteScrollEnabled = computed((): boolean =>
-    this.kernel.capabilities.getInteractions().some((i) => i.id === 'infiniteScroll'),
+    this.session.kernel.capabilities.getInteractions().some((i) => i.id === 'infiniteScroll'),
   );
 
   readonly aggregateValues = computed((): Map<string, unknown> => {
-    if (!this.aggregateRowEnabled()) {
-      return new Map<string, unknown>();
-    }
-    return this.kernel.capabilities.collectAggregates(
-      this.processedRows(),
-      this.visibleColumns(),
+    if (!this.aggregateRowEnabled()) return new Map();
+    return this.session.kernel.capabilities.collectAggregates(
+      this.session.processedRows(),
+      this.columnLayoutHost.visibleColumns(),
     );
   });
 
-  readonly sideBarEnabled = computed(() => !!this.resolvedSideBarConfig());
-  readonly sideBarPosition = computed(() => {
-    const cfg = this.resolvedSideBarConfig();
-    return typeof cfg === 'object' && cfg?.position ? cfg.position : 'right';
-  });
-
-  /**
-   * Open tool panel — derived from sidebar slots, user-overridable.
-   * Must NOT be an effect writing signals (that freezes when slots toggle).
-   */
-  readonly activeSidePanel = linkedSignal({
-    source: () => ({
-      cfg: this.resolvedSideBarConfig(),
-      panels: this.sidebarSlotItems(),
-    }),
-    computation: ({ cfg, panels }, previous): string | null => {
-      if (!cfg) {
-        return null;
-      }
-      if (typeof cfg === 'object' && cfg.collapsed) {
-        return null;
-      }
-      const prev = previous?.value ?? null;
-      if (prev && panels.some((p) => p.id === prev)) {
-        return prev;
-      }
-      if (typeof cfg === 'object' && cfg.defaultPanel !== undefined) {
-        const requested = cfg.defaultPanel;
-        if (requested === null) {
-          return null;
-        }
-        if (panels.some((p) => p.id === requested)) {
-          return requested;
-        }
-      }
-      return panels[0]?.id ?? null;
-    },
-  });
-
-  private readonly rowModel = computed(() =>
-    runGridRowModel({
-      data: this.data(),
-      filters: this.filters(),
-      quickFilter: this.quickFilter(),
-      externalFilter: this.externalFilter(),
-      sorts: this.sorts(),
-      columnsById: this.columnsById(),
-      visibleColumns: this.visibleColumns(),
-      serverSide: this.serverSide(),
-      capabilities: this.kernel.capabilities,
-      rowModelContext: this.rowModelContext(),
-    }),
-  );
-
-  readonly processedRows = computed((): T[] => this.rowModel().processedRows);
-
-  readonly displayRows = computed((): DisplayRow<T>[] => {
-    // Track adapter / capability signals so grouping reactively rebuilds.
-    this.boundRowGroupAdapter()?.columns();
-    this.boundRowGroupAdapter()?.collapsedIds();
-    this.boundTreeDataAdapter()?.collapsedIds();
-    this.kernel.capabilities.hasDisplayBuilder();
-    return this.rowModel().displayRows;
-  });
-
-  readonly totalPages = computed(() => {
-    if (!this.pagination()) {
-      return 1;
-    }
-    return Math.max(1, Math.ceil(this.displayRows().length / this.pageSize()));
-  });
-
-  /** @deprecated Prefer `pagedDisplayRows` — kept for paste/reorder data helpers. */
-  readonly pageRows = computed(() => {
-    const rows = this.processedRows();
-    if (!this.pagination() || this.kernel.capabilities.hasDisplayBuilder()) {
-      return rows;
-    }
-    const size = this.pageSize();
-    const start = this.pageIndex() * size;
-    return rows.slice(start, start + size);
-  });
-
-  readonly pagedDisplayRows = computed(() => {
-    const rows = this.displayRows();
-    if (!this.pagination()) {
-      return rows;
-    }
-    const size = this.pageSize();
-    const start = this.pageIndex() * size;
-    return rows.slice(start, start + size);
-  });
-
-  readonly virtualEnabled = computed(() => this.virtual() && !this.pagination());
-
-  readonly virtualWindow = computed((): VirtualWindow =>
-    computeVirtualWindow({
-      rowCount: this.pagedDisplayRows().length,
-      rowHeight: this.rowHeight(),
-      scrollTop: this.scrollTop(),
-      viewportHeight: this.viewportHeight(),
-      overscan: this.overscan(),
-      enabled: this.virtualEnabled(),
-    }),
-  );
-
-  readonly renderedStart = computed(() => this.virtualWindow().start);
-  readonly renderedRows = computed(() => {
-    const window = this.virtualWindow();
-    return this.pagedDisplayRows().slice(window.start, window.end);
-  });
   readonly colSpan = computed(
     () =>
-      this.visibleColumns().length +
-      (this.showSelection() ? 1 : 0) +
-      (this.rowDragEnabled() ? 1 : 0) +
+      this.columnLayoutHost.visibleColumns().length +
+      (this.selectionHost.showSelection() ? 1 : 0) +
+      (this.viewportHost.rowDragEnabled() ? 1 : 0) +
       (this.effectiveEditMode() === 'fullRow' ? 1 : 0),
   );
 
-  readonly reservedChromeWidth = computed(() => {
-    let w = 0;
-    if (this.showSelection()) {
-      w += CHROME_TRACK.select;
-    }
-    if (this.rowDragEnabled()) {
-      w += CHROME_TRACK.drag;
-    }
-    if (this.effectiveEditMode() === 'fullRow') {
-      w += CHROME_TRACK.rowEdit;
-    }
-    return w;
-  });
-
-  /** CSS Grid track list — flex columns use `fr`, no viewport width measure. */
-  readonly columnTrackLayout = computed(() =>
-    resolveColumnTracks(this.visibleColumns(), this.widthOverrides(), {
-      drag: this.rowDragEnabled(),
-      select: this.showSelection(),
-      rowEdit: this.effectiveEditMode() === 'fullRow',
-    }),
-  );
-
-  readonly gridTemplateColumns = computed(() => this.columnTrackLayout().tracks);
-
-  /** Pixel widths for pin offsets / resize; flex tracks are null → use minWidth. */
-  readonly resolvedWidths = computed(() => {
-    const { widthsPx } = this.columnTrackLayout();
-    const out: Record<string, number> = {};
-    for (const col of this.visibleColumns()) {
-      out[col.id] = widthsPx[col.id] ?? col.minWidth;
-    }
-    return out;
-  });
-
   readonly statusBarVisible = computed(() =>
-    this.statusBarSlotItems().some((item) => {
+    this.session.kernel.statusBarSlotItems().some((item) => {
       try {
         return !!item.text();
       } catch {
@@ -811,44 +361,15 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
   /** Avoid duplicating "N rows" when statusBarPlugin already registers it. */
   readonly showPaginationRowCount = computed(
-    () => this.pagination() && !this.statusBarSlotItems().some((item) => item.id === 'rows'),
+    () => this.pagination() && !this.session.kernel.statusBarSlotItems().some((item) => item.id === 'rows'),
   );
 
   readonly toolbarLabels = computed(() => toolbarLabelsFromLocale(this.resolvedLocale()));
 
   readonly statusBarLabels = computed(() => {
     const l = this.resolvedLocale();
-    return {
-      statusRows: l.statusRows,
-      paginationLabel: l.paginationLabel,
-      paginationPrev: l.paginationPrev,
-      paginationNext: l.paginationNext,
-    };
+    return { statusRows: l.statusRows, paginationLabel: l.paginationLabel, paginationPrev: l.paginationPrev, paginationNext: l.paginationNext };
   });
-
-  readonly allVisibleSelected = computed(() => {
-    const ids = this.visibleDataRowIds();
-    if (!ids.length) {
-      return false;
-    }
-    const selected = new Set(this.selectedIds());
-    return ids.every((id) => selected.has(id));
-  });
-
-  readonly someVisibleSelected = computed(() => {
-    const selected = new Set(this.selectedIds());
-    return this.visibleDataRowIds().some((id) => selected.has(id));
-  });
-
-  private visibleDataRowIds(): Array<string | number> {
-    const ids: Array<string | number> = [];
-    for (const item of this.pagedDisplayRows()) {
-      if (isDataDisplayRow(item)) {
-        ids.push(item.rowId);
-      }
-    }
-    return ids;
-  }
 
   private readonly templateMap = computed(() => {
     const map = new Map<string, DataGridCellDirective<T>['template']>();
@@ -870,81 +391,70 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   });
 
   constructor() {
-    this.api = new DataGridApi<T>(
-      composeDataGridApiHost({
-        selection: this.selectionHost,
-        columns: this.columnsHost,
-        editing: this.editingHost,
-        viewport: this.viewportHost,
-        find: this.findHost,
-        rowGroup: this.rowGroupHost,
-        clipboard: this.clipboardHost,
-        locale: this.localeHost,
-        sideBar: this.sideBarApiHost,
-      }),
-    );
-
-    this.kernel = new GridKernel<T>(
-      {
-        api: this.api,
-        getDisplayRowCount: () => this.pagedDisplayRows().length,
-        getColumnIds: () => this.visibleColumns().map((c) => c.id),
-        ensureRowVisible: (rowIndex) => this.ensureRowVisible(rowIndex),
-        onFocusChange: (cell) => {
-          this.focusedCell.set(cell);
-          this.syncDomFocus(cell, { force: true });
-        },
-        onStartEdit: (cell, reason) =>
-          this.startEditAtFocus(cell.rowIndex, cell.columnId, reason),
-        onCancelEdit: () => this.cancelActiveEdit(),
-        onToggleSelect: (rowIndex) => this.toggleSelectionAtIndex(rowIndex),
-        onSelectAll: () => {
-          if (this.effectiveSelectionMode() !== 'multi') {
-            return false;
-          }
-          this.selectAllVisible();
-          return true;
-        },
-        onToggleGroup: (rowIndex) => {
-          const item = this.pagedDisplayRows()[rowIndex];
-          if (item?.kind === 'group') {
-            this.toggleGroup(item.id);
-          }
-        },
-        isGroupRow: (rowIndex) => this.pagedDisplayRows()[rowIndex]?.kind === 'group',
-        getPageRowCount: () =>
-          Math.max(1, Math.floor(this.viewportHeight() / this.rowHeight()) || 10),
-        onHeaderActivate: (columnId, multi) => this.activateHeaderSort(columnId, multi),
-        onOpenColumnMenu: (columnId) => this.openColumnMenu(columnId),
-        hasFloatingFilters: () => this.floatingFilters() && this.hasFilters(),
-        onExtendRange: (dRow, dCol) => this.api.extendCellRange(dRow, dCol),
-        onClearRange: () => this.api.clearCellRange(),
-        getFindMatchCount: (): number => this.findMatches().length,
-        getFindActiveIndex: (): number => this.findActiveIndex(),
-        setFindActiveIndex: (index) => this.findActiveIndex.set(index),
-        onFindNavigate: () => this.scrollToActiveFind(),
+    this.session = createDataGridSession<T>({
+      controller: () => this.controller(),
+      data: () => this.data(),
+      models: {
+        selectedIds: this.selectedIds,
+        quickFilter: this.quickFilter,
+        hiddenColumnIds: this.hiddenColumnIds,
+        findQuery: this.findQuery,
+        rowForm: this.rowForm,
+        rowEditSession: this.rowEditSession,
+        rowEditDraft: this.rowEditDraft,
       },
-      this.injector,
-    );
-    this.toolbarSlotItems = this.kernel.toolbarSlotItems;
-    this.statusBarSlotItems = this.kernel.statusBarSlotItems;
-    this.sidebarSlotItems = this.kernel.sidebarSlotItems;
-
-    this.api.attachPluginLifecycle(this.kernel);
+      outputs: {
+        sortChange: this.sortChange,
+        filterChange: this.filterChange,
+        cellEdit: this.cellEdit,
+        rowEdit: this.rowEdit,
+        rowEditStart: this.rowEditStart,
+        rowEditCancel: this.rowEditCancel,
+        rowClick: this.rowClick,
+        selectionChange: this.selectionChange,
+        queryChange: this.queryChange,
+        stateChange: this.stateChange,
+        columnOrderChange: this.columnOrderChange,
+        contextMenuOpened: this.contextMenuOpened,
+        contextMenuClosed: this.contextMenuClosed,
+        findMatchesChange: this.findMatchesChange,
+        rowReorder: this.rowReorder,
+        nearEnd: this.nearEnd,
+        paste: this.paste,
+      },
+      publish: (name, outputRef, payload) => this.publish(name, outputRef, payload),
+      hostElement: () => this.host.nativeElement,
+      injector: () => this.injector,
+      parentInjector: () => this.parentInjector,
+      externalFilter: () => this.externalFilter(),
+      contextMenuItems: () => this.contextMenuItems(),
+      contextMenuOverlayPresent: () => !!this.contextMenuOverlay(),
+      contextMenuTemplate: () => this.contextMenuTemplate(),
+      rowEditSchema: () => this.rowEditSchema(),
+      createRowForm: () => this.createRowForm(),
+      resolvedLocale: () => this.resolvedLocale(),
+      getLocale: () => this.getLocale(),
+    });
+    this.api = this.session.api;
+    this.columnLayoutHost = this.session.columnLayout;
+    this.viewportHost = this.session.viewport;
+    this.selectionHost = this.session.selection;
+    this.editSyncHost = this.session.editSync;
+    this.menuHost = this.session.menu;
 
     effect(() => {
-      const cols = this.resolvedColumns();
+      const cols = this.columnLayoutHost.resolvedColumns();
       if (!cols.length) {
         return;
       }
       const ids = cols.map((c) => c.id);
-      const layout = this.columnLayout();
+      const layout = this.columnLayoutHost.columnLayout();
       const nextLayout = reconcileColumnLayout(layout, cols);
       if (
         nextLayout.order.join('\0') !== layout.order.join('\0') ||
         JSON.stringify(nextLayout.pin) !== JSON.stringify(layout.pin)
       ) {
-        this.columnLayout.set(nextLayout);
+        this.columnLayoutHost.columnLayout.set(nextLayout);
       }
       const newlyHidden = cols
         .filter((c) => c.hide && !this.knownColumnIds.has(c.id))
@@ -958,23 +468,23 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     });
 
     effect(() => {
-      const max = this.totalPages() - 1;
-      if (this.pageIndex() > max) {
-        this.pageIndex.set(Math.max(0, max));
+      const max = this.viewportHost.totalPages() - 1;
+      if (this.viewportHost.pageIndex() > max) {
+        this.viewportHost.pageIndex.set(Math.max(0, max));
       }
     });
 
     // Keep find active index in range — emit from findMatchesChange only on query updates.
     effect(() => {
-      const matches = this.findMatches();
+      const matches = this.viewportHost.findMatches();
       if (!matches.length) {
-        if (this.findActiveIndex() !== 0) {
-          this.findActiveIndex.set(0);
+        if (this.viewportHost.findActiveIndex() !== 0) {
+          this.viewportHost.findActiveIndex.set(0);
         }
         return;
       }
-      if (this.findActiveIndex() >= matches.length) {
-        this.findActiveIndex.set(0);
+      if (this.viewportHost.findActiveIndex() >= matches.length) {
+        this.viewportHost.findActiveIndex.set(0);
       }
     });
 
@@ -982,7 +492,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       this.measureViewport();
       this.observeViewportResize();
       // Imperative once — never reactivate from an effect (slot writes would loop).
-      this.kernel.activatePlugins(this.effectivePlugins(), this.host.nativeElement);
+      this.session.kernel.activatePlugins(this.effectivePlugins(), this.host.nativeElement);
       this.pluginsMounted = true;
       this.lastPluginKey = this.pluginListKey(this.effectivePlugins());
       this.publish('apiReady', this.apiReady, this.api);
@@ -1011,11 +521,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       }
       this.viewportResizeObserver?.disconnect();
       this.controller().bindApi(null);
-      this.teardownPlugins();
-      this.destroyRowEditSession();
-      this.rowDragCleanup?.();
-      this.rowDragCleanup = null;
-      this.api.events.clear();
+      this.session.destroy();
     });
   }
 
@@ -1044,80 +550,15 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     });
   }
 
-  private pluginContext(): DataGridPluginContext<T> {
-    return this.kernel.pluginContext(this.host.nativeElement);
-  }
-
-  private rowModelContext() {
-    return {
-      columnsById: this.columnsById() as Map<string, ColumnDef<T>>,
-      rowId: (row: T, index: number) => this.resolveRowId(row, index),
-      collapsedGroupIds: this.collapsedGroupIds(),
-    };
-  }
-
-  private teardownPlugins(): void {
-    this.kernel.destroy();
-  }
-
   private measureViewport(): void {
-    const scroll = this.host.nativeElement.querySelector(
-      '.al-data-grid__scroll',
-    ) as HTMLElement | null;
-    if (!scroll) {
-      return;
-    }
-    const width = scroll.clientWidth || 800;
-    const height = scroll.clientHeight || 480;
-    // Avoid flex-width churn when the measured box is unchanged.
-    if (this.viewportWidth() !== width) {
-      this.viewportWidth.set(width);
-    }
-    if (this.viewportHeight() !== height) {
-      this.viewportHeight.set(height);
-    }
+    this.viewportHost.measureViewport();
   }
 
-  resolvedEmptyMessage(): string {
-    return this.emptyMessageText();
-  }
+  getLocale(): DataGridLocale { return this.resolvedLocale(); }
 
-  i18n(): DataGridLocale {
-    return this.resolvedLocale();
-  }
+  contextMenuTemplate() { return this.contextMenuOverlay()?.template ?? null; }
 
-  getLocale(): DataGridLocale {
-    return this.resolvedLocale();
-  }
-
-  loadingTemplate() {
-    return this.loadingOverlay()?.template ?? null;
-  }
-
-  emptyTemplate() {
-    return this.emptyOverlay()?.template ?? null;
-  }
-
-  contextMenuTemplate() {
-    return this.contextMenuOverlay()?.template ?? null;
-  }
-
-  contextMenuEnabled(): boolean {
-    return (
-      this.contextMenu() ||
-      !!this.contextMenuItems() ||
-      !!this.contextMenuOverlay() ||
-      this.kernel.capabilities.hasContextMenuItems()
-    );
-  }
-
-  resolveRowId(row: T, index: number): string | number {
-    return this.effectiveRowId()(row, index);
-  }
-
-  trackRow(_viewIndex: number, item: DisplayRow<T>): string {
-    return item.id;
-  }
+  trackRow(_viewIndex: number, item: DisplayRow<T>): string { return item.id; }
 
   cellValue(row: T, column: ColumnDef<T>, rowIndex: number): unknown {
     return getCellValue(row, column, rowIndex);
@@ -1128,40 +569,42 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   }
 
   cellClass(row: T, column: ColumnDef<T>, rowIndex: number, value: unknown): string {
-    const base = resolveCellClass(value, row, column, rowIndex);
-    const decorated = this.kernel.capabilities.resolveCellDecoratorClasses({
+    const base = resolveBaseCellClass(value, row, column, rowIndex);
+    const decorated = this.session.kernel.capabilities.resolveCellDecoratorClasses({
       row,
-      rowId: this.resolveRowId(row, rowIndex),
+      rowId: this.effectiveRowId()(row, rowIndex),
       rowIndex,
       columnId: column.id ?? column.field ?? '',
       column,
       value,
     });
-    return [base, decorated].filter(Boolean).join(' ');
+    return mergeCellClass(base, decorated);
   }
 
-  cellTemplate(columnId: string) {
-    return this.templateMap().get(columnId) ?? null;
+  cellDecoratorStyle(
+    row: T,
+    column: ColumnDef<T>,
+    rowIndex: number,
+    value: unknown,
+  ): Record<string, string> {
+    return this.session.kernel.capabilities.resolveCellDecoratorStyles({
+      row,
+      rowId: this.effectiveRowId()(row, rowIndex),
+      rowIndex,
+      columnId: column.id ?? column.field ?? '',
+      column,
+      value,
+    });
   }
 
-  headerTemplate(columnId: string) {
-    return this.headerTemplateMap().get(columnId) ?? null;
-  }
+  cellTemplate(columnId: string) { return this.templateMap().get(columnId) ?? null; }
+  headerTemplate(columnId: string) { return this.headerTemplateMap().get(columnId) ?? null; }
 
   isBooleanColumn = isBooleanColumn;
   isDateColumn = isDateColumn;
   isSelectEditor = isSelectEditor;
 
-  /** Per-instance editor registry (inherits app-wide default resolvers). */
   readonly editorRegistry = new CellEditorRegistry(defaultCellEditorRegistry);
-
-  resolveCellEditor = (column: ColumnDef<T>) =>
-    resolveCellEditor(column, this.editorRegistry);
-
-  /** Plugin-registered view for a display-row kind (beyond built-in group/data). */
-  displayViewFor(kind: string) {
-    return this.kernel.capabilities.getDisplayView(kind);
-  }
 
   customRendererType(column: ColumnDef<T>): Type<unknown> | null {
     return isCustomRendererComponent(column) ? (column.cellRenderer ?? null) : null;
@@ -1182,13 +625,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     column: ResolvedColumn<T>,
     value: unknown,
   ): CellRendererParams<T> {
-    return {
-      value,
-      row,
-      rowIndex,
-      column,
-      columnId: column.id,
-    };
+    return { value, row, rowIndex, column, columnId: column.id };
   }
 
   cellEditorParams(
@@ -1200,10 +637,10 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
   ): CellEditorParams<T> {
     return {
       ...this.cellRendererParams(row, rowIndex, column, value),
-      draft: this.editDraft(),
-      setDraft: (next) => this.editDraft.set(next),
-      commit: () => this.commitEdit(row, rowId, rowIndex, column),
-      cancel: () => this.cancelEdit(),
+      draft: this.editSyncHost.editDraft(),
+      setDraft: (next) => this.editSyncHost.editDraft.set(next),
+      commit: () => this.editSyncHost.commitEdit(row, rowId, rowIndex, column),
+      cancel: () => this.editSyncHost.cancelEdit(),
     };
   }
 
@@ -1211,394 +648,56 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     return formatAggregateValue(value, column);
   }
 
-  aggValue(columnId: string): unknown {
-    return this.aggregateValues().get(columnId);
-  }
-
-  columnWidth(column: ResolvedColumn<T>): number | null {
-    return this.resolvedWidths()[column.id] ?? column.width ?? column.minWidth;
-  }
+  aggValue(columnId: string): unknown { return this.aggregateValues().get(columnId); }
 
   rowClasses(row: T, rowIndex: number): string {
     return resolveRowClass(row, rowIndex, this.rowClass());
   }
 
-  isCellFocused(rowIndex: number, columnId: string): boolean {
-    const focus = this.focusedCell();
-    return (
-      !!focus &&
-      focusRealmOf(focus) === 'body' &&
-      focus.rowIndex === rowIndex &&
-      focus.columnId === columnId
-    );
-  }
-
-  isHeaderFocused(columnId: string): boolean {
-    const focus = this.focusedCell();
-    return !!focus && focusRealmOf(focus) === 'header' && focus.columnId === columnId;
-  }
-
-  isFloatingFilterFocused(columnId: string): boolean {
-    const focus = this.focusedCell();
-    return !!focus && focusRealmOf(focus) === 'floatingFilter' && focus.columnId === columnId;
-  }
-
-  /** Lean column menu — pin / sort / autosize / hide (Wave 4). */
-  openColumnMenu(columnId: string): void {
-    const column = this.columnsById().get(columnId);
-    if (!column) {
-      return;
-    }
-    this.columnMenuColumnId.set(columnId);
-    const items = this.leanColumnMenuItems(column);
-    const escape =
-      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
-        ? CSS.escape
-        : (s: string) => s.replace(/"/g, '\\"');
-    const th = this.host.nativeElement.querySelector(
-      `[data-testid="al-dg-col-${escape(columnId)}"]`,
-    ) as HTMLElement | null;
-    const rect = th?.getBoundingClientRect();
-    const pos = positionMenu(
-      rect?.left ?? 8,
-      (rect?.bottom ?? 8) + 4,
-      220,
-      8 + items.length * 36,
-    );
-    this.contextMenuState.set({
-      left: pos.left,
-      top: pos.top,
-      ctx: null,
-      source: 'header',
-      items,
-    });
-  }
-
-  closeColumnMenu(): void {
-    this.columnMenuColumnId.set(null);
-    if (this.contextMenuState()?.source === 'header') {
-      this.contextMenuState.set(null);
-    }
-  }
-
-  private leanColumnMenuItems(column: ResolvedColumn<T>): DataGridContextMenuItem<T>[] {
-    const locale = this.resolvedLocale();
-    const pinned = column.pinned === 'left' || column.pinned === 'right' ? column.pinned : null;
-    const sortDirection =
-      this.sorts().find((s) => s.columnId === column.id)?.direction ?? null;
-    return buildLeanColumnMenuItems({
-      locale,
-      pinned,
-      sortable: !!column.sortable,
-      sortDirection,
-      canHide: this.visibleColumns().length > 1,
-      sortAsc: () => this.setColumnSort(column.id, 'asc'),
-      sortDesc: () => this.setColumnSort(column.id, 'desc'),
-      clearSort: () => this.setColumnSort(column.id, null),
-      pinLeft: () => this.setColumnPinned(column.id, 'left'),
-      pinRight: () => this.setColumnPinned(column.id, 'right'),
-      unpin: () => this.setColumnPinned(column.id, null),
-      autosize: () => this.autoSizeColumns([column.id]),
-      hide: () => this.setColumnVisible(column.id, false),
-    });
-  }
-
-  /** Set / clear a single-column sort (lean menu). */
-  setColumnSort(columnId: string, direction: 'asc' | 'desc' | null): void {
-    const column = this.columnsById().get(columnId);
-    if (!column?.sortable) {
-      return;
-    }
-    const sorts: SortState[] = direction
-      ? [{ columnId: column.id, direction }]
-      : this.sorts().filter((s) => s.columnId !== column.id);
-    this.sorts.set(sorts);
-    this.publish('sortChange', this.sortChange, sorts);
-    this.emitState();
-    this.emitQueryIfServer();
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', sorts);
-  }
-
   focusHeaderColumn(columnId: string): void {
-    this.kernel.focus.focusCell(0, columnId, 'header');
+    this.session.kernel.focus.focusCell(0, columnId, 'header');
   }
 
   focusFloatingFilterColumn(columnId: string): void {
-    this.kernel.focus.focusCell(0, columnId, 'floatingFilter');
+    this.session.kernel.focus.focusCell(0, columnId, 'floatingFilter');
   }
 
-  /** Header + body row count for `aria-rowcount` (1 leaf header row + optional filter + data). */
+  private headerRows(): number {
+    return headerRowCountOf(
+      this.columnLayoutHost.hasColumnGroups(),
+      this.floatingFilters() && this.columnLayoutHost.hasFilters(),
+    );
+  }
+
   ariaRowCount(): number {
-    const headerRows = 1 + (this.hasColumnGroups() ? 1 : 0) + (this.floatingFilters() && this.hasFilters() ? 1 : 0);
-    return headerRows + this.displayRows().length;
+    return ariaRowCountOf(this.headerRows(), this.session.displayRows().length);
   }
 
-  /** 1-based column index including optional drag/select leading columns. */
   ariaColIndex(visibleColIndex: number): number {
-    let offset = 1;
-    if (this.rowDragEnabled()) {
-      offset += 1;
-    }
-    if (this.showSelection()) {
-      offset += 1;
-    }
-    return offset + visibleColIndex;
+    return ariaColIndexOf(
+      visibleColIndex,
+      this.viewportHost.rowDragEnabled(),
+      this.selectionHost.showSelection(),
+    );
   }
 
-  /** 1-based `aria-rowindex` for body rows (accounts for header rows). */
   ariaBodyRowIndex(displayIndex: number): number {
-    const headerRows = 1 + (this.hasColumnGroups() ? 1 : 0) + (this.floatingFilters() && this.hasFilters() ? 1 : 0);
-    return headerRows + displayIndex + 1;
+    return ariaBodyRowIndexOf(this.headerRows(), displayIndex);
   }
 
-  dateInputValue(value: unknown): string {
-    return toDateKey(value) ?? '';
-  }
-
-  pinnedLeftOffset(columnId: string): number {
-    let offset = (this.showSelection() ? 40 : 0) + (this.rowDragEnabled() ? 36 : 0);
-    for (const col of this.visibleColumns()) {
-      if (col.pinned !== 'left') {
-        continue;
-      }
-      if (col.id === columnId) {
-        return offset;
-      }
-      offset += this.columnWidth(col) ?? col.minWidth;
-    }
-    return offset;
-  }
-
-  pinnedRightOffset(columnId: string): number {
-    let offset = this.effectiveEditMode() === 'fullRow' ? 132 : 0;
-    const pinned = this.visibleColumns().filter((c) => c.pinned === 'right');
-    for (let i = pinned.length - 1; i >= 0; i--) {
-      const col = pinned[i]!;
-      if (col.id === columnId) {
-        return offset;
-      }
-      offset += this.columnWidth(col) ?? col.minWidth;
-    }
-    return offset;
-  }
-
-  ariaSort(columnId: string): 'ascending' | 'descending' | 'none' {
-    const sort = this.sorts().find((s) => s.columnId === columnId);
-    if (!sort) {
-      return 'none';
-    }
-    return sort.direction === 'asc' ? 'ascending' : 'descending';
-  }
-
-  sortMarker(columnId: string): string | null {
-    const index = this.sorts().findIndex((s) => s.columnId === columnId);
-    if (index < 0) {
-      return null;
-    }
-    const sort = this.sorts()[index]!;
-    const arrow = sort.direction === 'asc' ? '↑' : '↓';
-    return this.sorts().length > 1 ? `${arrow}${index + 1}` : arrow;
-  }
-
-  toggleSort(column: ResolvedColumn<T>, event: MouseEvent): void {
-    if (!column.sortable) {
-      return;
-    }
-    this.activateHeaderSort(column.id, this.multiSort() && event.shiftKey);
-  }
-
-  /** Keyboard / API sort toggle (Enter on header). */
-  activateHeaderSort(columnId: string, multi: boolean): void {
-    const column = this.columnsById().get(columnId);
-    if (!column?.sortable) {
-      return;
-    }
-    const useMulti = this.multiSort() && multi;
-    const existing = this.sorts();
-    const current = existing.find((s) => s.columnId === column.id)?.direction ?? null;
-    const next = nextSortDirection(current, useMulti);
-
-    let sorts: SortState[];
-    if (!useMulti) {
-      sorts = next ? [{ columnId: column.id, direction: next }] : [];
-    } else {
-      const others = existing.filter((s) => s.columnId !== column.id);
-      sorts = next ? [...others, { columnId: column.id, direction: next }] : others;
-    }
-
-    this.sorts.set(sorts);
-    this.publish('sortChange', this.sortChange, sorts);
-    this.emitState();
-    this.emitQueryIfServer();
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', sorts);
-  }
-
-  setFilter(columnId: string, value: string): void {
-    const next = { ...this.filters(), [columnId]: value };
-    if (!value) {
-      delete next[columnId];
-    }
-    this.filters.set(next);
-    this.publish('filterChange', this.filterChange, next);
-    this.emitState();
-    this.emitQueryIfServer();
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onFilterChange', next);
-  }
-
-  setQuickFilter(value: string): void {
-    this.quickFilter.set(value);
-    this.emitState();
-    this.emitQueryIfServer();
-  }
-
-  clearFilters(): void {
-    this.filters.set({});
-    this.quickFilter.set('');
-    this.publish('filterChange', this.filterChange, {});
-    this.emitState();
-    this.emitQueryIfServer();
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onFilterChange', {});
-  }
-
-  goToPage(index: number): void {
-    this.pageIndex.set(Math.max(0, Math.min(this.totalPages() - 1, index)));
-    this.emitState();
-    this.emitQueryIfServer();
-  }
-
-  onScroll(event: Event): void {
-    const el = event.target as HTMLElement;
-    this.scrollTop.set(el.scrollTop);
-    // Height can change if a horizontal scrollbar toggles; width is owned by ResizeObserver.
-    const height = el.clientHeight || 480;
-    if (this.viewportHeight() !== height) {
-      this.viewportHeight.set(height);
-    }
-  }
-
-  /** Called by `infiniteScrollPlugin` via `api.notifyNearEnd()`. */
-  notifyNearEnd(): void {
-    this.publish('nearEnd', this.nearEnd, undefined);
-  }
-
-  toggleGroup(groupId: string): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.toggleCollapsed(groupId);
-      return;
-    }
-    this.collapsedGroupIds.update((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
-      }
-      return next;
-    });
-  }
-
-  expandAll(): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.expandAll();
-      return;
-    }
-    this.collapsedGroupIds.set(new Set());
-  }
-
-  setRowGroupColumns(columns: readonly string[]): void {
-    this.boundRowGroupAdapter()?.setColumns(columns);
-  }
-
-  getRowGroupColumns(): string[] {
-    return [...(this.boundRowGroupAdapter()?.columns() ?? [])];
-  }
-
-  clearRowGroup(): void {
-    this.boundRowGroupAdapter()?.clear();
-  }
-
-  collapseAll(): void {
-    const adapter = this.boundRowGroupAdapter();
-    const all = this.kernel.capabilities.buildDisplayRows(this.processedRows(), {
-      ...this.rowModelContext(),
-      collapsedGroupIds: new Set(),
-    });
-    const ids = all.filter((row) => row.kind === 'group').map((row) => row.id);
-    if (adapter) {
-      adapter.collapseAll(ids);
-      return;
-    }
-    this.collapsedGroupIds.set(new Set(ids));
-  }
-
-  isSelected(id: string | number): boolean {
-    return this.selectedIds().includes(id);
-  }
-
-  /** §5d — host may exclude rows from checkbox / Space / click-select. */
-  isRowSelectable(row: T, rowId: string | number): boolean {
-    const fn = this.controller().isRowSelectable;
-    return fn ? fn(row, rowId) : true;
-  }
-
-  toggleRowSelection(id: string | number, event: Event): void {
-    const row = this.findDataRowById(id);
-    if (row && !this.isRowSelectable(row, id)) {
-      return;
-    }
-    const checked = (event.target as HTMLInputElement).checked;
-    if (this.effectiveSelectionMode() === 'single') {
-      const next = checked ? [id] : [];
-      this.selectedIds.set(next);
-      this.publish('selectionChange', this.selectionChange, next);
-      notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', next);
-      return;
-    }
-    const set = new Set(this.selectedIds());
-    if (checked) {
-      set.add(id);
-    } else {
-      set.delete(id);
-    }
-    const next = [...set];
-    this.selectedIds.set(next);
-    this.publish('selectionChange', this.selectionChange, next);
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', next);
-  }
-
-  toggleSelectAll(event: Event): void {
-    const checked = (event.target as HTMLInputElement).checked;
-    if (!checked) {
-      this.selectedIds.set([]);
-      this.publish('selectionChange', this.selectionChange, []);
-      notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', []);
-      return;
-    }
-    const ids = this.visibleDataRowIds().filter((id) => {
-      const row = this.findDataRowById(id);
-      return !row || this.isRowSelectable(row, id);
-    });
-    this.selectedIds.set(ids);
-    this.publish('selectionChange', this.selectionChange, ids);
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', ids);
-  }
-
-  onRowClick(row: T, rowId: string | number, rowIndex: number, event: MouseEvent): void {
-    if (
-      this.effectiveRowClickSelects() &&
-      this.effectiveSelectionMode() !== 'none' &&
-      this.isRowSelectable(row, rowId) &&
-      !(event.target instanceof HTMLElement && event.target.closest('input,button,a,select,textarea'))
-    ) {
-      const selected = this.isSelected(rowId);
-      const fake = {
-        target: { checked: !selected },
-      } as unknown as Event;
-      this.toggleRowSelection(rowId, fake);
-    }
-    this.publish('rowClick', this.rowClick, { row, rowId, rowIndex, event });
+  cellAriaSelected(
+    rowId: string | number,
+    displayIndex: number,
+    columnId: string,
+  ): boolean | null {
+    void this.session.kernel.capabilities.overlayPaintEpoch();
+    return cellAriaSelectedOf(
+      this.selectionHost.isSelected(rowId),
+      this.api.getCellRange(),
+      displayIndex,
+      columnId,
+      this.columnLayoutHost.visibleColumns().map((c) => c.id),
+    );
   }
 
   onCellClick(
@@ -1612,11 +711,11 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     displayIndex?: number,
   ): void {
     // Don't steal focus from an active editor (breaks double-click select-all).
-    if (this.isEditorEventTarget(event.target)) {
+    if (this.editSyncHost.isEditorEventTarget(event.target)) {
       return;
     }
     const focusIndex = displayIndex ?? rowIndex;
-    this.kernel.focus.focusCell(focusIndex, column.id);
+    this.session.kernel.focus.focusCell(focusIndex, column.id);
     this.publish('cellClick', this.cellClick, {
       row,
       rowId,
@@ -1627,7 +726,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       event,
     });
     if (this.effectiveEditInteraction().pointerStart === 'click') {
-      this.startEdit(row, rowId, rowIndex, column, value);
+      this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
     }
   }
 
@@ -1639,38 +738,13 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     value: unknown,
     event: MouseEvent,
   ): void {
-    if (this.isEditorEventTarget(event.target)) {
+    if (this.editSyncHost.isEditorEventTarget(event.target)) {
       return;
     }
     if (this.effectiveEditInteraction().pointerStart !== 'dblclick') {
       return;
     }
-    this.startEdit(row, rowId, rowIndex, column, value);
-  }
-
-  private findDataRowById(id: string | number): T | null {
-    const getId = this.effectiveRowId();
-    for (let i = 0; i < this.data().length; i++) {
-      const row = this.data()[i]!;
-      if (getId(row, i) === id) {
-        return row;
-      }
-    }
-    return null;
-  }
-
-  private isEditorEventTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) {
-      return false;
-    }
-    const tag = target.tagName;
-    return (
-      tag === 'INPUT' ||
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT' ||
-      target.isContentEditable ||
-      !!target.closest('.al-data-grid__edit-input, .al-data-grid__edit-check')
-    );
+    this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
   }
 
   onGridKeydown(event: KeyboardEvent): void {
@@ -1690,7 +764,7 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
 
     const interaction = this.effectiveEditInteraction();
     const fullRowEditing =
-      this.effectiveEditMode() === 'fullRow' && this.rowEditMgr.editingId() != null;
+      this.effectiveEditMode() === 'fullRow' && this.editSyncHost.rowEditMgr.editingId() != null;
     const passHorizontal =
       fullRowEditing &&
       interaction.arrowEditing === 'moveHorizontal' &&
@@ -1699,62 +773,26 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       return;
     }
 
-    if (!inField && this.tryTypeToEdit(event)) {
+    if (!inField && this.editSyncHost.tryTypeToEdit(event)) {
       event.preventDefault();
       return;
     }
 
-    if (this.kernel.focus.handleKeydown(event)) {
+    if (this.session.kernel.focus.handleKeydown(event)) {
       event.preventDefault();
     }
-  }
-
-  /**
-   * Type-to-edit: printable / Backspace / Delete → startEdit + optional draft seed.
-   * DOM focus is owned by {@link syncDomFocus}.
-   */
-  private tryTypeToEdit(event: KeyboardEvent): boolean {
-    if (this.effectiveEditInteraction().typeToEdit !== 'replace') {
-      return false;
-    }
-    if (!isTypeToEditKey(event)) {
-      return false;
-    }
-    const focus = this.kernel.focus.getFocus();
-    if (!focus || focusRealmOf(focus) !== 'body') {
-      return false;
-    }
-    const item = this.pagedDisplayRows()[focus.rowIndex];
-    const col = this.columnsById().get(focus.columnId);
-    if (!item || !isDataDisplayRow(item) || !col?.editable) {
-      return false;
-    }
-
-    const seedKey =
-      event.key === 'Backspace' || event.key === 'Delete' ? '' : event.key;
-    const value = this.cellValue(item.row, col, item.dataIndex);
-    const editMode = this.effectiveEditMode() === 'fullRow' ? 'fullRow' : 'cell';
-    const resolved = resolveTypeToEditSeed(col, value, seedKey, editMode);
-    if (resolved.action === 'ignore') {
-      return false;
-    }
-
-    this.startEdit(item.row, item.rowId, item.dataIndex, col, value, {
-      seed: resolved,
-    });
-    return true;
   }
 
   onEscapeKey(event?: Event): void {
-    const focus = this.kernel.focus.getFocus();
+    const focus = this.session.kernel.focus.getFocus();
     if (focus && focusRealmOf(focus) === 'floatingFilter') {
-      this.kernel.focus.focusCell(0, focus.columnId, 'header');
+      this.session.kernel.focus.focusCell(0, focus.columnId, 'header');
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
-    if (this.columnMenuColumnId() || this.contextMenuState()?.source === 'header') {
-      this.closeColumnMenu();
-      this.closeContextMenu();
+    if (this.menuHost.columnMenuColumnId() || this.menuHost.contextMenuState()?.source === 'header') {
+      this.menuHost.closeColumnMenu();
+      this.menuHost.closeContextMenu();
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
@@ -1763,249 +801,20 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
-    const hadEdit = this.editingCell() != null || this.rowEditMgr.editingId() != null;
-    const hadMenu = this.contextMenuState() != null;
-    this.cancelActiveEdit();
-    this.closeContextMenu();
+    const hadEdit = this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null;
+    const hadMenu = this.menuHost.contextMenuState() != null;
+    this.editSyncHost.cancelActiveEdit();
+    this.menuHost.closeContextMenu();
     if (hadEdit || hadMenu) {
       (event as KeyboardEvent | undefined)?.preventDefault?.();
     }
   }
 
-  cancelActiveEdit(): void {
-    if (this.rowEditMgr.editingId() != null) {
-      this.cancelRowEdit();
-      return;
-    }
-    if (this.editingCell() != null) {
-      this.cancelEdit();
-    }
-  }
-
-  /**
-   * Sole owner of TD vs editor DOM focus.
-   * When the focused cell is in a cell/row edit session, focus the nested editor.
-   * If the editor is not in the DOM yet, retries once after the next render.
-   *
-   * @param force — keyboard/focus-model moves must update DOM focus even if another
-   *   cell still holds `document.activeElement`. Omit for edit-stop so blur-away
-   *   (outside grid / other control) is not stolen back.
-   */
   syncDomFocus(cell: FocusCell | null, opts?: { force?: boolean }): void {
-    if (!cell) {
-      return;
-    }
-    const force = opts?.force === true;
-    const apply = (allowRetry: boolean): void => {
-      const realm = focusRealmOf(cell);
-      if (realm === 'header') {
-        const el = this.host.nativeElement.querySelector(
-          `[data-testid="al-dg-col-${cell.columnId}"]`,
-        ) as HTMLElement | null;
-        el?.focus({ preventScroll: true });
-        return;
-      }
-      if (realm === 'floatingFilter') {
-        const el = this.host.nativeElement.querySelector(
-          `[data-testid="al-dg-filter-${cell.columnId}"]`,
-        ) as HTMLElement | null;
-        if (!el) {
-          return;
-        }
-        const active = typeof document !== 'undefined' ? document.activeElement : null;
-        // Keep caret in the nested filter control (mouse click / Tab into input).
-        if (active instanceof HTMLElement && el.contains(active) && active !== el) {
-          return;
-        }
-        el.focus({ preventScroll: true });
-        return;
-      }
-      const item = this.pagedDisplayRows()[cell.rowIndex];
-      if (!item) {
-        return;
-      }
-      if (isGroupDisplayRow(item)) {
-        const el = this.host.nativeElement.querySelector(
-          `[data-testid="al-dg-group-${item.id}"] .al-data-grid__group-toggle`,
-        ) as HTMLElement | null;
-        el?.focus({ preventScroll: true });
-        return;
-      }
-      if (!isDataDisplayRow(item)) {
-        return;
-      }
-      const el = this.host.nativeElement.querySelector(
-        `[data-testid="al-dg-cell-${item.rowId}-${cell.columnId}"]`,
-      ) as HTMLElement | null;
-      const col = this.columnsById().get(cell.columnId);
-      const cellEditing =
-        this.editingCell()?.rowId === item.rowId &&
-        this.editingCell()?.columnId === cell.columnId;
-      const rowEditing = this.rowEditMgr.isEditing(item.rowId) && !!col?.editable;
-      const wantsEditor = cellEditing || rowEditing;
-      const active = typeof document !== 'undefined' ? document.activeElement : null;
-
-      // Keep caret inside an active editor only while that cell is still editing.
-      if (
-        wantsEditor &&
-        el &&
-        active instanceof HTMLElement &&
-        el.contains(active) &&
-        this.isEditorEventTarget(active)
-      ) {
-        return;
-      }
-      if (wantsEditor && this.focusEditorInCell(item.rowId, cell.columnId)) {
-        return;
-      }
-      if (wantsEditor && allowRetry) {
-        afterNextRender(() => apply(false), { injector: this.injector });
-        return;
-      }
-      // Edit-stop: don't yank focus back if it already left this cell.
-      if (
-        !force &&
-        active instanceof HTMLElement &&
-        el &&
-        !el.contains(active) &&
-        active !== document.body &&
-        active !== this.host.nativeElement
-      ) {
-        return;
-      }
-      el?.focus({ preventScroll: true });
-    };
-
-    queueMicrotask(() => apply(true));
+    this.editSyncHost.syncDomFocus(cell, opts);
   }
 
-  /** Focus nested editor in a cell. Returns true when found. */
-  private focusEditorInCell(rowId: string | number, columnId: string, select = true): boolean {
-    const root = this.host.nativeElement.querySelector(
-      `[data-testid="al-dg-cell-${rowId}-${columnId}"]`,
-    ) as HTMLElement | null;
-    if (!root) {
-      return false;
-    }
-    const editor = root.querySelector(
-      '.al-data-grid__edit-input, .al-data-grid__edit-check, .al-data-grid__editor-host input, .al-data-grid__editor-host textarea, .al-data-grid__editor-host select',
-    ) as HTMLElement | null;
-    if (!editor) {
-      return false;
-    }
-    editor.focus({ preventScroll: true });
-    if (
-      select &&
-      editor instanceof HTMLInputElement &&
-      editor.type !== 'checkbox' &&
-      editor.type !== 'date' &&
-      typeof editor.select === 'function'
-    ) {
-      editor.select();
-    }
-    return true;
-  }
-
-  /** Tab / focusin on the grid frame — restore last cell or default (K4). */
-  onGridFocusIn(event: FocusEvent): void {
-    const target = event.target as HTMLElement | null;
-    if (!target || !this.host.nativeElement.contains(target)) {
-      return;
-    }
-    // Already on a cell/header/filter — don't steal.
-    if (
-      target.closest(
-        '.al-data-grid__td, .al-data-grid__th, .al-data-grid__edit-input, .al-data-grid__filter-field, al-data-grid-toolbar, al-data-grid-find-bar',
-      )
-    ) {
-      return;
-    }
-    if (target.classList.contains('al-data-grid__frame') || target === this.host.nativeElement) {
-      this.kernel.focus.restoreOrFocusDefault();
-    }
-  }
-
-  startEditAtFocus(
-    rowIndex: number,
-    columnId: string,
-    reason: 'enter' | 'f2' = 'enter',
-  ): void {
-    const focus = this.kernel.focus.getFocus();
-    if (focus && focusRealmOf(focus) !== 'body') {
-      return;
-    }
-    if (reason === 'enter' && this.effectiveEditInteraction().enterIdle === 'moveDown') {
-      this.kernel.focus.move(1, 0);
-      return;
-    }
-    const item = this.pagedDisplayRows()[rowIndex];
-    const col = this.columnsById().get(columnId);
-    if (!item || !isDataDisplayRow(item) || !col?.editable) {
-      return;
-    }
-    this.startEdit(
-      item.row,
-      item.rowId,
-      item.dataIndex,
-      col,
-      this.cellValue(item.row, col, item.dataIndex),
-    );
-  }
-
-  toggleSelectionAtIndex(rowIndex: number): void {
-    if (this.effectiveSelectionMode() === 'none') {
-      return;
-    }
-    const item = this.pagedDisplayRows()[rowIndex];
-    if (!item || !isDataDisplayRow(item)) {
-      return;
-    }
-    if (!this.isRowSelectable(item.row, item.rowId)) {
-      return;
-    }
-    const selected = this.isSelected(item.rowId);
-    const fake = {
-      target: { checked: !selected },
-    } as unknown as Event;
-    this.toggleRowSelection(item.rowId, fake);
-  }
-
-  selectAllVisible(): void {
-    if (this.effectiveSelectionMode() !== 'multi') {
-      return;
-    }
-    const ids = this.visibleDataRowIds().filter((id) => {
-      const row = this.findDataRowById(id);
-      return !row || this.isRowSelectable(row, id);
-    });
-    this.setSelectedIds(ids);
-  }
-
-  ensureRowVisible(rowIndex: number): void {
-    if (this.pagination()) {
-      const size = this.pageSize();
-      const page = Math.floor(rowIndex / size);
-      if (page !== this.pageIndex()) {
-        this.goToPage(page);
-      }
-      return;
-    }
-    if (!this.virtualEnabled()) {
-      return;
-    }
-    const top = rowIndex * this.rowHeight();
-    const scroll = this.host.nativeElement.querySelector(
-      '.al-data-grid__scroll',
-    ) as HTMLElement | null;
-    if (!scroll) {
-      return;
-    }
-    if (top < scroll.scrollTop) {
-      scroll.scrollTop = top;
-    } else if (top + this.rowHeight() > scroll.scrollTop + scroll.clientHeight) {
-      scroll.scrollTop = top - scroll.clientHeight + this.rowHeight();
-    }
-  }
+  onGridFocusIn(event: FocusEvent): void { this.viewportHost.onGridFocusIn(event); }
 
   onCellContextMenu(
     row: T,
@@ -2016,892 +825,19 @@ export class DataGrid<T = unknown> implements DataGridApiHost<T> {
     event: MouseEvent,
     displayIndex?: number,
   ): void {
-    if (!this.contextMenuEnabled()) {
-      return;
-    }
-    // Hold Ctrl/⌘ to get the browser menu (DevTools) — better than AG's popupParent dance.
-    if (event.ctrlKey || event.metaKey) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-
-    this.kernel.focus.focusCell(displayIndex ?? rowIndex, column.id);
-
-    const ctx: DataGridContextMenuContext<T> = {
-      row,
-      rowId,
-      rowIndex,
-      column,
-      columnId: column.id,
-      value,
-      event,
-      selectedIds: this.selectedIds(),
-      form: this.isRowEditing(rowId) ? this.rowForm() : null,
-      close: () => this.closeContextMenu(),
-    };
-
-    const custom = this.contextMenuItems();
-    const pluginItems = this.kernel.capabilities.resolveContextMenuItems(ctx);
-    let hostItems: DataGridContextMenuItem<T>[] = [];
-    if (custom) {
-      hostItems = resolveContextMenuItems(custom, ctx);
-    } else if (this.contextMenu() || this.contextMenuOverlay()) {
-      hostItems = defaultContextMenuItems<T>({
-        copyCell: () => writeClipboardText(formatCellValue(value, row, column, rowIndex)),
-        copyRow: () =>
-          writeClipboardText(
-            rowsToCsv([row], this.visibleColumns(), { includeHeaders: false }),
-          ),
-        exportCsv: () => this.exportCsv(),
-        autoSize: () => this.autoSizeColumns(),
-        clearFilters: () => this.clearFilters(),
-        hasFilters:
-          Object.keys(this.filters()).length > 0 || this.quickFilter().trim().length > 0,
-      });
-    }
-    const items = [...pluginItems, ...hostItems];
-
-    if (!this.contextMenuTemplate() && !items.length) {
-      return;
-    }
-
-    const pos = positionMenu(event.clientX, event.clientY, 200, 8 + items.length * 36);
-    this.contextMenuState.set({ left: pos.left, top: pos.top, ctx, source: 'cell', items });
-    this.publish('contextMenuOpened', this.contextMenuOpened, ctx);
+    this.menuHost.onCellContextMenu(row, rowId, rowIndex, column, value, event, displayIndex);
   }
 
-  /**
-   * Lean column menu — Alt+↓ / API, and header right-click.
-   * Drag-onto-column pin still works via {@link reorderVisibleColumns}.
-   */
   onHeaderContextMenu(column: ResolvedColumn<T>, event: MouseEvent): void {
-    if (event.ctrlKey || event.metaKey) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-
-    this.columnMenuColumnId.set(column.id);
-    const items = this.leanColumnMenuItems(column);
-    const pos = positionMenu(event.clientX, event.clientY, 220, 8 + items.length * 36);
-    this.contextMenuState.set({
-      left: pos.left,
-      top: pos.top,
-      ctx: null,
-      source: 'header',
-      items,
-    });
-  }
-
-  runContextMenuItem(item: DataGridContextMenuItem<T>): void {
-    const menu = this.contextMenuState();
-    if (!menu || item.disabled) {
-      return;
-    }
-    // Header actions are closed over column id and ignore ctx; cell actions need ctx.
-    if (menu.ctx) {
-      item.action?.(menu.ctx);
-    } else {
-      (item.action as (() => void) | undefined)?.();
-    }
-    this.closeContextMenu();
-  }
-
-  closeContextMenu(): void {
-    if (!this.contextMenuState()) {
-      this.columnMenuColumnId.set(null);
-      return;
-    }
-    this.contextMenuState.set(null);
-    this.columnMenuColumnId.set(null);
-    this.publish('contextMenuClosed', this.contextMenuClosed, undefined);
-  }
-
-  onDocumentPointerDown(event: Event): void {
-    if (!this.contextMenuState()) {
-      return;
-    }
-    const target = event.target as Node | null;
-    const menuEl = this.host.nativeElement.querySelector('.al-data-grid__ctx');
-    if (menuEl && target && menuEl.contains(target)) {
-      return;
-    }
-    this.closeContextMenu();
-  }
-
-  isEditing(rowId: string | number, columnId: string): boolean {
-    if (this.effectiveEditMode() === 'fullRow') {
-      return this.isRowEditing(rowId);
-    }
-    const cell = this.editingCell();
-    return !!cell && cell.rowId === rowId && cell.columnId === columnId;
-  }
-
-  isRowEditing(rowId: string | number): boolean {
-    return this.rowEditMgr.isEditing(rowId);
-  }
-
-  activeRowForm(): FieldTree<T> | null {
-    return this.rowForm();
-  }
-
-  rowFormInvalid(): boolean {
-    const id = this.rowEditMgr.editingId();
-    const tree = this.rowForm();
-    return id != null && !!tree && tree().invalid();
-  }
-
-  formFieldFor(column: ColumnDef<T>): FieldTree<unknown> | null {
-    if (!this.rowEditMgr.editingId()) {
-      return null;
-    }
-    return formFieldForColumn(this.rowForm(), column);
-  }
-
-  fieldInvalid(field: FieldTree<unknown> | null): boolean {
-    return !!field && field().invalid();
-  }
-
-  fieldError(field: FieldTree<unknown> | null): string | null {
-    if (!field) {
-      return null;
-    }
-    const errors = field().errors();
-    const first = errors[0];
-    return first?.message ?? (first ? first.kind : null);
-  }
-
-  cellTemplateContext(
-    row: T,
-    rowId: string | number,
-    rowIndex: number,
-    col: ResolvedColumn<T>,
-    value: unknown,
-    editing: boolean,
-  ) {
-    const formTree = this.isRowEditing(rowId) ? this.rowForm() : null;
-    return {
-      $implicit: row,
-      row,
-      value,
-      rowIndex,
-      columnId: col.id,
-      editing,
-      form: formTree,
-      field: formFieldForColumn(formTree, col),
-      rowEdit: this.isRowEditing(rowId) ? this.rowEditSession() : null,
-    };
-  }
-
-  startEdit(
-    row: T,
-    rowId: string | number,
-    rowIndex: number,
-    column: ColumnDef<T>,
-    value: unknown,
-    opts?: { seed?: TypeToEditSeed },
-  ): void {
-    if (!column.editable) {
-      return;
-    }
-    const columnId = column.id ?? column.field ?? '';
-    const seed = opts?.seed;
-
-    if (this.effectiveEditMode() === 'fullRow') {
-      this.editingCell.set(null);
-      this.rowEditMgr.start(row, rowId, rowIndex);
-      if (seed?.action === 'set') {
-        const key = column.field ?? column.id;
-        if (key) {
-          this.rowEditMgr.patchField(key, seed.value);
-        }
-      }
-      this.syncDomFocus(this.kernel.focus.getFocus());
-      return;
-    }
-    if (isBooleanColumn(column, value) && !isSelectEditor(column) && !isCustomEditorComponent(column)) {
-      // Checkbox-only: keyboard Enter/F2 toggles instead of opening a draft editor.
-      const resolved =
-        'minWidth' in column
-          ? (column as ResolvedColumn<T>)
-          : this.columnsById().get(column.id ?? column.field ?? '');
-      if (resolved) {
-        this.toggleBoolean(row, rowId, rowIndex, resolved, !Boolean(value));
-      }
-      return;
-    }
-    this.rowEditMgr.destroy();
-    this.editingCell.set({ rowId, columnId });
-    if (seed?.action === 'set') {
-      this.editDraft.set(seed.value == null ? '' : String(seed.value));
-    } else if (isDateColumn(column) || column.cellEditor === 'date') {
-      this.editDraft.set(toDateKey(value) ?? '');
-    } else {
-      this.editDraft.set(value == null ? '' : String(value));
-    }
-    this.syncDomFocus(this.kernel.focus.getFocus());
-  }
-
-  startRowEdit(row: T, rowId: string | number, rowIndex: number): void {
-    if (this.effectiveEditMode() !== 'fullRow') {
-      return;
-    }
-    this.editingCell.set(null);
-    this.rowEditMgr.start(row, rowId, rowIndex);
-    this.syncDomFocus(this.kernel.focus.getFocus());
-  }
-
-  commitRowEdit(): boolean {
-    const ok = this.rowEditMgr.commit();
-    if (ok) {
-      this.syncDomFocus(this.kernel.focus.getFocus());
-    }
-    return ok;
-  }
-
-  cancelRowEdit(): void {
-    this.rowEditMgr.cancel();
-    this.syncDomFocus(this.kernel.focus.getFocus());
-  }
-
-  private destroyRowEditSession(): void {
-    this.rowEditMgr.destroy();
-  }
-
-  toggleBoolean(
-    row: T,
-    rowId: string | number,
-    rowIndex: number,
-    column: ResolvedColumn<T>,
-    checked: boolean,
-  ): void {
-    const previousValue = getCellValue(row, column, rowIndex);
-    this.publish('cellEdit', this.cellEdit, {
-      row,
-      rowId,
-      column,
-      columnId: column.id,
-      previousValue,
-      value: checked,
-      form: this.isRowEditing(rowId) ? this.rowForm() : null,
-    });
-  }
-
-  commitEdit(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
-    const cell = this.editingCell();
-    if (!cell || cell.rowId !== rowId || cell.columnId !== column.id) {
-      return;
-    }
-    const previousValue = getCellValue(row, column, rowIndex);
-    const value = coerceCellEditValue(column, this.editDraft(), previousValue);
-    this.editingCell.set(null);
-    this.syncDomFocus(this.kernel.focus.getFocus());
-    if (Object.is(value, previousValue)) {
-      return;
-    }
-    if (
-      previousValue instanceof Date &&
-      value instanceof Date &&
-      previousValue.getTime() === value.getTime()
-    ) {
-      return;
-    }
-    this.publish('cellEdit', this.cellEdit, {
-      row,
-      rowId,
-      column,
-      columnId: column.id,
-      previousValue,
-      value,
-      form: null,
-    });
-  }
-
-  /** Enter in built-in cell editor — commit, optionally move down (§5b). */
-  onEditorEnter(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
-    this.commitEdit(row, rowId, rowIndex, column);
-    if (this.effectiveEditInteraction().enterEditing === 'commitAndMoveDown') {
-      this.kernel.focus.move(1, 0);
-    }
-  }
-
-  /**
-   * Tab in built-in cell editor — `'commitAndMove'` commits and wraps horizontally;
-   * `'browser'` leaves Tab to the page (default preset).
-   */
-  onEditorTab(
-    event: Event,
-    row: T,
-    rowId: string | number,
-    rowIndex: number,
-    column: ResolvedColumn<T>,
-  ): void {
-    if (this.effectiveEditInteraction().tabEditing !== 'commitAndMove') {
-      return;
-    }
-    const keyEvent = event as KeyboardEvent;
-    keyEvent.preventDefault();
-    keyEvent.stopPropagation();
-    this.commitEdit(row, rowId, rowIndex, column);
-    this.kernel.focus.moveHorizontalWrap(keyEvent.shiftKey ? -1 : 1);
-  }
-
-  /** Blur of built-in cell editor — commit or cancel per §5b. */
-  onEditorBlur(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
-    if (this.effectiveEditInteraction().editorBlur === 'cancel') {
-      this.cancelEdit();
-      return;
-    }
-    this.commitEdit(row, rowId, rowIndex, column);
-  }
-
-  cancelEdit(): void {
-    if (this.editingCell() == null) {
-      return;
-    }
-    this.editingCell.set(null);
-    this.syncDomFocus(this.kernel.focus.getFocus());
-  }
-
-  setFindQuery(value: string): void {
-    this.findQuery.set(value);
-    this.findActiveIndex.set(0);
-    this.publish('findMatchesChange', this.findMatchesChange, this.findMatches());
-  }
-
-  findNext(): void {
-    this.kernel.find.next();
-  }
-
-  findPrev(): void {
-    this.kernel.find.prev();
-  }
-
-  focusFindInput(): void {
-    const input = this.host.nativeElement.querySelector(
-      '[data-testid="al-dg-find-input"]',
-    ) as HTMLInputElement | null;
-    input?.focus();
-    input?.select();
-  }
-
-  isFindMatch(rowId: string | number, columnId: string): boolean {
-    return this.findMatchKeys().has(`${rowId}::${columnId}`);
-  }
-
-  isFindActive(rowId: string | number, columnId: string): boolean {
-    const active = this.activeFindMatch();
-    return !!active && active.rowId === rowId && active.columnId === columnId;
-  }
-
-  findHighlightParts(
-    value: unknown,
-    row: T,
-    column: ResolvedColumn<T>,
-    rowIndex: number,
-  ) {
-    const text = formatCellValue(value, row, column, rowIndex);
-    return splitFindHighlight(text, this.findQuery(), this.findCaseSensitiveEffective());
-  }
-
-  private scrollToActiveFind(): void {
-    const match = this.activeFindMatch();
-    if (!match) {
-      return;
-    }
-
-    // Prefer absolute display-row index (includes group headers) for paging / virtual scroll.
-    const absoluteDisplayIndex = this.displayRows().findIndex(
-      (item) => item.kind === 'data' && item.rowId === match.rowId,
-    );
-    const scrollIndex = absoluteDisplayIndex >= 0 ? absoluteDisplayIndex : match.rowIndex;
-
-    if (this.pagination()) {
-      const page = Math.floor(scrollIndex / this.pageSize());
-      if (page !== this.pageIndex()) {
-        this.pageIndex.set(page);
-      }
-    } else if (this.virtualEnabled()) {
-      const top = Math.max(0, scrollIndex * this.rowHeight() - this.rowHeight() * 2);
-      this.scrollTop.set(top);
-      const scroll = this.host.nativeElement.querySelector('.al-data-grid__scroll') as HTMLElement | null;
-      if (scroll) {
-        scroll.scrollTop = top;
-      }
-    }
-    afterNextRender(() => {
-      const el = this.host.nativeElement.querySelector(
-        `[data-testid="al-dg-cell-${match.rowId}-${match.columnId}"]`,
-      ) as HTMLElement | null;
-      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      const focusIndex = this.pagedDisplayRows().findIndex(
-        (item) => item.kind === 'data' && item.rowId === match.rowId,
-      );
-      if (focusIndex >= 0) {
-        this.kernel.focus.focusCell(focusIndex, match.columnId);
-      }
-    }, { injector: this.injector });
-  }
-
-  startResize(event: PointerEvent, column: ResolvedColumn<T>): void {
-    this.beginResize(event, [column.id]);
-  }
-
-  startGroupResize(event: PointerEvent, cell: HeaderGroupCell): void {
-    if (cell.columnId) {
-      return;
-    }
-    const cols = this.visibleColumns();
-    const from = cols.findIndex((c) => c.id === cell.startColumnId);
-    const to = cols.findIndex((c) => c.id === cell.endColumnId);
-    if (from < 0 || to < from) {
-      return;
-    }
-    this.beginResize(
-      event,
-      cols.slice(from, to + 1).map((c) => c.id),
-    );
-  }
-
-  /**
-   * Lock every column to its rendered px width, then drag `columnIds`.
-   * Delta is split evenly (1 column = normal resize; many = group resize).
-   * Other columns stay put and are pushed via horizontal scroll.
-   */
-  private beginResize(event: PointerEvent, columnIds: readonly string[]): void {
-    event.preventDefault();
-    event.stopPropagation();
-    if (!columnIds.length) {
-      return;
-    }
-
-    const byId = this.columnsById();
-    const locked: Record<string, number> = { ...this.widthOverrides() };
-    const root = this.host.nativeElement;
-    for (const col of this.visibleColumns()) {
-      const el = root.querySelector(
-        `[data-testid="al-dg-col-${CSS.escape(col.id)}"]`,
-      ) as HTMLElement | null;
-      locked[col.id] = Math.max(
-        col.minWidth,
-        Math.round(el?.getBoundingClientRect().width ?? locked[col.id] ?? col.minWidth),
-      );
-    }
-    this.widthOverrides.set(locked);
-
-    const targets = columnIds.map((id) => ({
-      id,
-      start: locked[id]!,
-      min: byId.get(id)?.minWidth ?? 48,
-    }));
-    const startTotal = targets.reduce((sum, t) => sum + t.start, 0);
-    const minTotal = targets.reduce((sum, t) => sum + t.min, 0);
-
-    attachColumnResize({
-      startX: event.clientX,
-      startWidth: startTotal,
-      minWidth: minTotal,
-      onWidth: (nextTotal) => {
-        const share = (nextTotal - startTotal) / targets.length;
-        this.widthOverrides.update((widths) => {
-          const next = { ...widths };
-          for (const t of targets) {
-            next[t.id] = Math.max(t.min, Math.round(t.start + share));
-          }
-          return next;
-        });
-      },
-      onEnd: () => this.emitState(),
-    });
-  }
-
-  onHeaderDragStart(index: number, event: DragEvent): void {
-    if (!this.columnReorder()) {
-      return;
-    }
-    this.headerDragFrom = index;
-    event.dataTransfer?.setData('text/plain', String(index));
-    event.dataTransfer!.effectAllowed = 'move';
-  }
-
-  onHeaderDrop(toIndex: number, event: DragEvent): void {
-    event.preventDefault();
-    if (!this.columnReorder()) {
-      return;
-    }
-    const from = this.headerDragFrom ?? Number(event.dataTransfer?.getData('text/plain'));
-    this.headerDragFrom = null;
-    this.reorderVisibleColumns(from, toIndex);
-  }
-
-  onPanelReorder(event: { fromIndex: number; toIndex: number }): void {
-    const ordered = this.orderedColumns();
-    const fromCol = ordered[event.fromIndex];
-    const toCol = ordered[event.toIndex];
-    if (!fromCol || !toCol) {
-      return;
-    }
-    if (
-      defsHaveColumnGroups(this.effectiveColumns()) &&
-      !sameColumnGroup(this.leafGroupMap(), fromCol.id, toCol.id)
-    ) {
-      return;
-    }
-    const layout = this.columnLayout();
-    const moved = moveColumn(layout, fromCol.id, toCol.id);
-    if (!moved) {
-      return;
-    }
-    // Columns panel reorder keeps pins as-is.
-    this.applyColumnLayout({ order: moved.order, pin: layout.pin });
-  }
-
-  onColumnVisibility(event: { columnId: string; visible: boolean }): void {
-    this.setColumnVisible(event.columnId, event.visible);
-  }
-
-  setColumnVisible(columnId: string, visible: boolean): void {
-    const set = new Set(this.hiddenColumnIds());
-    if (visible) {
-      set.delete(columnId);
-    } else {
-      if (this.visibleColumns().length <= 1 && this.visibleColumns().some((c) => c.id === columnId)) {
-        return;
-      }
-      set.add(columnId);
-    }
-    const next = [...set];
-    this.hiddenColumnIds.set(next);
-    this.emitState();
-  }
-
-  showAllColumns(): void {
-    this.hiddenColumnIds.set([]);
-    this.emitState();
-  }
-
-  reorderVisibleColumns(from: number, to: number): void {
-    const visible = this.visibleColumns();
-    const fromCol = visible[from];
-    const toCol = visible[to];
-    if (!fromCol || !toCol) {
-      return;
-    }
-    const hasGroups = defsHaveColumnGroups(this.effectiveColumns());
-    const leafMap = this.leafGroupMap();
-    const next = moveColumn(this.columnLayout(), fromCol.id, toCol.id, {
-      constrainSameGroup: hasGroups
-        ? (a, b) => sameColumnGroup(leafMap, a, b)
-        : undefined,
-    });
-    if (!next) {
-      return;
-    }
-    this.applyColumnLayout(next);
-  }
-
-  /**
-   * Pin / unpin a column at runtime (AG Grid `setColumnPinned`).
-   * Pass `null` to unpin.
-   */
-  setColumnPinned(columnId: string, pinned: ColumnPin | null): void {
-    if (!this.columnLayout().order.includes(columnId) && !this.columnsById().has(columnId)) {
-      return;
-    }
-    this.applyColumnLayout(setColumnPin(this.columnLayout(), columnId, pinned));
-  }
-
-  getColumnPinned(columnId: string): ColumnPin | null {
-    return this.columnLayout().pin[columnId] ?? null;
-  }
-
-  private applyColumnLayout(layout: ColumnLayout): void {
-    this.columnLayout.set(layout);
-    this.publish('columnOrderChange', this.columnOrderChange, layout.order);
-    this.emitState();
-  }
-
-  autoSizeColumns(columnIds?: string[]): void {
-    const targets = columnIds?.length
-      ? this.visibleColumns().filter((c) => columnIds.includes(c.id))
-      : this.visibleColumns();
-    const rows = this.processedRows();
-    const next = { ...this.widthOverrides() };
-    for (const col of targets) {
-      next[col.id] = estimateColumnWidth(col, rows);
-    }
-    this.widthOverrides.set(next);
-    this.emitState();
-  }
-
-  exportCsv(filename = 'data-grid.csv'): string {
-    const csv = rowsToCsv(this.processedRows(), this.visibleColumns());
-    downloadCsv(filename, csv);
-    return csv;
-  }
-
-  getState(): DataGridState {
-    const layout = this.columnLayout();
-    return {
-      sorts: this.sorts(),
-      filters: this.filters(),
-      quickFilter: this.quickFilter(),
-      hiddenColumnIds: this.hiddenColumnIds(),
-      columnOrder: [...layout.order],
-      widthOverrides: this.widthOverrides(),
-      columnPins: { ...layout.pin },
-      pageIndex: this.pageIndex(),
-      activeSidePanel: this.activeSidePanel(),
-    };
-  }
-
-  setState(state: Partial<DataGridState>): void {
-    const base = { ...createEmptyGridState(), ...this.getState(), ...state };
-    this.sorts.set(base.sorts);
-    this.filters.set(base.filters);
-    this.quickFilter.set(base.quickFilter);
-    this.hiddenColumnIds.set(base.hiddenColumnIds);
-    this.columnLayout.set({
-      order: base.columnOrder ?? [],
-      pin: base.columnPins ?? {},
-    });
-    this.widthOverrides.set(base.widthOverrides);
-    this.pageIndex.set(base.pageIndex);
-    this.activeSidePanel.set(base.activeSidePanel);
-    this.emitState();
-    this.emitQueryIfServer();
-  }
-
-  getFilterModel(): DataGridFilterState {
-    return { ...this.filters() };
-  }
-
-  setFilterModel(filters: DataGridFilterState): void {
-    this.filters.set({ ...filters });
-    this.publish('filterChange', this.filterChange, this.filters());
-    this.emitState();
-    this.emitQueryIfServer();
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onFilterChange', this.filters());
-  }
-
-  getSortModel(): SortState[] {
-    return [...this.sorts()];
-  }
-
-  setSortModel(sorts: SortState[]): void {
-    this.sorts.set([...sorts]);
-    this.publish('sortChange', this.sortChange, this.sorts());
-    this.emitState();
-    this.emitQueryIfServer();
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSortChange', this.sorts());
-  }
-
-  getQuickFilter(): string {
-    return this.quickFilter();
+    this.menuHost.onHeaderContextMenu(column, event);
   }
 
-  getSelectedIds(): Array<string | number> {
-    return [...this.selectedIds()];
-  }
-
-  setSelectedIds(ids: Array<string | number>): void {
-    const next = [...ids];
-    this.selectedIds.set(next);
-    this.publish('selectionChange', this.selectionChange, next);
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onSelectionChange', next);
-  }
-
-  getDisplayedRowCount(): number {
-    return this.displayRows().length;
-  }
-
-  getProcessedRows(): readonly T[] {
-    return this.processedRows();
-  }
-
-  getSourceRows(): readonly T[] {
-    return this.data();
-  }
-
-  getQuery(): DataGridQuery {
-    return {
-      sorts: this.sorts(),
-      filters: this.filters(),
-      quickFilter: this.quickFilter(),
-      pageIndex: this.pageIndex(),
-      pageSize: this.pageSize(),
-    };
-  }
-
-  getFindMatches(): readonly FindMatch[] {
-    return this.findMatches();
-  }
-
-  focusCell(rowIndex: number, columnId: string): void {
-    this.kernel.focus.focusCell(rowIndex, columnId);
-  }
-
-  startRowEditById(rowId: string | number): void {
-    const rows = this.processedRows();
-    const index = rows.findIndex((row, i) => this.resolveRowId(row, i) === rowId);
-    if (index < 0) {
-      return;
-    }
-    this.startRowEdit(rows[index]!, rowId, index);
-  }
-
-  stopEditing(cancel = false): void {
-    if (cancel) {
-      if (this.rowEditMgr.editingId() != null) {
-        this.cancelRowEdit();
-      } else {
-        this.cancelEdit();
-      }
-      return;
-    }
-    if (this.rowEditMgr.editingId() != null) {
-      this.commitRowEdit();
-      return;
-    }
-    const cell = this.editingCell();
-    if (!cell) {
-      return;
-    }
-    const rows = this.processedRows();
-    const rowIndex = rows.findIndex((row, i) => this.resolveRowId(row, i) === cell.rowId);
-    const column = this.columnsById().get(cell.columnId);
-    if (rowIndex < 0 || !column) {
-      this.cancelEdit();
-      return;
-    }
-    this.commitEdit(rows[rowIndex]!, cell.rowId, rowIndex, column);
-  }
-
-  getSelectionClipboardText(): string | null {
-    if (!this.copyEnabled()) {
-      return null;
-    }
-    const selected = new Set(this.selectedIds());
-    if (!selected.size) {
-      return null;
-    }
-    const rows = this.processedRows().filter((row, index) =>
-      selected.has(this.resolveRowId(row, index)),
-    );
-    if (!rows.length) {
-      return null;
-    }
-    return rowsToCsv(rows, this.visibleColumns(), { includeHeaders: false });
-  }
-
-  getFocusedCell() {
-    return this.focusedCell();
-  }
-
-  getPagedDisplayRows(): readonly DisplayRow<T>[] {
-    return this.pagedDisplayRows();
-  }
-
-  getColumnsById(): Map<string, ColumnDef<any>> {
-    return this.columnsById() as Map<string, ColumnDef<any>>;
-  }
-
-  getVisibleColumnIds(): string[] {
-    return this.visibleColumns().map((c) => c.id);
-  }
-
-  emitPaste(event: PasteEvent<T>): void {
-    this.publish('paste', this.paste, event);
-  }
-
-  bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {
-    this.boundRowGroupAdapter.set(adapter);
-  }
-
-  bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
-    this.boundTreeDataAdapter.set(adapter);
-  }
-
-  private pluginListKey(plugins: readonly DataGridPlugin<T>[]): string {
-    return plugins.map((p) => p.id ?? '').join('\0');
-  }
+  onDocumentPointerDown(event: Event): void { this.menuHost.onDocumentPointerDown(event); }
 
-  /**
-   * Pointer-based row reorder (HTML5 DnD is unreliable on sticky cells in overflow scrollers).
-   * Session listeners live in {@link attachRowReorder}.
-   */
-  readonly rowDragFromIndex = signal<number | null>(null);
-  readonly rowDragOverIndex = signal<number | null>(null);
-  private rowDragCleanup: (() => void) | null = null;
+  private pluginListKey(plugins: readonly DataGridPlugin<T>[]): string { return plugins.map((p) => p.id ?? '').join('\0'); }
 
   onRowDragPointerDown(index: number, event: PointerEvent): void {
-    if (!this.rowDragEnabled() || event.button !== 0) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-
-    this.rowDragCleanup?.();
-    this.rowDragFromIndex.set(index);
-    this.rowDragOverIndex.set(index);
-
-    const scroll = this.host.nativeElement.querySelector(
-      '.al-data-grid__scroll',
-    ) as HTMLElement | null;
-    const thead = scroll?.querySelector('.al-data-grid__thead') as HTMLElement | null;
-
-    this.rowDragCleanup = attachRowReorder({
-      pointerId: event.pointerId,
-      fromIndex: index,
-      getDropIndex: (clientY) => {
-        if (!scroll) {
-          return null;
-        }
-        return resolveRowDropDataIndex({
-          clientY,
-          scrollTop: scroll.scrollTop,
-          scrollRectTop: scroll.getBoundingClientRect().top,
-          rowHeight: this.rowHeight(),
-          contentOffsetY: thead?.offsetHeight ?? 0,
-          displayRows: this.pagedDisplayRows(),
-        });
-      },
-      onOver: (over) => this.rowDragOverIndex.set(over),
-      onDrop: (from, to) => {
-        const payload = buildRowReorderEvent(
-          this.processedRows(),
-          from,
-          to,
-          (row, i) => this.resolveRowId(row, i),
-        );
-        if (payload) {
-          this.publish('rowReorder', this.rowReorder, payload);
-        }
-      },
-      onEnd: () => {
-        this.rowDragCleanup = null;
-        this.rowDragFromIndex.set(null);
-        this.rowDragOverIndex.set(null);
-      },
-    });
-  }
-
-  setFilterOptions(column: ResolvedColumn<T>): string[] {
-    return collectSetFilterValues(this.data(), column);
-  }
-
-  private emitQueryIfServer(): void {
-    if (!this.serverSide()) {
-      return;
-    }
-    this.publish('queryChange', this.queryChange, this.getQuery());
-  }
-
-  private emitState(): void {
-    const state = this.getState();
-    this.publish('stateChange', this.stateChange, state);
-    notifyPlugins(this.effectivePlugins(), this.pluginContext(), 'onStateChange', state);
+    this.viewportHost.onRowDragPointerDown(index, event);
   }
 
   /**

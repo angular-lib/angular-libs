@@ -45,17 +45,22 @@ Breaking changes OK until first publish.
 | Event-listener soup | Focused Angular `output()`s | Discoverable, typed, OnPush-friendly |
 
 ```
-createGrid({ columns, plugins, … })
+createGrid({ columns, plugins, … })     ← schema / UX / plugins (only home)
         │
         ▼
-GridController  →  GridKernel (slots, capabilities, focus/find)
+GridController
         │
         ▼
-<al-data-grid>  thin binder + DisplayRow views
+createDataGridSession(...)              ← runtime: hosts + pipeline + api
+        │
+        ▼
+<al-data-grid>  thin binder (IO + template) + DisplayRow views
 ```
 
 **Governance:** do not add new feature inputs on `DataGrid` — compose plugins +
-`createGrid`.
+`createGrid`. Schema (`columns` / `rowId` / `selection` / `editMode`) lives only on
+`createGrid`. Binder LOC prefer ≤1000 (F3 ~857). Notes floating DOM is a documented
+exception (with tooltips) — not forced through `registerOverlay`.
 
 ---
 
@@ -118,7 +123,7 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 
 | Domain | Status | Our surface | Notes |
 | --- | --- | --- | --- |
-| Multi-sort | **Done** | `[multiSort]`, `api.get/setSortModel`, `(sortChange)` | Custom `comparator` |
+| Multi-sort | **Done** | `createGrid({ multiSort })`, `api.get/setSortModel`, `(sortChange)` | Custom `comparator` |
 | Column filters | **Done** | text/number/boolean/date/set + floating | Simple string models, not AG filter instances |
 | Quick / external filter | **Done** | `[(quickFilter)]`, `[externalFilter]` | |
 | Filter API | **Partial** | `get/setFilterModel`, `clearFilters` | No `getColumnFilterInstance` |
@@ -154,7 +159,7 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 | Domain | Status | Our surface | Notes |
 | --- | --- | --- | --- |
 | Toolbar / status / sidebar / find bar | **Done** | Slot-owned chrome + plugins | |
-| Context menu | **Done** | `[contextMenu]`, typed items, plugin items | |
+| Context menu | **Done** | `chrome.contextMenu`, typed items, plugin items | |
 | Side bar API | **Better-path** | Held `sideBar` adapter | No mega accessory API on `DataGridApi` |
 | Column chooser | **Done** | Columns sidebar panel | |
 | Overlays | **Partial** | loading / empty projection | |
@@ -175,9 +180,9 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 | Domain | Status | Our surface | Notes |
 | --- | --- | --- | --- |
 | Client-side pipeline | **Done** | Default | |
-| Pagination XOR virtual | **Done** | `[pagination]` / `[virtual]` | Custom window, not CDK |
+| Pagination XOR virtual | **Done** | `viewport.pagination` / `viewport.virtual` | Custom window, not CDK |
 | Infinite scroll | **Done** | `infiniteScrollPlugin` → `(nearEnd)` | |
-| Thin server-side | **Partial** | `[serverSide]` + `(queryChange)` | Host fetches |
+| Thin server-side | **Partial** | `createGrid({ serverSide })` + `(queryChange)` | Host fetches |
 | Deep SSRM (block cache, server group) | **Later** | Contract v2 only under boundaries | Refuse AG SSRM sprawl |
 | Viewport row model | **Never** | — | |
 
@@ -187,11 +192,11 @@ GridController  →  GridKernel (slots, capabilities, focus/find)
 | --- | --- | --- | --- |
 | Body focus / arrows / Home End / Page | **Done** | `FocusController` + roving `tabindex` on cells | |
 | Edit keys / select-all / group Space | **Done** | | |
-| Header keyboard navigation | **Later** | — | Enterprise gap — §5c |
-| Body ↔ header continuum | **Later** | — | §5c |
-| Tab enter/leave grid | **Partial** | Roving tabindex into body | Full page-citizen Tab — §5c |
+| Header keyboard navigation | **Done** | `FocusController` header realm | ←→, Enter sort, Alt+↓ menu — [KEYBOARD.md](./KEYBOARD.md) |
+| Body ↔ header continuum | **Done** | ArrowUp/Down + PageUp/Down bridges | Floating filter when present |
+| Tab enter/leave grid | **Done** | Roving tabindex + `restoreOrFocusDefault`; Tab not captured | Page citizen — `handleKeydown('Tab')` → false |
 | Custom nav / suppress hooks | **Later** | — | Sparse; not AG’s five callbacks |
-| Full a11y matrix | **Later** | Kernel priority — §5c + backlog | Leave room for cell `aria-selected` (range) |
+| Full a11y matrix | **Partial** | Cell `aria-selected` (row **or** range) shipped | Broader SR / announcements still backlog |
 | Theming | **Done** | `--al-dg-*` CSS variables | No AG theme packs |
 | Tooltips | **Done** | `AlTooltipDirective` (no CDK) | |
 | Locale | **Done** | `[locale]` + `api.getLocale()` | |
@@ -687,9 +692,11 @@ need both). We do **not**.
 Models: `selectedIds`, `quickFilter`, `hiddenColumnIds`, `findQuery`, `rowForm`,
 `rowEditSession`, `rowEditDraft`
 
-Layout / behavior inputs (non-feature): **`controller` (required)**, `data` (required),
-pagination/virtual, `serverSide`, `externalFilter`, `editMode`, `locale`, optional
-`[plugins]` / `[columns]` overrides, chrome toggles like `showToolbar` / `floatingFilters`, etc.
+Layout / behavior: **`controller` (required)**, `data` (required),
+`externalFilter`, `locale`, `[contextMenuItems]`, `[toolbarActions]`, models,
+outputs. Schema (`columns` / `rowId` / `selection` / `editMode`), viewport /
+chrome / multiSort / serverSide / plugins live on `createGrid` only — no binder
+overrides for those four.
 
 Toolbar actions (`[toolbarActions]` / plugin `registerToolbar`) receive
 `{ api, controller, context, event }` — `controller` is always the bound `createGrid`
@@ -825,6 +832,15 @@ spine before spreadsheet layers. Spreadsheet *interactions* without Excel produc
 | **3** | Policies | §5b editInteraction, §5a controller rows, selection depth |
 | **4** | Spreadsheet layer | ✅ Lean column menu, cell range §5, fill via paste |
 | **5** | Harden & ship | Validation, state, filters, SSRM v2, touch/RTL/SSR notes, publish |
+
+### Foundation v2 (ownership) — Done
+
+| Wave | Focus | Result |
+| --- | --- | --- |
+| **F0** | Schema honesty + C1 | Schema only on `createGrid`; flash/range C1; notes floating exception |
+| **F1** | Column ownership | `ColumnLayoutHost` owns column state |
+| **F2** | Session + pipeline | `createDataGridSession` runtime root |
+| **F3** | Freeze + polish | Binder ~857 LOC (≤910 gate; prefer ≤1000); tooltip CSS; public-api trim |
 
 Defer coding range / full menu / edit bag until Waves 0–2 are in place.
 

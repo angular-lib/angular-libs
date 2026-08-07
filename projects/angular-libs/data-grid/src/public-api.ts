@@ -1,7 +1,9 @@
 /*
- * Public API Surface of data-grid (core).
+ * Public API Surface of data-grid (consumer).
  *
- * Plugin factories live in `@angular-libs/data-grid/plugins`.
+ * Plugin factories: `@angular-libs/data-grid/plugins`
+ * Plugin authoring: `@angular-libs/data-grid/plugin`
+ * Unstable internals: `@angular-libs/data-grid/internals`
  */
 
 export { DataGrid } from './lib/components/data-grid/data-grid';
@@ -10,17 +12,6 @@ export type {
   BoundRowGroupAdapter,
   BoundTreeDataAdapter,
   BoundCellRangeAdapter,
-  DataGridApiHost,
-  DataGridClipboardHost,
-  DataGridColumnsHost,
-  DataGridEditingHost,
-  DataGridFindHost,
-  DataGridLocaleApiHost,
-  DataGridRowGroupHost,
-  DataGridSelectionHost,
-  DataGridSideBarApiHost,
-  DataGridViewportHost,
-  PluginLifecycle,
 } from './lib/api/grid-api';
 export { GridEventBus } from './lib/api/grid-events';
 export type {
@@ -28,8 +19,20 @@ export type {
   DataGridEventName,
   GridEventUnsubscribe,
 } from './lib/api/grid-events';
-export { createGrid, pickAdapter } from './lib/create-grid';
-export type { CreateGridOptions, GridController, IsRowSelectableFn } from './lib/create-grid';
+export {
+  createGrid,
+  pickAdapter,
+  isRowGroupAdapter,
+  isTreeDataAdapter,
+  isCellRangeAdapter,
+} from './lib/create-grid';
+export type {
+  CreateGridOptions,
+  GridChromeOptions,
+  GridController,
+  GridViewportOptions,
+  IsRowSelectableFn,
+} from './lib/create-grid';
 export {
   resolveEditInteraction,
   isTypeToEditKey,
@@ -43,20 +46,6 @@ export type {
   TypeToEditColumn,
   TypeToEditSeed,
 } from './lib/editing/edit-interaction';
-export { GridKernel } from './lib/kernel/grid-kernel';
-export type { GridKernelOptions } from './lib/kernel/grid-kernel';
-export { GridCapabilities, ROW_GROUP_ADAPTER, TREE_DATA_ADAPTER } from './lib/plugins/capabilities';
-export type {
-  AggregateContribution,
-  CellDecoratorContext,
-  CellDecoratorContribution,
-  ContextMenuContribution,
-  DisplayViewContribution,
-  InteractionContribution,
-  RowModelContext,
-  RowModelDataStage,
-  RowModelDisplayBuilder,
-} from './lib/plugins/capabilities';
 export { DataGridFindBar } from './lib/components/chrome/data-grid-find-bar';
 export { DataGridToolbar } from './lib/components/chrome/data-grid-toolbar';
 export type { DataGridToolbarLabels } from './lib/components/chrome/data-grid-toolbar';
@@ -133,16 +122,6 @@ export type {
 } from './lib/components/data-grid/data-grid.types';
 export { rowsToCsv, downloadCsv } from './lib/utils/csv';
 export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
-export { defaultContextMenuItems } from './lib/utils/context-menu';
-export { buildLeanColumnMenuItems } from './lib/utils/column-menu';
-export type { LeanColumnMenuHelpers } from './lib/utils/column-menu';
-export {
-  cellInNormalizedRange,
-  moveFocusWithinGrid,
-  normalizeCellRange,
-  singleCellRange,
-} from './lib/utils/cell-range';
-export type { NormalizedCellRange } from './lib/utils/cell-range';
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
 export type { FindMatch, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';
@@ -155,48 +134,8 @@ export type {
   RowTransactionResult,
 } from './lib/utils/apply-row-transaction';
 export {
-  emptyColumnLayout,
-  materializeColumnLayout,
-  moveColumn,
-  partitionColumnsByPin,
-  reconcileColumnLayout,
-  reconcileColumnOrder,
-  reconcileHiddenColumnIds,
-  CHROME_TRACK,
-  resolveColumnTracks,
-  resolveColumnWidths,
-  setColumnPin,
-} from './lib/utils/column-layout';
-export type {
-  ColumnLayout,
-  ColumnPinSide,
-  ColumnTrackLayout,
-  ColumnTracksChrome,
-} from './lib/utils/column-layout';
-export {
-  attachRowReorder,
-  buildRowReorderEvent,
-  isRowDragAllowed,
-  isValidRowReorder,
-  resolveRowDropDataIndex,
-} from './lib/utils/row-interactions';
-export {
-  buildHeaderRows,
-  buildLeafGroupMap,
-  buildVisibleGroupHeaderRow,
-  flattenColumnDefs,
-  hasColumnGroups,
-  isColumnGroupDef,
-  resolveColumnOrGroupDefs,
-  sameColumnGroup,
-} from './lib/utils/column-groups';
-export type { ColumnGroupMeta, HeaderGroupCell } from './lib/utils/column-groups';
-export {
   toDateKey,
   formatLocalDateKey,
-  parseSetFilter,
-  serializeSetFilter,
-  collectSetFilterValues,
 } from './lib/utils/filter-rows';
 export { parseClipboardMatrix, applyPasteMatrix } from './lib/utils/clipboard-paste';
 export {
@@ -206,58 +145,5 @@ export {
   isDateColumn,
 } from './lib/utils/cell-value';
 export { coerceCellEditValue, isBlankCellInput } from './lib/utils/coerce-cell-value';
-export { collectAllGroupIds } from './lib/utils/collect-group-ids';
-export {
-  aggregateColumn,
-  formatAggregateValue,
-  isCustomEditorComponent,
-  isCustomRendererComponent,
-  isSelectEditor,
-  resolveSelectValues,
-} from './lib/utils/editors';
 export { defaultGridLocale, mergeGridLocale, toolbarLabelsFromLocale } from './lib/locale/default-locale';
 export type { DataGridLocale } from './lib/locale/default-locale';
-export {
-  DataGridSlotRegistry,
-  activatePlugins,
-  dedupePlugins,
-  notifyPlugins,
-} from './lib/plugins/types';
-export type {
-  DataGridPlugin,
-  DataGridPluginContext,
-  DataGridSlotId,
-  DataGridSidebarSlotItem,
-  DataGridStatusBarSlotItem,
-  DataGridToolbarActionParams,
-  DataGridToolbarSlotItem,
-  FindFeatureConfig,
-  InfiniteScrollFeatureConfig,
-} from './lib/plugins/types';
-export { FocusController, focusRealmOf } from './lib/controllers/focus';
-export type { FocusCell, FocusControllerOptions, FocusRealm } from './lib/controllers/focus';
-export { FindController } from './lib/controllers/find';
-export type { FindControllerOptions } from './lib/controllers/find';
-export { computeVirtualWindow } from './lib/controllers/virtual-window';
-export type { VirtualWindow, VirtualWindowInput } from './lib/controllers/virtual-window';
-export { runClientRowPipeline } from './lib/utils/row-pipeline';
-export type { AfterSortHook, ClientRowPipelineInput } from './lib/utils/row-pipeline';
-export { runGridRowModel } from './lib/utils/grid-row-model';
-export type { GridRowModelInput, GridRowModelResult } from './lib/utils/grid-row-model';
-export {
-  buildDisplayRows,
-  wrapDataRows,
-  collectTreeGroupIds,
-  isDataDisplayRow,
-  isGroupDisplayRow,
-} from './lib/utils/row-display';
-export type {
-  CustomDisplayRow,
-  DataDisplayRow,
-  DisplayRow,
-  GroupDisplayRow,
-  RowGroupConfig,
-  TreeDataConfig,
-} from './lib/utils/row-display';
-export { composeDataGridApiHost } from './lib/api/compose-host';
-export type { ComposedDataGridApiHost, DataGridLocaleHost } from './lib/api/compose-host';

@@ -1,12 +1,17 @@
 /**
- * createGrid — held config + plugin adapters (schema/state wiring only).
+ * createGrid — held config + plugin adapters (schema/state wiring + UX flags).
  * The DataGrid component binds `[controller]`; host still owns row data by default.
  * Opt-in `rows` WritableSignal enables controller-owned transactions (§5a).
- * Feature flags belong on plugins, never here.
+ * Viewport / chrome / multiSort / serverSide live here — not as binder inputs.
  */
 
 import { signal, type Signal, type WritableSignal } from '@angular/core';
-import type { DataGridApi, BoundRowGroupAdapter, BoundTreeDataAdapter } from './api/grid-api';
+import type {
+  DataGridApi,
+  BoundCellRangeAdapter,
+  BoundRowGroupAdapter,
+  BoundTreeDataAdapter,
+} from './api/grid-api';
 import type {
   ColumnOrGroupDef,
   CreateRowFormFn,
@@ -34,6 +39,23 @@ import {
 } from './editing/edit-interaction';
 
 export type IsRowSelectableFn<T> = (row: T, rowId: string | number) => boolean;
+
+export interface GridViewportOptions {
+  pagination?: boolean; // default false
+  pageSize?: number; // default 25
+  virtual?: boolean; // default true
+  rowHeight?: number; // default 36
+  overscan?: number; // default 8
+}
+
+export interface GridChromeOptions {
+  showToolbar?: boolean; // default true
+  floatingFilters?: boolean; // default true
+  stripe?: boolean; // default true
+  columnReorder?: boolean; // default true
+  /** Enable context menu chrome (items still from binder). default false */
+  contextMenu?: boolean;
+}
 
 export interface CreateGridOptions<T = unknown> {
   columns: readonly ColumnOrGroupDef<T>[];
@@ -63,6 +85,14 @@ export interface CreateGridOptions<T = unknown> {
    * Enables {@link GridController.applyTransaction} / {@link GridController.setRows}.
    */
   rows?: WritableSignal<readonly T[]>;
+  /** Pagination / virtualization knobs (writable on the controller). */
+  viewport?: GridViewportOptions;
+  /** Toolbar / filters / stripe / reorder / context-menu chrome flags. */
+  chrome?: GridChromeOptions;
+  /** Allow Shift+click multi-column sort. Default true. */
+  multiSort?: boolean;
+  /** Skip client sort/filter; emit `queryChange` instead. Default false. */
+  serverSide?: boolean;
 }
 
 /**
@@ -77,7 +107,8 @@ export interface GridController<T = unknown> {
   readonly selection: SelectionMode;
   readonly isRowSelectable: IsRowSelectableFn<T> | null;
   readonly rowClickSelects: boolean;
-  readonly editMode: EditMode;
+  /** Writable — toggle cell vs full-row edit at runtime (`grid.editMode.set('fullRow')`). */
+  readonly editMode: WritableSignal<EditMode>;
   readonly editInteraction: ResolvedEditInteraction;
   readonly rowEditSchema: RowEditSchema<T> | null;
   readonly createRowForm: CreateRowFormFn<T> | null;
@@ -86,12 +117,43 @@ export interface GridController<T = unknown> {
    * Prefer binding `[data]="grid.rows()!"` (or the same host signal).
    */
   readonly rows: Signal<readonly T[]> | null;
-  /** Duck-typed when `rowGroupPlugin` is in `plugins` — prefer {@link pickAdapter}. */
+  /**
+   * Typed adapter when `rowGroupPlugin` is in `plugins`.
+   * Prefer holding the plugin instance; this is for discovery.
+   */
   readonly rowGroup: BoundRowGroupAdapter | null;
-  /** Duck-typed when `treeDataPlugin` is in `plugins`. */
+  /**
+   * Typed adapter when `treeDataPlugin` is in `plugins`.
+   * Prefer holding the plugin instance; this is for discovery.
+   */
   readonly treeData: BoundTreeDataAdapter | null;
+  /**
+   * Typed adapter when `cellRangePlugin` is in `plugins`.
+   * Prefer holding the plugin instance; this is for discovery.
+   */
+  readonly cellRange: BoundCellRangeAdapter | null;
   /** Populated when a DataGrid binds via `[controller]`. */
   readonly api: Signal<DataGridApi<T> | null>;
+  /** Viewport UX flags — toggle at runtime from demos / hosts. */
+  readonly viewport: {
+    pagination: WritableSignal<boolean>;
+    pageSize: WritableSignal<number>;
+    virtual: WritableSignal<boolean>;
+    rowHeight: WritableSignal<number>;
+    overscan: WritableSignal<number>;
+  };
+  /** Chrome UX flags — toggle at runtime from demos / hosts. */
+  readonly chrome: {
+    showToolbar: WritableSignal<boolean>;
+    floatingFilters: WritableSignal<boolean>;
+    stripe: WritableSignal<boolean>;
+    columnReorder: WritableSignal<boolean>;
+    contextMenu: WritableSignal<boolean>;
+  };
+  readonly multiSort: WritableSignal<boolean>;
+  readonly serverSide: WritableSignal<boolean>;
+  /** Typed adapter lookup — prefer holding the plugin instance; this is for discovery. */
+  getAdapter<A>(id: string, guard: (value: unknown) => value is A): A | null;
   /** Replace the plugin list (reactivates on the bound grid). */
   setPlugins(plugins: readonly DataGridPlugin<T>[]): void;
   bindApi(api: DataGridApi<T> | null): void;
@@ -127,15 +189,23 @@ export interface GridController<T = unknown> {
  *   rows,
  *   selection: 'multi',
  *   editInteraction: 'default',
+ *   viewport: { pagination: false, virtual: true, pageSize: 25 },
+ *   chrome: { contextMenu: true, showToolbar: true },
  *   plugins: [...defaultGridPlugins(), groups],
  * });
  * groups.setColumns(['role']);
+ * grid.viewport.pagination.set(true);
+ * grid.viewport.virtual.set(false);
+ * grid.editMode.set('fullRow');
  * grid.applyTransaction({ add: [{ id: 'x', name: 'New' }] });
  * ```
  *
  * ```html
  * <al-data-grid [controller]="grid" [data]="grid.rows()!" />
  * ```
+ *
+ * Schema (`columns`, `rowId`, `selection`, `editMode`) lives only on `createGrid` —
+ * not as binder input overrides.
  */
 export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridController<T> {
   const plugins: WritableSignal<readonly DataGridPlugin<T>[]> = signal(options.plugins ?? []);
@@ -143,6 +213,23 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
   const rowId = options.rowId ?? ((_row: T, index: number) => index);
   const ownedRows = options.rows ?? null;
   const editInteraction = resolveEditInteraction(options.editInteraction);
+
+  const viewport = {
+    pagination: signal(options.viewport?.pagination ?? false),
+    pageSize: signal(options.viewport?.pageSize ?? 25),
+    virtual: signal(options.viewport?.virtual ?? true),
+    rowHeight: signal(options.viewport?.rowHeight ?? 36),
+    overscan: signal(options.viewport?.overscan ?? 8),
+  };
+  const chrome = {
+    showToolbar: signal(options.chrome?.showToolbar ?? true),
+    floatingFilters: signal(options.chrome?.floatingFilters ?? true),
+    stripe: signal(options.chrome?.stripe ?? true),
+    columnReorder: signal(options.chrome?.columnReorder ?? true),
+    contextMenu: signal(options.chrome?.contextMenu ?? false),
+  };
+  const multiSort = signal(options.multiSort ?? true);
+  const serverSide = signal(options.serverSide ?? false);
 
   const requireOwnedRows = (): WritableSignal<readonly T[]> => {
     if (!ownedRows) {
@@ -153,6 +240,9 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     return ownedRows;
   };
 
+  const getAdapter = <A>(id: string, guard: (value: unknown) => value is A): A | null =>
+    pickAdapter(plugins(), id, guard);
+
   return {
     columns: options.columns,
     rowId,
@@ -160,16 +250,24 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     selection: options.selection ?? 'none',
     isRowSelectable: options.isRowSelectable ?? null,
     rowClickSelects: options.rowClickSelects ?? false,
-    editMode: options.editMode ?? 'cell',
+    editMode: signal(options.editMode ?? 'cell'),
     editInteraction,
     rowEditSchema: options.rowEditSchema ?? null,
     createRowForm: options.createRowForm ?? null,
     rows: ownedRows?.asReadonly() ?? null,
+    viewport,
+    chrome,
+    multiSort,
+    serverSide,
+    getAdapter,
     get rowGroup() {
-      return pickAdapter(plugins(), 'rowGroup', isBoundRowGroupAdapter);
+      return getAdapter('rowGroup', isRowGroupAdapter);
     },
     get treeData() {
-      return pickAdapter(plugins(), 'treeData', isBoundTreeDataAdapter);
+      return getAdapter('treeData', isTreeDataAdapter);
+    },
+    get cellRange() {
+      return getAdapter('cellRange', isCellRangeAdapter);
     },
     api: api.asReadonly(),
     setPlugins(next) {
@@ -202,6 +300,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
 
 /**
  * Resolve a typed plugin∩adapter from a plugin list by stable `id`.
+ * Prefer {@link GridController.getAdapter} when you already hold a controller.
  */
 export function pickAdapter<T, A>(
   plugins: readonly DataGridPlugin<T>[],
@@ -216,7 +315,8 @@ export function pickAdapter<T, A>(
   return null;
 }
 
-function isBoundRowGroupAdapter(value: unknown): value is BoundRowGroupAdapter {
+/** Type guard for {@link BoundRowGroupAdapter} (and `rowGroupPlugin` instances). */
+export function isRowGroupAdapter(value: unknown): value is BoundRowGroupAdapter {
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -229,7 +329,8 @@ function isBoundRowGroupAdapter(value: unknown): value is BoundRowGroupAdapter {
   );
 }
 
-function isBoundTreeDataAdapter(value: unknown): value is BoundTreeDataAdapter {
+/** Type guard for {@link BoundTreeDataAdapter} (and `treeDataPlugin` instances). */
+export function isTreeDataAdapter(value: unknown): value is BoundTreeDataAdapter {
   if (!value || typeof value !== 'object') {
     return false;
   }
@@ -240,5 +341,20 @@ function isBoundTreeDataAdapter(value: unknown): value is BoundTreeDataAdapter {
     typeof v.collapseAll === 'function' &&
     typeof v.collapsedIds === 'function' &&
     typeof v.collectAllGroupIds === 'function'
+  );
+}
+
+/** Type guard for {@link BoundCellRangeAdapter} (and `cellRangePlugin` instances). */
+export function isCellRangeAdapter(value: unknown): value is BoundCellRangeAdapter {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const v = value as BoundCellRangeAdapter;
+  return (
+    typeof v.getRange === 'function' &&
+    typeof v.setRange === 'function' &&
+    typeof v.clearRange === 'function' &&
+    typeof v.getClipboardText === 'function' &&
+    typeof v.extendRange === 'function'
   );
 }

@@ -4,10 +4,12 @@ import {
   getCellValue,
   parseClipboardMatrix,
   writeCellValue,
-  type DataGridPlugin,
-  type DataGridPluginContext,
   type PasteEvent,
 } from '@angular-libs/data-grid';
+import type {
+  DataGridPlugin,
+  DataGridPluginContext,
+} from '@angular-libs/data-grid/plugin';
 
 export interface ClipboardPluginOptions {
   paste?: boolean;

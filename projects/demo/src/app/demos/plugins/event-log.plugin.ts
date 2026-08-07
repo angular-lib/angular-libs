@@ -4,7 +4,7 @@
  * panel tab switches.
  */
 
-import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid';
+import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 import { EventLogPanel } from './event-log-panel';
 import { DEMO_EVENT_LOG, EventLogStore } from './event-log.store';
 

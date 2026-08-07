@@ -2,8 +2,7 @@ import { signal } from '@angular/core';
 import type {
   DataGridPlugin,
   DataGridPluginContext,
-} from '@angular-libs/data-grid';
-import { ensureFlashStyles } from './flash-cells-styles';
+} from '@angular-libs/data-grid/plugin';
 import {
   flashKey,
   type FlashCellRef,
@@ -105,11 +104,6 @@ export function flashCellsPlugin<T = unknown>(
     color: string,
     duration: number,
   ): void => {
-    if (liveContext) {
-      liveContext.element.style.setProperty('--al-dg-flash-color', color);
-      liveContext.element.style.setProperty('--al-dg-flash-duration', `${duration}ms`);
-    }
-
     const next = new Map(flashes());
     const token = ++tokenCounter;
     for (const cell of targets) {
@@ -186,7 +180,6 @@ export function flashCellsPlugin<T = unknown>(
     clearFlash: () => adapter.clearFlash(),
 
     setup(context: DataGridPluginContext<T>): () => void {
-      ensureFlashStyles();
       liveContext = context;
 
       const cleanDecorator = context.capabilities.registerCellDecorator({
@@ -194,6 +187,17 @@ export function flashCellsPlugin<T = unknown>(
         className: ({ rowId, columnId }) => {
           flashes();
           return flashes().has(flashKey(rowId, columnId)) ? 'al-dg-cell--flash' : null;
+        },
+        style: ({ rowId, columnId }) => {
+          flashes();
+          const entry = flashes().get(flashKey(rowId, columnId));
+          if (!entry) {
+            return null;
+          }
+          return {
+            '--al-dg-flash-color': entry.color,
+            '--al-dg-flash-duration': `${entry.duration}ms`,
+          };
         },
       });
 

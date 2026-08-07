@@ -1,4 +1,4 @@
-import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid';
+import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 
 export interface InfiniteScrollPluginOptions {
   threshold?: number;

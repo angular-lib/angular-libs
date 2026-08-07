@@ -5,8 +5,14 @@
   "compilerOptions": {
     "paths": {
       "@angular-libs/data-grid": ["./projects/angular-libs/data-grid/src/public-api.ts"],
+      "@angular-libs/data-grid/plugin": [
+        "./projects/angular-libs/data-grid/src/plugin-api.ts"
+      ],
       "@angular-libs/data-grid/plugins": [
         "./projects/angular-libs/data-grid/plugins/src/public-api.ts"
+      ],
+      "@angular-libs/data-grid/internals": [
+        "./projects/angular-libs/data-grid/src/internals-api.ts"
       ],
       "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
       "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],

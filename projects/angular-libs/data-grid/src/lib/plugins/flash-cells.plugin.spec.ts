@@ -53,8 +53,17 @@ describe('flashCellsPlugin', () => {
 
     expect(decoratorClass(caps, 1, 'name')).toContain('al-dg-cell--flash');
     expect(decoratorClass(caps, 1, 'city')).not.toContain('al-dg-cell--flash');
-    expect(element.style.getPropertyValue('--al-dg-flash-color')).toBe('#ffe082');
-    expect(element.style.getPropertyValue('--al-dg-flash-duration')).toBe('5000ms');
+
+    const styles = caps.resolveCellDecoratorStyles({
+      row: { id: 1, name: 'Ada', city: 'Oslo' },
+      rowId: 1,
+      rowIndex: 0,
+      columnId: 'name',
+      column: col,
+      value: 'Ada',
+    });
+    expect(styles['--al-dg-flash-color']).toBe('#ffe082');
+    expect(styles['--al-dg-flash-duration']).toBe('5000ms');
 
     flash.clearFlash();
     expect(decoratorClass(caps, 1, 'name')).not.toContain('al-dg-cell--flash');

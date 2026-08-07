@@ -11,56 +11,14 @@ import {
 export type AlTooltipPosition = 'top' | 'bottom' | 'left' | 'right';
 export type AlTooltipVariant = 'default' | 'error';
 
-const STYLE_ID = 'al-dg-tooltip-styles';
 const GAP = 6;
-
-const TOOLTIP_CSS = `
-.al-dg-tooltip {
-  position: fixed;
-  z-index: 10000;
-  max-width: min(280px, calc(100vw - 16px));
-  padding: 4px 8px;
-  border-radius: 4px;
-  font: 12px/1.35 system-ui, -apple-system, sans-serif;
-  color: #fff;
-  background: #1f2937;
-  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
-  pointer-events: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-  opacity: 0;
-  transform: scale(0.96);
-  transition: opacity 80ms ease, transform 80ms ease;
-}
-.al-dg-tooltip.al-dg-tooltip--visible {
-  opacity: 1;
-  transform: scale(1);
-}
-.al-dg-tooltip[data-variant='error'] {
-  background: var(--al-dg-danger, #d32f2f);
-  color: #fff;
-}
-.al-dg-tooltip[data-position='top'] { transform-origin: bottom center; }
-.al-dg-tooltip[data-position='bottom'] { transform-origin: top center; }
-.al-dg-tooltip[data-position='left'] { transform-origin: center right; }
-.al-dg-tooltip[data-position='right'] { transform-origin: center left; }
-`;
-
-function ensureTooltipStyles(): void {
-  if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) {
-    return;
-  }
-  const style = document.createElement('style');
-  style.id = STYLE_ID;
-  style.textContent = TOOLTIP_CSS;
-  document.head.appendChild(style);
-}
 
 /**
  * Lightweight floating tooltip for data-grid (no CDK).
  *
  * Shows on hover / focus when `[alTooltip]` is a non-empty string.
  * Content updates live while open (useful for Signal Forms validation).
+ * Styles live in `data-grid.css` (body portal via `::ng-deep`).
  *
  * @example
  * ```html
@@ -96,8 +54,6 @@ export class AlTooltipDirective {
   readonly alTooltipDelay = input(120);
 
   constructor() {
-    ensureTooltipStyles();
-
     effect(() => {
       const text = this.alTooltip()?.trim() ?? '';
       const variant = this.alTooltipVariant();
@@ -162,7 +118,6 @@ export class AlTooltipDirective {
     if (typeof document === 'undefined') {
       return;
     }
-    ensureTooltipStyles();
 
     if (!this.tip) {
       this.tip = document.createElement('div');

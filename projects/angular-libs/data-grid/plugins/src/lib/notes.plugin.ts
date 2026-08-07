@@ -1,12 +1,13 @@
 import type {
   DataGridPlugin,
   DataGridPluginContext,
-  DisplayRow,
-} from '@angular-libs/data-grid';
-import { isDataDisplayRow } from '@angular-libs/data-grid';
+} from '@angular-libs/data-grid/plugin';
+import {
+  isDataDisplayRow,
+  type DisplayRow,
+} from '@angular-libs/data-grid/internals';
 import {
   closeNotePopover,
-  ensureNotesStyles,
   openNotePopover,
   type NotePopoverMode,
 } from './notes-popover';
@@ -106,8 +107,6 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
     refreshNotes: () => adapter.refreshNotes(),
 
     setup(context: DataGridPluginContext<T>): () => void {
-      ensureNotesStyles();
-
       let popoverEl: HTMLElement | null = null;
       let activeCell: NotesCellRef | null = null;
       let activeMode: NotePopoverMode | null = null;
@@ -174,6 +173,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
           note: existing,
           isNew: mode === 'edit' && (forceNew || !existing),
           mode,
+          container: context.element,
           handlers: {
             onSave: (text) => {
               const trimmed = text.trim();

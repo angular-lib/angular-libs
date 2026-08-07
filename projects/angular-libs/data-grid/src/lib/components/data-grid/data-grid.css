@@ -20,6 +20,9 @@
   --al-dg-row-invalid: #fdecea;
   --al-dg-find-match: #ffe082;
   --al-dg-find-active: #ffc107;
+  --al-dg-flash-color: #ffeb3b;
+  --al-dg-flash-duration: 1000ms;
+  --al-dg-note-marker: #f59e0b;
   --al-dg-radius: 3px;
   --al-dg-font:
     ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
@@ -123,6 +126,143 @@
   pointer-events: none;
   overflow: hidden;
   z-index: 5;
+}
+
+/* Cell range / overlay paint (binder-owned; plugins register layouts only). */
+.al-dg-cell--range {
+  background: var(--al-dg-range-bg) !important;
+}
+
+.al-dg-overlay {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.al-dg-range-ring {
+  border: 2px solid var(--al-dg-range-border);
+  z-index: 1;
+}
+
+.al-dg-fill-handle {
+  width: 11px;
+  height: 11px;
+  margin: 0;
+  padding: 0;
+  background: var(--al-dg-range-border);
+  border: 1px solid #fff;
+  cursor: crosshair;
+  z-index: 2;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+@keyframes al-dg-flash {
+  0% {
+    background-color: var(--al-dg-flash-color);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.al-dg-cell--flash {
+  animation: al-dg-flash var(--al-dg-flash-duration) ease-out;
+}
+
+.al-dg-cell--has-note {
+  position: relative;
+}
+
+.al-dg-cell--has-note::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 10px 10px 0;
+  border-color: transparent var(--al-dg-note-marker) transparent transparent;
+  pointer-events: none;
+}
+
+/*
+ * Notes popover is created imperatively and appended under :host.
+ * ::ng-deep lets dynamically created children pick up these rules.
+ */
+:host ::ng-deep .al-dg-note-popover {
+  position: fixed;
+  z-index: 10050;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(280px, calc(100vw - 16px));
+  padding: 10px;
+  border: 1px solid var(--al-dg-border);
+  border-radius: 8px;
+  background: var(--al-dg-bg);
+  color: var(--al-dg-fg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 14%);
+  font: 13px/1.35 var(--al-dg-font);
+}
+
+:host ::ng-deep .al-dg-note-popover--preview {
+  gap: 4px;
+  padding: 8px 10px;
+  pointer-events: none;
+}
+
+:host ::ng-deep .al-dg-note-popover__title {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--al-dg-muted);
+}
+
+:host ::ng-deep .al-dg-note-popover__body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: auto;
+}
+
+:host ::ng-deep .al-dg-note-popover__input {
+  width: 100%;
+  min-height: 88px;
+  resize: vertical;
+  box-sizing: border-box;
+  border: 1px solid var(--al-dg-border);
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+  background: var(--al-dg-bg);
+  color: inherit;
+}
+
+:host ::ng-deep .al-dg-note-popover__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+:host ::ng-deep .al-dg-note-popover__btn {
+  border: 1px solid var(--al-dg-border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+  background: var(--al-dg-header-bg);
+  color: inherit;
+}
+
+:host ::ng-deep .al-dg-note-popover__btn--primary {
+  background: var(--al-dg-accent);
+  border-color: var(--al-dg-accent);
+  color: #fff;
+}
+
+:host ::ng-deep .al-dg-note-popover__btn--danger {
+  color: var(--al-dg-danger);
 }
 
 .al-data-grid__table {
@@ -754,4 +894,44 @@
 .al-data-grid__ctx-shortcut {
   color: var(--al-dg-muted);
   font-size: 11px;
+}
+
+/*
+ * Tooltip portal (document.body). Pierce encapsulation — do not inject via document.head.
+ */
+::ng-deep .al-dg-tooltip {
+  position: fixed;
+  z-index: 10000;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 4px 8px;
+  border-radius: 4px;
+  font: 12px/1.35 var(--al-dg-font, system-ui, sans-serif);
+  color: #fff;
+  background: #1f2937;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 18%);
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 80ms ease, transform 80ms ease;
+}
+::ng-deep .al-dg-tooltip.al-dg-tooltip--visible {
+  opacity: 1;
+  transform: scale(1);
+}
+::ng-deep .al-dg-tooltip[data-variant='error'] {
+  background: var(--al-dg-danger, #d32f2f);
+}
+::ng-deep .al-dg-tooltip[data-position='top'] {
+  transform-origin: bottom center;
+}
+::ng-deep .al-dg-tooltip[data-position='bottom'] {
+  transform-origin: top center;
+}
+::ng-deep .al-dg-tooltip[data-position='left'] {
+  transform-origin: center right;
+}
+::ng-deep .al-dg-tooltip[data-position='right'] {
+  transform-origin: center left;
 }

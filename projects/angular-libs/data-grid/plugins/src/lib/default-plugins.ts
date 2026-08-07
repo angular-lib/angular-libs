@@ -6,7 +6,7 @@ import { findPlugin, type FindPluginOptions } from './find.plugin';
 import { clipboardPlugin, type ClipboardPluginOptions } from './clipboard.plugin';
 import { statusBarPlugin, type StatusBarPluginOptions } from './status-bar.plugin';
 import { sideBarPlugin, type SideBarPluginOptions } from './side-bar.plugin';
-import type { DataGridPlugin } from '@angular-libs/data-grid';
+import type { DataGridPlugin } from '@angular-libs/data-grid/plugin';
 
 export interface DefaultGridPluginsOptions {
   /** Default true. Pass `false` to omit, or options object. */

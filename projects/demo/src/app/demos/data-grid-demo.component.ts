@@ -10,7 +10,6 @@ import {
   type ColumnOrGroupDef,
   type DataGridContextMenuContext,
   type DataGridContextMenuItem,
-  type DataGridToolbarSlotItem,
   type PasteEvent,
   type RowEditContext,
   type RowEditEvent,
@@ -18,6 +17,7 @@ import {
   serializeGridState,
   parseGridState,
 } from '@angular-libs/data-grid';
+import type { DataGridToolbarSlotItem } from '@angular-libs/data-grid/plugin';
 import {
   aggregateRowPlugin,
   cellRangePlugin,
@@ -101,7 +101,11 @@ const STATE_KEY = 'al-data-grid-demo-state';
             </select>
           </label>
           <label class="check">
-            <input type="checkbox" [checked]="paginate()" (change)="paginate.set($any($event.target).checked)" />
+            <input
+              type="checkbox"
+              [checked]="grid.viewport.pagination()"
+              (change)="setPaginate($any($event.target).checked)"
+            />
             Pagination
           </label>
           <label class="check">
@@ -111,8 +115,8 @@ const STATE_KEY = 'al-data-grid-demo-state';
           <label class="check">
             <input
               type="checkbox"
-              [checked]="fullRowEdit()"
-              (change)="fullRowEdit.set($any($event.target).checked)"
+              [checked]="grid.editMode() === 'fullRow'"
+              (change)="grid.editMode.set($any($event.target).checked ? 'fullRow' : 'cell')"
             />
             Full-row edit
           </label>
@@ -126,14 +130,27 @@ const STATE_KEY = 'al-data-grid-demo-state';
           </label>
           <button type="button" class="btn" (click)="saveState()">Save state</button>
           <button type="button" class="btn" (click)="restoreState()">Restore</button>
-          <span class="meta">{{ selectedIds().length }} selected · last: {{ lastAction() }}</span>
+          <button
+            type="button"
+            class="btn"
+            [disabled]="!hasCellRange()"
+            (click)="clearCellRange()"
+            data-testid="al-dg-demo-clear-range"
+          >
+            Clear range
+          </button>
+          <span class="meta"
+            >{{ selectedIds().length }} selected · range: {{ rangeLabel() }} · last:
+            {{ lastAction() }}</span
+          >
         </div>
       </header>
 
       <aside class="demo__foundation" data-testid="al-dg-demo-foundation">
         <p class="demo__foundation-hint">
           Keys: arrows · Shift+arrows range · Home/End · Enter/F2 edit · Space select · ↑ header ·
-          Enter sort · Alt+↓ column menu · Esc clears range/menu
+          Enter sort · Alt+↓ column menu · Esc clears range/menu ·
+          <code>grid.cellRange</code> / <code>getAdapter</code>
         </p>
       </aside>
 
@@ -143,16 +160,9 @@ const STATE_KEY = 'al-data-grid-demo-state';
           [controller]="grid"
           [data]="rows()"
           [(selectedIds)]="selectedIds"
-          [pagination]="paginate()"
-          [pageSize]="25"
-          [virtual]="!paginate()"
-          [rowHeight]="36"
-          [columnReorder]="true"
-          [contextMenu]="true"
           [contextMenuItems]="menuItems"
           [context]="demoContext"
           [toolbarActions]="demoToolbar()"
-          [editMode]="fullRowEdit() ? 'fullRow' : 'cell'"
           [rowForm]="employeeForm"
           [(rowEditSession)]="editSession"
           [rowClass]="rowClass"
@@ -309,8 +319,6 @@ export class DataGridDemoComponent {
   readonly gridRef = viewChild<DataGrid<Employee>>('gridRef');
 
   readonly rowCount = signal(500);
-  readonly paginate = signal(false);
-  readonly fullRowEdit = signal(true);
   readonly selectedIds = signal<Array<string | number>>([]);
   readonly rows = signal(seedEmployees(500));
   readonly lastAction = signal('—');
@@ -322,8 +330,6 @@ export class DataGridDemoComponent {
     required(path.name, { message: 'Name is required' });
     min(path.salary, 1, { message: 'Salary must be > 0' });
   });
-
-  readonly rowId = (row: Employee) => row.id;
 
   /** Held plugins — adapters stay stable; toggle chrome via adapter APIs. */
   readonly groups = rowGroupPlugin<Employee>({ columns: [] });
@@ -428,10 +434,21 @@ export class DataGridDemoComponent {
   /** Compose plugins once — toggle sidebar / row drag with adapters, not `setPlugins`. */
   readonly grid = createGrid<Employee>({
     columns: this.columns,
-    rowId: this.rowId,
+    rowId: (row) => row.id,
     rows: this.rows,
     selection: 'multi',
+    editMode: 'fullRow',
     editInteraction: 'default',
+    viewport: {
+      pagination: false,
+      pageSize: 25,
+      virtual: true,
+      rowHeight: 36,
+    },
+    chrome: {
+      columnReorder: true,
+      contextMenu: true,
+    },
     plugins: [
       ...defaultGridPlugins<Employee>({ sideBar: false }),
       this.drag,
@@ -445,6 +462,12 @@ export class DataGridDemoComponent {
       this.events,
     ],
   });
+
+  /** Pagination XOR virtual — mirrors former `[virtual]="!paginate()"`. */
+  setPaginate(on: boolean): void {
+    this.grid.viewport.pagination.set(on);
+    this.grid.viewport.virtual.set(!on);
+  }
 
   /** Opaque host bag for toolbar actions — not the grid controller. */
   readonly demoContext: DemoGridContext = {
@@ -543,7 +566,7 @@ export class DataGridDemoComponent {
       id: 'edit-row',
       label: 'Edit row',
       action: () => {
-        this.gridRef()?.startRowEdit(ctx.row, ctx.rowId, ctx.rowIndex);
+        this.gridRef()?.api.startEditingRow(ctx.rowId);
         this.lastAction.set(`editing #${ctx.rowId}`);
       },
     },
@@ -562,7 +585,7 @@ export class DataGridDemoComponent {
       id: 'export',
       label: 'Export CSV',
       action: () => {
-        this.gridRef()?.exportCsv();
+        this.gridRef()?.api.exportCsv();
         this.lastAction.set('exported CSV');
       },
     },
@@ -611,7 +634,7 @@ export class DataGridDemoComponent {
     if (!grid || typeof localStorage === 'undefined') {
       return;
     }
-    localStorage.setItem(STATE_KEY, serializeGridState(grid.getState()));
+    localStorage.setItem(STATE_KEY, serializeGridState(grid.api.getState()));
   }
 
   restoreState(): void {
@@ -625,7 +648,32 @@ export class DataGridDemoComponent {
     }
     const state = parseGridState(raw);
     if (state) {
-      grid.setState(state);
+      grid.api.setState(state);
     }
+  }
+
+  /** Discovery: held `grid.cellRange` adapter (same as `getAdapter('cellRange', …)`). */
+  hasCellRange(): boolean {
+    return !!this.grid.cellRange?.getRange();
+  }
+
+  rangeLabel(): string {
+    const range = this.grid.cellRange?.getRange();
+    if (!range) {
+      return 'none';
+    }
+    const { anchor, active } = range;
+    if (
+      anchor.rowIndex === active.rowIndex &&
+      anchor.columnId === active.columnId
+    ) {
+      return `${anchor.columnId}@${anchor.rowIndex}`;
+    }
+    return `${anchor.columnId}@${anchor.rowIndex}→${active.columnId}@${active.rowIndex}`;
+  }
+
+  clearCellRange(): void {
+    this.grid.cellRange?.clearRange();
+    this.lastAction.set('cleared cell range (grid.cellRange)');
   }
 }

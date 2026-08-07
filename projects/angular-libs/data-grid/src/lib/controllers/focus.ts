@@ -287,8 +287,14 @@ export class FocusController {
         return true;
       case 'Home':
         if (event.ctrlKey || event.metaKey) {
-          if (realm === 'body') {
-            this.move(-this.options.getRowCount(), 0);
+          if (realm === 'body' && this.options.getRowCount() > 0 && this.focused) {
+            // Clamp to first body row — do not bridge into header continuum.
+            this.options.onClearRange?.();
+            this.setFocus({
+              rowIndex: 0,
+              columnId: this.focused.columnId,
+              realm: 'body',
+            });
           }
         } else if (this.focused) {
           const cols = this.options.getColumnIds();
@@ -303,8 +309,14 @@ export class FocusController {
         return true;
       case 'End':
         if (event.ctrlKey || event.metaKey) {
-          if (realm === 'body') {
-            this.move(this.options.getRowCount(), 0);
+          const rowCount = this.options.getRowCount();
+          if (realm === 'body' && rowCount > 0 && this.focused) {
+            this.options.onClearRange?.();
+            this.setFocus({
+              rowIndex: rowCount - 1,
+              columnId: this.focused.columnId,
+              realm: 'body',
+            });
           }
         } else if (this.focused) {
           const cols = this.options.getColumnIds();

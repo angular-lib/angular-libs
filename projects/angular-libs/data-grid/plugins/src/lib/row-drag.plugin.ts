@@ -1,5 +1,5 @@
 import { signal, type Signal } from '@angular/core';
-import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid';
+import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 
 export type RowDragPluginOptions = boolean | { enabled?: boolean };
 

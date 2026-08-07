@@ -1,9 +1,9 @@
-import {
-  aggregateColumn,
-  type ColumnDef,
-  type DataGridPlugin,
-  type DataGridPluginContext,
-} from '@angular-libs/data-grid';
+import type { ColumnDef } from '@angular-libs/data-grid';
+import type {
+  DataGridPlugin,
+  DataGridPluginContext,
+} from '@angular-libs/data-grid/plugin';
+import { aggregateColumn } from '@angular-libs/data-grid/internals';
 
 /**
  * Registers an aggregate footer contribution (capability).

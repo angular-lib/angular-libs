@@ -3,13 +3,13 @@
  */
 
 import { computed, signal, type Signal } from '@angular/core';
+import type { ColumnDef } from '@angular-libs/data-grid';
 import {
   buildDisplayRows,
   collectAllGroupIds,
-  type ColumnDef,
   type DisplayRow,
   type RowGroupConfig,
-} from '@angular-libs/data-grid';
+} from '@angular-libs/data-grid/internals';
 
 export interface RowGroupAdapter {
   readonly columns: Signal<readonly string[]>;

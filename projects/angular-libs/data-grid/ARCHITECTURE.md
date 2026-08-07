@@ -35,27 +35,29 @@ for authoring. Breaking changes OK until first publish.
 ## Target shape
 
 ```
-createGrid({ columns, plugins, … })     ← schema + held plugins (not feature flags)
+createGrid({ columns, plugins, viewport, chrome, … })
+        │                              ← schema + held plugins + UX flags
+        ▼
+GridController                          ← schema + writable UX flags (+ computeRowModel for tests)
         │
         ▼
-GridController                          ← owns pipeline signals (filter→sort→stages→display)
+createDataGridSession(…)                ← runtime root (mounted grid)
+        ├── GridKernel                  ← plugin lifecycle, slots, capabilities, focus/find
+        ├── behavioral hosts            ← domain state (columns, viewport, edit, …)
+        ├── live row pipeline           ← processedRows / displayRows
+        └── DataGridApi                 ← composed from hosts
         │
         ▼
-GridKernel                              ← plugin lifecycle, slots, capabilities, focus/find
-        │
-        ├── slots          → chrome only (toolbar / status / sidebar / find flag / drag)
-        └── capabilities   → row-model, interactions, aggregates, (later) editors / views
-        │
-        ▼
-<al-data-grid>                          ← thin binder: bind controller, project templates,
-                                          switch on DisplayRow.kind via view registry
+<al-data-grid>                          ← thin binder: IO + template binds session/hosts
 ```
 
 **Rules**
 
 1. **Do not** put feature logic in `data-grid.ts`.
 2. **Do not** add new feature inputs on `DataGrid` — plugins + controller only.
-   `[controller]` from `createGrid` is **required**; binder schema inputs are overrides only.
+   `[controller]` from `createGrid` is **required**; schema (`columns`, `rowId`,
+   `selection`, `editMode`) is controller-only (no binder overrides).
+   Viewport / chrome / multiSort / serverSide live on `createGrid` / `GridController`.
 3. Prefer `capabilities` / `slots` over reaching into the component.
 4. Editing is **kernel-adjacent** (always available), not an optional chrome plugin.
 5. Plugin activation is **imperative** on `GridKernel` only — never from an Angular
@@ -63,6 +65,72 @@ GridKernel                              ← plugin lifecycle, slots, capabilitie
    adapters (`sideBar.setEnabled`); rare list changes use `setPlugins` →
    `api.recomposePlugins`. Open tool-panel state uses `linkedSignal`, never an
    effect that writes `activeSidePanel`.
+
+---
+
+## Ownership: session / host / plugin
+
+Where new code belongs. Enforced in spirit by
+[`src/lib/hosts/GOVERNANCE.md`](./src/lib/hosts/GOVERNANCE.md) (LOC gates on the binder).
+
+### Session (`createDataGridSession`)
+
+**Runtime root** for one mounted grid. Not a feature layer — orchestration.
+
+| Owns | Examples |
+| --- | --- |
+| Wiring | controller + IO bridges → kernel + hosts + API |
+| Live row pipeline | `processedRows`, `displayRows` |
+| Kernel | focus, find, slots, capabilities |
+| Cross-cutting paint | range overlays (`paintedOverlays`) |
+| `DataGridApi` | façade composed from hosts |
+
+Binder constructs the session; the template reads it.
+
+### Host (`src/lib/hosts/*`)
+
+**Domain state + behavior inside one grid** (always available / kernel-adjacent).
+
+| Host | Area |
+| --- | --- |
+| `ColumnLayoutHost` | sort, filter, layout, pin, resize, reorder, widths |
+| `ViewportHost` | scroll, page/virtual window, find UI state, collapse, row-drag, sidebar open |
+| `EditSyncHost` | cell/row edit draft, `rowEditMgr`, start/commit/cancel |
+| `SelectionHost` | selection-derived UI, toggle, select-all, selection clipboard |
+| `MenuHost` | context menu + lean column menu state |
+
+If it is **core table behavior** that should exist without an opt-in package, it belongs on a host — not a plugin.
+
+### Plugin (`@angular-libs/data-grid/plugins`)
+
+**Opt-in features** that register via slots / capabilities. Authoring contracts:
+[`@angular-libs/data-grid/plugin`](./src/plugin-api.ts) — see [PLUGINS.md](./PLUGINS.md).
+
+| Kind | Examples |
+| --- | --- |
+| Chrome slots | find bar, sidebar, status, toolbar actions |
+| Row model | row group, tree, aggregate, data stages |
+| Interaction | clipboard, infinite scroll, row-drag enable, cell range |
+| Cell décor | notes marker, flash, range fill class |
+| Held adapters | `groups.setColumns()`, `flash.flashCells()`, `range.clearRange()` |
+
+Plugin owns **feature state + registration**. Absolute paint overlays → session/binder.
+Floating UI (notes popover, tooltips) may append under `context.element` with
+binder-owned CSS — documented exception, not `registerOverlay`.
+
+### Binder (`DataGrid` / `data-grid.ts`)
+
+Outside the triangle: inputs / models / outputs, template, thin keyboard coordinators.
+Does **not** own domain state.
+
+### Thumb rule
+
+```
+New thing?
+ ├─ Always part of the grid core?     → Host (or session if cross-cutting)
+ ├─ Opt-in / tree-shake / adapter?    → Plugin
+ └─ Only wire IO ↔ runtime?           → Session (rarely new feature code)
+```
 
 ---
 
@@ -108,6 +176,8 @@ this plan. Conflicts resolved in [Conflicts & omissions](#conflicts--omissions).
 | A2 | Typed plugin adapters on `createGrid` (replace duck-typed `rowGroup` lookup) | 81 |
 
 **Done when:** `DataGrid` composes narrow hosts; `createGrid` exposes adapters with real types.
+
+**Follow-up (P0a → Foundation v2):** Behavioral hosts under [`src/lib/hosts/`](./src/lib/hosts/) own domain state. `createDataGridSession` is the runtime root. The binder template binds hosts/session directly (F3); see [`src/lib/hosts/GOVERNANCE.md`](./src/lib/hosts/GOVERNANCE.md).
 
 ### Phase 4 — Chrome leaves the binder
 
@@ -176,10 +246,15 @@ Skipped from the idea list: **C. Two-tier API** (binder + separate headless prod
 
 | Package | Owns |
 | --- | --- |
-| `@angular-libs/data-grid` | Component binder, kernel, contracts, editing module, pipeline, `createGrid`, utils |
-| `@angular-libs/data-grid/plugins` | Feature factories + `defaultGridPlugins` + sidebar panel components (Phase 4) |
+| `@angular-libs/data-grid` | Consumer surface: binder, `createGrid`, `DataGridApi`, editing, locale, chrome |
+| `@angular-libs/data-grid/plugins` | Feature factories + `defaultGridPlugins` + sidebar panel components |
+| `@angular-libs/data-grid/plugin` | Plugin-authoring contracts (slots, capabilities, kernel, focus, adapters) |
+| `@angular-libs/data-grid/internals` | Unstable test/tooling (pipeline, column layout, hosts, row display) |
 
 Optional later: `…/plugins/enterprise` **only** if bundle size demands it (I / P3).
+
+`DataGridApi` feature methods are thin façades — prefer held adapters
+(`groups.setColumns`, `ranges.clearRange`). `bind*Adapter` is `@internal`.
 
 ---
 
@@ -199,6 +274,8 @@ const grid = createGrid({
   columns,
   rowId: (r) => r.id,
   selection: 'multi',
+  viewport: { virtual: true },
+  chrome: { contextMenu: true },
   plugins: [...defaultGridPlugins({ sideBar: false }), rowDragPlugin(), groups],
 });
 
@@ -217,7 +294,7 @@ groups.setColumns(['role']);
 />
 ```
 
-Host owns `rows` and (for full-row edit) the Signal Forms tree; plugins own feature behavior; kernel owns focus/viewport/editing seams.
+Host owns `rows` and (for full-row edit) the Signal Forms tree; plugins own feature behavior; controller owns UX flags (`viewport` / `chrome` / `multiSort` / `serverSide`); kernel owns focus/viewport/editing seams.
 
 ## Delivery snapshot
 
@@ -226,16 +303,27 @@ Host owns `rows` and (for full-row edit) the Signal Forms tree; plugins own feat
 | 0 Governance & docs | ✅ |
 | 1 Plugins-only flags + error isolation | ✅ |
 | 2 Controller / `runGridRowModel` | ✅ |
-| 3 Split API hosts + `pickAdapter` | ✅ `composeDataGridApiHost` + tree `pickAdapter` |
+| 3 Split API hosts + `getAdapter` | ✅ `composeDataGridApiHost` from behavioral hosts; typed `getAdapter` / guards |
 | 4 Chrome extraction | ✅ toolbar / find / status / sidebar shell; panels in plugins |
 | 5 Editing seams | ✅ host `rowForm` canonical (docs) + `RowEditSession` |
 | 6 Interactions + display views | ✅ view registry overrides `group`; exclusive display builders |
+
+### Foundation v2 (ownership)
+
+| Wave | Status | Notes |
+| --- | --- | --- |
+| F0 | ✅ | Schema only on `createGrid` (no binder column/selection/editMode overrides); C1 flash/range; notes floating DOM = documented exception |
+| F1 | ✅ | `ColumnLayoutHost` owns column writables + layout computeds |
+| F2 | ✅ | `createDataGridSession` owns kernel + hosts + live row pipeline + API |
+| F3 | ✅ | Template binds hosts/session directly; binder **~857 LOC** (governance ≤910; prefer ≤1000); tooltip CSS in binder styles; public host-slice types → `/plugin` |
+
+Binder = Angular IO + template + keyboard coordinators. Runtime state lives on session/hosts.
 
 ### Follow-ups landed (post Phase 6 polish)
 
 | Item | Status |
 | --- | --- |
-| Reactive `[plugins]` recomposition (id-key) | ✅ |
+| Reactive `setPlugins` recomposition (id-key) | ✅ |
 | `api.getLocale()` + localized plugin chrome | ✅ |
 | Tree adapter + exclusive display builders | ✅ |
 | Row reorder `fromId`/`toId` + drag gating | ✅ |

@@ -70,6 +70,8 @@ export interface CellDecoratorContext<T = unknown> {
 export interface CellDecoratorContribution<T = unknown> {
   id: string;
   className: (ctx: CellDecoratorContext<T>) => string | string[] | null | undefined;
+  /** Optional per-cell CSS custom properties / inline styles (binder applies). */
+  style?: (ctx: CellDecoratorContext<T>) => Record<string, string> | null | undefined;
 }
 
 /** Plugin-contributed context-menu items (merged ahead of host/default items). */
@@ -77,6 +79,27 @@ export interface ContextMenuContribution<T = unknown> {
   id: string;
   order?: number;
   items: (ctx: DataGridContextMenuContext<T>) => readonly DataGridContextMenuItem<T>[];
+}
+
+/** CSS px relative to the range/overlay layer. */
+export interface OverlayLayout {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Overlay contribution — plugin owns state; binder owns paint.
+ * `kind`: `'range-ring' | 'fill-handle' | 'custom'` (open string for forward compat).
+ */
+export interface OverlayContribution {
+  id: string;
+  kind: string;
+  /** `null` = hidden */
+  layout: () => OverlayLayout | null;
+  /** Extra class on the overlay element */
+  className?: string | (() => string | null);
 }
 
 /**
@@ -91,10 +114,17 @@ export class GridCapabilities<T = unknown> {
   private readonly cellDecorators: WritableSignal<CellDecoratorContribution<T>[]> = signal([]);
   private readonly contextMenuContributions: WritableSignal<ContextMenuContribution<T>[]> =
     signal([]);
+  private readonly overlayContributions: WritableSignal<OverlayContribution[]> = signal([]);
+  /** Bumped when overlay layouts should be re-read (range/scroll/resize). */
+  private readonly overlayPaintEpochSignal: WritableSignal<number> = signal(0);
 
   readonly hasDisplayBuilder = computed(() => this.displayBuilders().length > 0);
   readonly hasAggregate = computed(() => this.aggregates().length > 0);
   readonly hasContextMenuItems = computed(() => this.contextMenuContributions().length > 0);
+  /** Registered overlay contributions (binder paints these). */
+  readonly overlays: Signal<OverlayContribution[]> = this.overlayContributions.asReadonly();
+  /** Track in binder computed so layout() re-evaluates after invalidateOverlays(). */
+  readonly overlayPaintEpoch: Signal<number> = this.overlayPaintEpochSignal.asReadonly();
 
   registerDataStage(stage: RowModelDataStage<T>): () => void {
     this.dataStages.update((list) =>
@@ -158,6 +188,27 @@ export class GridCapabilities<T = unknown> {
       );
   }
 
+  registerOverlay(contribution: OverlayContribution): () => void {
+    this.overlayContributions.update((list) => [
+      ...list.filter((o) => o.id !== contribution.id),
+      contribution,
+    ]);
+    this.invalidateOverlays();
+    return () => {
+      this.overlayContributions.update((list) => list.filter((o) => o.id !== contribution.id));
+      this.invalidateOverlays();
+    };
+  }
+
+  /** Ask the binder to re-read overlay `layout()` callbacks (range/scroll/resize). */
+  invalidateOverlays(): void {
+    this.overlayPaintEpochSignal.update((n) => n + 1);
+  }
+
+  listOverlays(): readonly OverlayContribution[] {
+    return this.overlayContributions();
+  }
+
   /** Active interaction contributions (for host to call setup after render). */
   getInteractions(): readonly InteractionContribution[] {
     return this.interactions();
@@ -185,6 +236,19 @@ export class GridCapabilities<T = unknown> {
       }
     }
     return parts.join(' ');
+  }
+
+  /** Merge per-decorator inline styles / CSS vars (later decorators win on key clash). */
+  resolveCellDecoratorStyles(ctx: CellDecoratorContext<T>): Record<string, string> {
+    const merged: Record<string, string> = {};
+    for (const decorator of this.cellDecorators()) {
+      const part = decorator.style?.(ctx);
+      if (!part) {
+        continue;
+      }
+      Object.assign(merged, part);
+    }
+    return merged;
   }
 
   resolveContextMenuItems(
@@ -236,6 +300,8 @@ export class GridCapabilities<T = unknown> {
     this.displayViews.set([]);
     this.cellDecorators.set([]);
     this.contextMenuContributions.set([]);
+    this.overlayContributions.set([]);
+    this.overlayPaintEpochSignal.set(0);
   }
 }
 

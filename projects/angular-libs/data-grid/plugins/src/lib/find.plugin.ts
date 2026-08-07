@@ -2,7 +2,7 @@ import type {
   DataGridPlugin,
   DataGridPluginContext,
   FindFeatureConfig,
-} from '@angular-libs/data-grid';
+} from '@angular-libs/data-grid/plugin';
 
 export type FindPluginOptions = FindFeatureConfig;
 

@@ -79,7 +79,7 @@ export {
   activatePlugins,
   dedupePlugins,
   notifyPlugins,
-} from '@angular-libs/data-grid';
+} from '@angular-libs/data-grid/plugin';
 export type {
   DataGridPlugin,
   DataGridPluginContext,
@@ -90,4 +90,4 @@ export type {
   DataGridToolbarSlotItem,
   FindFeatureConfig,
   InfiniteScrollFeatureConfig,
-} from '@angular-libs/data-grid';
+} from '@angular-libs/data-grid/plugin';

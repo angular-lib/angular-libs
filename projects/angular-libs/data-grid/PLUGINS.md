@@ -7,8 +7,19 @@ Plugins are the extension surface for `@angular-libs/data-grid` — same spirit 
 Factories live in `@angular-libs/data-grid/plugins` so unused features tree-shake.
 
 **Architecture:** [ARCHITECTURE.md](./ARCHITECTURE.md) (phases, non-goals, package
-boundaries). **Do not** add feature inputs on `DataGrid` — register via
-`capabilities` / `slots` only.
+boundaries, [session / host / plugin ownership](./ARCHITECTURE.md#ownership-session--host--plugin)).
+**Do not** add feature inputs on `DataGrid` — register via `capabilities` / `slots` only.
+
+### Plugin vs host
+
+| | **Plugin** (this doc) | **Host** (`src/lib/hosts/`) |
+| --- | --- | --- |
+| When | Opt-in feature, tree-shakeable, held adapter | Core table behavior always available |
+| Examples | row group, clipboard, cell range, flash, notes | sort/filter/layout, edit sync, selection, viewport |
+| Registers via | `slots` / `capabilities` in `setup` | Owned signals + methods on the session |
+
+If you are unsure: core keyboard/edit/selection/layout → **host**; everything else that
+can be left out of the default bundle → **plugin**.
 
 ## Consumer DX (held objects)
 
@@ -47,20 +58,19 @@ Toolbar tools like CSV export and autosize are **not** defaults — import
 ## Architecture
 
 ```
-GridKernel
-  ├── focus / find controllers
-  ├── chrome slots (toolbar, status, sidebar, find, drag flags)
-  └── GridCapabilities (row-model, interaction, aggregate)
-DataGrid component
-  └── binder + thin template (switches on DisplayRow.kind)
+createGrid → GridController
+createDataGridSession → kernel + hosts + live pipeline + API
+plugins register on kernel (slots / capabilities)
+DataGrid binder → IO + template binds session/hosts
 ```
 
-**Do not** put feature logic in `data-grid.ts`. Register capabilities instead.
+**Do not** put feature logic in `data-grid.ts`. Core behavior → host; opt-in → plugin
+(see [ownership](./ARCHITECTURE.md#ownership-session--host--plugin)).
 
 ## Plugin contract
 
 ```ts
-import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid';
+import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 
 export function myPlugin<T>(): DataGridPlugin<T> {
   return {
@@ -205,6 +215,11 @@ plugins = [...defaultGridPlugins(), notes];
 UI: corner marker, hover preview (read-only), `Shift+F2` / context-menu Add/Edit/Remove for the editor.
 Writes are optimistic (`notes.set`) then `save`; failed saves call `reload`.
 
+**Overlay paint vs floating UI:** floating popovers (notes, tooltips) may append under
+`context.element` with binder-owned CSS (`data-grid.css` — no `document.head` injection).
+Absolute paint overlays (range ring, fill handle, etc.) must use `registerOverlay` /
+binder paint — not plugin-owned DOM measurement of `.al-data-grid__range-layer`.
+
 ## Flash cells
 
 Opt-in imperative highlight — hold the plugin and call `flashCells` with cells
@@ -345,7 +360,7 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 2. Register via `capabilities` / `slots` only (no patches to `DataGrid`)
 3. Return cleanups from `setup`
 4. Prefer `api` / `controller` over reaching into the component; keep `context` host-only
-5. Export a factory from your package; consumers add it to `[plugins]`
+5. Export a factory from your package; consumers add it via `createGrid({ plugins })` / `setPlugins`
 
 ## Reference plugins
 

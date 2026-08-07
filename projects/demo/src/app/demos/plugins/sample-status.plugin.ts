@@ -3,7 +3,7 @@
  * Shows chrome + capability registration without editing the grid host.
  */
 
-import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid';
+import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 
 /**
  * Adds a status-bar line and an Alt+S shortcut to focus the find input.

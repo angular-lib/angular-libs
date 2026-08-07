@@ -34,6 +34,8 @@ const grid = createGrid({
   columns,
   rowId: (r) => r.id,
   selection: 'multi',
+  viewport: { virtual: true, pageSize: 25 },
+  chrome: { showToolbar: true, contextMenu: true },
   plugins: [...defaultGridPlugins({ sideBar: false }), rowDragPlugin(), groups],
 });
 
@@ -52,13 +54,13 @@ groups.clear();
 />
 ```
 
-`[plugins]` is an optional override. Prefer composing plugins once on
-`createGrid`. Toggle chrome via held adapters (e.g. `sideBar.setEnabled(false)`)
-instead of rebuilding the plugin list.
+Compose plugins once on `createGrid`. Toggle chrome via held adapters
+(e.g. `sideBar.setEnabled(false)`) or controller UX signals
+(`grid.viewport.pagination.set(true)`, `grid.chrome.contextMenu.set(true)`).
 
-After mount, changing `[plugins]` **does** recompose (by plugin `id` list key).
-Prefer `grid.setPlugins(...)` or held adapters for intentional updates — avoid
-churning the list on every CD cycle.
+After mount, `grid.setPlugins(...)` **does** recompose (by plugin `id` list key).
+Prefer held adapters for intentional updates — avoid churning the list on every
+CD cycle.
 
 ## Full-row edit (Signal Forms) — canonical DX
 
@@ -91,7 +93,7 @@ const grid = createGrid({
 />
 ```
 
-- **Canonical:** host `[rowForm]` + `editMode: 'fullRow'` + `(rowEdit)` / `applyRowEdit`
+- **Canonical:** host `[rowForm]` + `createGrid({ editMode: 'fullRow' })` (toggle with `grid.editMode.set`) + `(rowEdit)` / `applyRowEdit`
 - **Fallback:** omit `rowForm`, pass `rowEditSchema` / `createRowForm` (grid creates a session form)
 - **Optional sugar:** `grid.rowEditAdapter` / `api.startEditingRow` / `api.stopEditing`
 - Observe session with `[(rowEditSession)]` when the host needs commit/cancel metadata
@@ -221,8 +223,9 @@ grid.api()?.getState();
 grid.api()?.getLocale(); // plugins use this for chrome strings
 ```
 
-`DataGridApi` is backed by composed narrow hosts (selection / columns / editing /
-viewport / find / row-group / clipboard / locale) via `composeDataGridApiHost`.
+Feature ops prefer held plugin adapters (`groups.setColumns`, `ranges.clearRange`).
+`DataGridApi` methods are thin façades over those adapters (or host passthrough).
+`bind*Adapter` / host-passthrough wiring is `@internal`.
 
 ## Locale
 

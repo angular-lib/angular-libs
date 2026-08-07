@@ -525,9 +525,6 @@ describe('data-grid utils', () => {
     <al-data-grid
       [controller]="grid"
       [data]="rows()"
-      [pagination]="true"
-      [pageSize]="2"
-      [showToolbar]="true"
     >
       <ng-template alGridCell="city" let-row let-value="value">
         <em>{{ value }}</em>
@@ -541,6 +538,8 @@ class HostGrid {
     columns,
     rowId: (row: Person) => row.id,
     selection: 'multi',
+    viewport: { pagination: true, pageSize: 2, virtual: false },
+    chrome: { showToolbar: true },
     plugins: [sideBarPlugin<Person>()],
   });
 }
@@ -615,8 +614,6 @@ describe('DataGrid', () => {
     <al-data-grid
       [controller]="grid"
       [data]="rows()"
-      [virtual]="false"
-      [pagination]="false"
     />
   `,
 })
@@ -629,6 +626,7 @@ class PinMenuHostGrid {
       { field: 'city' },
     ] as ColumnDef<Person>[],
     rowId: (row: Person) => row.id,
+    viewport: { virtual: false, pagination: false },
   });
 }
 
@@ -649,7 +647,7 @@ describe('DataGrid header pin context menu', () => {
 
   it('unpins a pinned column via header context menu', async () => {
     const { fixture, grid, el } = await mount();
-    expect(grid.getColumnPinned('name')).toBe('left');
+    expect(grid.api.getColumnPinned('name')).toBe('left');
 
     const nameHeader = el.querySelector('[data-testid="al-dg-col-name"]') as HTMLElement;
     nameHeader.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 40, clientY: 20 }));
@@ -661,13 +659,13 @@ describe('DataGrid header pin context menu', () => {
     unpin.click();
     fixture.detectChanges();
 
-    expect(grid.getColumnPinned('name')).toBeNull();
+    expect(grid.api.getColumnPinned('name')).toBeNull();
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeNull();
   });
 
   it('pins an unpinned column left via header context menu', async () => {
     const { fixture, grid, el } = await mount();
-    expect(grid.getColumnPinned('age')).toBeNull();
+    expect(grid.api.getColumnPinned('age')).toBeNull();
 
     const ageHeader = el.querySelector('[data-testid="al-dg-col-age"]') as HTMLElement;
     ageHeader.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 80, clientY: 20 }));
@@ -679,23 +677,23 @@ describe('DataGrid header pin context menu', () => {
     pinLeft.click();
     fixture.detectChanges();
 
-    expect(grid.getColumnPinned('age')).toBe('left');
+    expect(grid.api.getColumnPinned('age')).toBe('left');
   });
 
   it('opens lean column menu via api.openColumnMenu with sort/hide items', async () => {
     const { fixture, grid, el } = await mount();
-    grid.openColumnMenu('age');
+    grid.api.openColumnMenu('age');
     fixture.detectChanges();
 
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="al-dg-ctx-sort-asc"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="al-dg-ctx-autosize"]')).toBeTruthy();
     expect(el.querySelector('[data-testid="al-dg-ctx-hide"]')).toBeTruthy();
-    expect(grid.columnMenuColumnId()).toBe('age');
+    expect(grid.menuHost.columnMenuColumnId()).toBe('age');
 
     (el.querySelector('[data-testid="al-dg-ctx-sort-asc"]') as HTMLButtonElement).click();
     fixture.detectChanges();
-    expect(grid.getSortModel()).toEqual([{ columnId: 'age', direction: 'asc' }]);
+    expect(grid.api.getSortModel()).toEqual([{ columnId: 'age', direction: 'asc' }]);
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeNull();
   });
 });
@@ -904,8 +902,6 @@ describe('row pipeline + display model', () => {
     <al-data-grid
       [controller]="grid"
       [data]="rows()"
-      [virtual]="false"
-      [pagination]="false"
     />
   `,
 })
@@ -914,6 +910,7 @@ class GroupHostGrid {
   readonly grid = createGrid({
     columns,
     rowId: (row: Person) => row.id,
+    viewport: { virtual: false, pagination: false },
     plugins: [rowGroupPlugin<Person>({ columns: ['city'] })],
   });
 }
@@ -924,8 +921,6 @@ class GroupHostGrid {
     <al-data-grid
       [controller]="grid"
       [data]="rows()"
-      [virtual]="false"
-      [pagination]="false"
     />
   `,
 })
@@ -934,6 +929,7 @@ class TreeHostGrid {
   readonly grid = createGrid({
     columns,
     rowId: (row: Person) => row.id,
+    viewport: { virtual: false, pagination: false },
     plugins: [treeDataPlugin<Person>({ getDataPath: (row) => row.path ?? [] })],
   });
 }
@@ -1028,7 +1024,7 @@ describe('createGrid + controller binding', () => {
   it('renders from [controller] without columns/plugins inputs', async () => {
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class ControllerHost {
       readonly rows = signal(people);
@@ -1036,6 +1032,7 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
         plugins: [this.groups],
       });
     }
@@ -1054,7 +1051,7 @@ describe('createGrid + controller binding', () => {
   it('setPlugins while mounted recomposes via kernel (not a DataGrid effect)', async () => {
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class RecomposeHost {
       readonly rows = signal(people);
@@ -1062,6 +1059,7 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
         plugins: [this.groups],
       });
     }
@@ -1083,7 +1081,7 @@ describe('createGrid + controller binding', () => {
   it('sideBar.setEnabled toggles chrome without setPlugins', async () => {
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class ToggleHost {
       readonly rows = signal(people);
@@ -1091,6 +1089,7 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
         plugins: [this.sideBar],
       });
     }
@@ -1117,7 +1116,7 @@ describe('createGrid + controller binding', () => {
   it('demo-like sidebar toggle does not hang under grouping + plugins', async () => {
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class DemoLikeHost {
       readonly rows = signal(people);
@@ -1130,6 +1129,7 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
         plugins: [
           statusBarPlugin(),
           this.groups,
@@ -1157,7 +1157,7 @@ describe('createGrid + controller binding', () => {
   it('sideBar panels: [] registers no built-in panels', async () => {
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class EmptyPanelsHost {
       readonly rows = signal(people);
@@ -1165,6 +1165,7 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
         plugins: [this.sideBar],
       });
     }
@@ -1181,7 +1182,7 @@ describe('createGrid + controller binding', () => {
   it('filters tool panel: add/remove cards and auto-include from filter model', async () => {
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" [floatingFilters]="true" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class FiltersPanelHost {
       readonly rows = signal(people);
@@ -1192,6 +1193,8 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
+        chrome: { floatingFilters: true },
         plugins: [this.sideBar],
       });
     }
@@ -1270,7 +1273,7 @@ describe('createGrid + controller binding', () => {
 
     @Component({
       imports: [DataGrid],
-      template: `<al-data-grid [controller]="grid" [data]="rows()" [virtual]="false" />`,
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
     })
     class CustomPanelHost {
       readonly rows = signal(people);
@@ -1278,6 +1281,7 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false },
         plugins: [this.sideBar, testPanelPlugin()],
       });
     }
@@ -1315,8 +1319,6 @@ describe('createGrid + controller binding', () => {
           [controller]="grid"
           [data]="rows()"
           [(selectedIds)]="selectedIds"
-          [virtual]="false"
-          [pagination]="false"
         />
       `,
     })
@@ -1327,6 +1329,7 @@ describe('createGrid + controller binding', () => {
         columns,
         rowId: (r: Person) => r.id,
         selection: 'multi',
+        viewport: { virtual: false, pagination: false },
       });
     }
 
@@ -1356,8 +1359,6 @@ describe('createGrid + controller binding', () => {
         <al-data-grid
           [controller]="grid"
           [data]="rows()"
-          [virtual]="false"
-          [pagination]="false"
         />
       `,
     })
@@ -1368,6 +1369,7 @@ describe('createGrid + controller binding', () => {
         columns,
         rowId: (r: Person) => r.id,
         selection: 'multi',
+        viewport: { virtual: false, pagination: false },
         plugins: [this.ranges],
       });
     }
@@ -1406,9 +1408,6 @@ describe('createGrid + controller binding', () => {
         <al-data-grid
           [controller]="grid"
           [data]="rows()"
-          [virtual]="false"
-          [pagination]="false"
-          [floatingFilters]="true"
         />
       `,
     })
@@ -1421,6 +1420,8 @@ describe('createGrid + controller binding', () => {
           { field: 'age', filter: 'number' },
         ],
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false, pagination: false },
+        chrome: { floatingFilters: true },
         plugins: [this.ranges],
       });
     }
@@ -1471,9 +1472,6 @@ describe('createGrid + controller binding', () => {
         <al-data-grid
           [controller]="grid"
           [data]="rows()"
-          [virtual]="false"
-          [pagination]="false"
-          [contextMenu]="true"
         />
       `,
     })
@@ -1483,6 +1481,8 @@ describe('createGrid + controller binding', () => {
       readonly grid = createGrid({
         columns,
         rowId: (r: Person) => r.id,
+        viewport: { virtual: false, pagination: false },
+        chrome: { contextMenu: true },
         plugins: [this.ranges],
       });
     }

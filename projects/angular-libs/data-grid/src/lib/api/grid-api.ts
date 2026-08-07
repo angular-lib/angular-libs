@@ -94,6 +94,10 @@ export interface DataGridViewportHost<T = unknown> {
   resolveRowId?(row: T, index: number): string | number;
   notifyNearEnd?(): void;
   openColumnMenu?(columnId: string): void;
+  /** Stable cell DOM lookup (body cells with `data-row-id` / `data-column-id`). */
+  getCellElement?(rowId: string | number, columnId: string): HTMLElement | null;
+  /** Scroll viewport root (`.al-data-grid__scroll`). */
+  getScrollRoot?(): HTMLElement | null;
 }
 
 /** Find chrome. */
@@ -137,7 +141,8 @@ export interface DataGridSideBarApiHost {
 /**
  * Combined host surface the API façade calls into.
  * Prefer depending on a focused host interface when extracting features.
- * Build with {@link composeDataGridApiHost} from `./compose-host`.
+ * Build with {@link composeDataGridApiHost} from `@angular-libs/data-grid/plugin`
+ * (or `/internals`).
  */
 export type DataGridApiHost<T = unknown> = DataGridSelectionHost<T> &
   DataGridColumnsHost &
@@ -151,6 +156,10 @@ export type DataGridApiHost<T = unknown> = DataGridSelectionHost<T> &
 
 /**
  * Imperative grid façade (AG-inspired, intentionally smaller).
+ *
+ * Feature ops prefer held plugin adapters (`groups.setColumns`, `ranges.clearRange`).
+ * API methods such as {@link setRowGroupColumns} / {@link clearCellRange} are thin
+ * façades over those adapters (or host passthrough when unbound).
  */
 export class DataGridApi<T = unknown> {
   exportDataAsCsv = (filename?: string): string => this.exportCsv(filename);
@@ -420,6 +429,14 @@ export class DataGridApi<T = unknown> {
     return this.host.getVisibleColumnIds?.() ?? [];
   }
 
+  getCellElement(rowId: string | number, columnId: string): HTMLElement | null {
+    return this.host.getCellElement?.(rowId, columnId) ?? null;
+  }
+
+  getScrollRoot(): HTMLElement | null {
+    return this.host.getScrollRoot?.() ?? null;
+  }
+
   resolveRowId(row: T, index: number): string | number {
     return this.host.resolveRowId?.(row, index) ?? index;
   }
@@ -428,16 +445,19 @@ export class DataGridApi<T = unknown> {
     this.host.emitPaste?.(event);
   }
 
+  /** @internal — bound by `rowGroupPlugin` / host passthrough. */
   bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {
     this.rowGroupAdapter = adapter;
     this.host.bindRowGroupAdapter?.(adapter);
   }
 
+  /** @internal — bound by `treeDataPlugin` / host passthrough. */
   bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
     this.treeDataAdapter = adapter;
     this.host.bindTreeDataAdapter?.(adapter);
   }
 
+  /** @internal — bound by `cellRangePlugin`. */
   bindCellRangeAdapter(adapter: BoundCellRangeAdapter | null): void {
     this.cellRangeAdapter = adapter;
   }
@@ -459,7 +479,7 @@ export class DataGridApi<T = unknown> {
   /**
    * Full plugin recomposition via the kernel. Prefer held-adapter toggles
    * (e.g. `sideBar.setEnabled`) for chrome; use this only when the list itself changes.
-   * Also used when the `[plugins]` input identity changes after mount.
+   * Also used when `setPlugins` / `api.recomposePlugins` runs after mount.
    */
   recomposePlugins(plugins: readonly DataGridPlugin<T>[]): void {
     this.pluginLifecycle?.recomposePlugins(plugins);

@@ -1,9 +1,9 @@
-import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid';
+import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 import {
   buildDisplayRows,
   collectTreeGroupIds,
   type TreeDataConfig,
-} from '@angular-libs/data-grid';
+} from '@angular-libs/data-grid/internals';
 import { createTreeDataAdapter, type TreeDataAdapter } from './tree-data.adapter';
 
 export type { TreeDataAdapter } from './tree-data.adapter';

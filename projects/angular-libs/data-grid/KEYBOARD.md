@@ -1,10 +1,17 @@
 # @angular-libs/data-grid — keyboard matrix (K0)
 
-Published body keyboard contract. Header / floating-filter realms: OVERVIEW §5c
-(Wave 2+). Edit start/stop policies: OVERVIEW §5b.
+Published body + header continuum keyboard contract (OVERVIEW §4.9 / §5c).
+Executable coverage: `src/lib/controllers/keyboard.spec.ts`.
+
+Edit start/stop policies: OVERVIEW §5b.
 
 Roving `tabindex`: only the focused cell is `tabindex="0"`; others `-1`. Arrow
-keys move focus inside the grid; Tab leaves to the next page control.
+keys move focus inside the grid; **Tab is not captured** by `FocusController`
+(page citizen — default browser Tab / Shift+Tab leave or enter the grid via
+roving tabindex + `restoreOrFocusDefault`).
+
+Cell `aria-selected`: `true` when the row is selected **or** the cell is inside
+the active cell range (`cellRangePlugin`); omitted otherwise.
 
 ## Body (data / group rows) — current
 
@@ -30,7 +37,7 @@ keys move focus inside the grid; Tab leaves to the next page control.
 | ← → (fullRow + `arrowEditing: 'moveHorizontal'`) | Move to adjacent cell editor |
 | Home / End / ↑ ↓ while editing | Stay with the input |
 
-## Header — Wave 2+
+## Header — Done (Wave 2+)
 
 | Key | Action |
 | --- | --- |
@@ -51,13 +58,15 @@ keys move focus inside the grid; Tab leaves to the next page control.
 
 ## Checklist (manual / CI)
 
-- [ ] Arrow keys move focus without mouse
+- [x] Arrow keys move focus without mouse — `keyboard.spec.ts`
 - [ ] Only one cell has `tabindex="0"` at a time
-- [ ] Home/End and PageUp/PageDown behave as above
-- [ ] Enter/F2 / type-to-edit / double-click start edit on editable columns
+- [x] Home/End and PageUp/PageDown behave as above — `keyboard.spec.ts`
+- [x] Enter/F2 start edit on editable columns — `keyboard.spec.ts` (controller callbacks)
 - [ ] `syncDomFocus` puts focus on the editor when the cell is in an edit session
 - [ ] fullRow + excel: ←→ move between cell editors; default: caret stays in field
-- [ ] Space toggles selection in multi mode
-- [ ] Escape cancels edit
-- [ ] Group Enter expands/collapses
-- [ ] Tab from focused cell leaves the grid (page citizen)
+- [x] Space toggles selection in multi mode — `keyboard.spec.ts`
+- [x] Escape cancels edit — `keyboard.spec.ts`
+- [x] Group Enter/Space expands/collapses — `keyboard.spec.ts` + existing specs
+- [x] Tab from focused cell leaves the grid (page citizen) — `keyboard.spec.ts` (`handleKeydown` returns false)
+- [x] Header continuum (ArrowUp/Down, PageUp/Down, Enter, Alt+↓) — `keyboard.spec.ts`
+- [x] Shift+arrows extend range when `onExtendRange` returns true — `keyboard.spec.ts`

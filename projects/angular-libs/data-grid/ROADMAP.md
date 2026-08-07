@@ -156,7 +156,7 @@ Post-phase polish (score ≥ 76 from expert review):
 
 | Item | Status |
 | --- | --- |
-| Reactive `[plugins]` / `setPlugins` parity | ✅ |
+| Reactive `setPlugins` parity | ✅ |
 | Host-owned `rowForm` docs as canonical DX | ✅ |
 | `composeDataGridApiHost` narrow hosts | ✅ |
 | Display view overrides (`group` / `plugin`) | ✅ |

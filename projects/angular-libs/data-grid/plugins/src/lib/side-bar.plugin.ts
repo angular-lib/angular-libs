@@ -1,10 +1,12 @@
 import { signal, type Signal } from '@angular/core';
 import type {
-  DataGridPlugin,
-  DataGridPluginContext,
   SideBarConfig,
   SideBarPanelId,
 } from '@angular-libs/data-grid';
+import type {
+  DataGridPlugin,
+  DataGridPluginContext,
+} from '@angular-libs/data-grid/plugin';
 import { DataGridColumnsPanel } from './sidebar/columns-panel';
 import { DataGridFiltersPanel } from './sidebar/filters-panel';
 
