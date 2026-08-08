@@ -4,7 +4,7 @@ import type { FormController } from '../../create-form';
 import type { FieldTree } from '@angular/forms/signals';
 
 @Component({
-  selector: 'al-space-field',
+  selector: 'al-form-space',
   template: `<div class="al-space" [style.height]="height()"></div>`,
   styles: `
     .al-space {
@@ -14,7 +14,7 @@ import type { FieldTree } from '@angular/forms/signals';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlSpaceField {
+export class AlFormSpace {
   readonly field = input<FieldTree<unknown> | null>(null);
   readonly element = input.required<FormElement & { type: 'space' }>();
   readonly form = input<FieldTree<unknown> | null>(null);

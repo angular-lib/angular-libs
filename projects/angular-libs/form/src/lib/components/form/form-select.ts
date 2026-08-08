@@ -21,7 +21,7 @@ import type { DropdownItem } from '../dropdown/dropdown-utils';
 let nextSelectAnchor = 0;
 
 @Component({
-  selector: 'al-select-field',
+  selector: 'al-form-select',
   imports: [AlFieldShell, AlDropdown],
   template: `
     <al-field-shell
@@ -64,7 +64,7 @@ let nextSelectAnchor = 0;
         [showHeaders]="!!props().columns?.length && !treeEnabled()"
         [valueMode]="valueMode()"
         [value]="displayRows()"
-        (valueChange)="onValueChange($event)"
+        (selectionChange)="onValueChange($event)"
         (footerClick)="props().onFooterClick?.()" />
     </al-field-shell>
   `,
@@ -76,9 +76,9 @@ let nextSelectAnchor = 0;
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlSelectField {
+export class AlFormSelect {
   /** Anchor on control chrome so the panel lines up under the input box. */
-  protected readonly fieldAnchor = `--al-select-${++nextSelectAnchor}`;
+  protected readonly fieldAnchor = `--al-form-select-${++nextSelectAnchor}`;
 
   readonly field = input.required<FormUiFieldTree | null>();
   readonly element = input.required<FormElement & { type: 'select' }>();

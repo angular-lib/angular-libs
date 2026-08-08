@@ -1,23 +1,15 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  effect,
-  inject,
-  input,
-  untracked,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { FormField } from '@angular/forms/signals';
 import type { FormController } from '../../create-form';
 import type { FormFieldActionContext } from '../../field-action';
 import type { FormElement } from '../../types';
 import type { FormUiFieldTree } from '../../types/form-ui-field-tree';
+import { AlSearchInput } from '../controls/search-input';
 import { AlFieldShell } from '../field-shell/field-shell';
-import { AlIconSearch } from '../icons/icons';
 
 @Component({
-  selector: 'al-search-field',
-  imports: [AlFieldShell, FormField, AlIconSearch],
+  selector: 'al-form-search',
+  imports: [AlFieldShell, AlSearchInput, FormField],
   template: `
     <al-field-shell
       #af
@@ -28,21 +20,16 @@ import { AlIconSearch } from '../icons/icons';
       [clearValue]="''"
       [clearableOverride]="element().props?.clearable !== false"
       (clear)="onClear($event)">
-      <span alControlLead class="al-lead">
-        <al-icon-search />
-      </span>
       @if (field(); as f) {
-        <input
-          #inputRef
-          type="search"
-          class="al-search-input"
-          [id]="af.controlId()"
+        <al-search-input
+          class="al-control__control"
           [formField]="$any(f)"
-          [attr.placeholder]="element().props?.placeholder ?? 'Search…'"
-          [attr.aria-invalid]="af.invalid() || null"
-          [attr.aria-describedby]="af.describedById()"
-          (compositionstart)="af.setComposing(true)"
-          (compositionend)="af.setComposing(false)" />
+          [id]="af.controlId()"
+          [placeholder]="element().props?.placeholder"
+          [debounceMs]="element().props?.debounceMs ?? 300"
+          [describedBy]="af.describedById()"
+          (composingChange)="af.setComposing($event)"
+          (search)="onSearch($event)" />
       }
       @if (element().props?.trail) {
         @if (element().props?.trailAction) {
@@ -60,30 +47,19 @@ import { AlIconSearch } from '../icons/icons';
       }
     </al-field-shell>
   `,
-  styles: ``,
+  styles: `
+    :host {
+      display: block;
+      width: 100%;
+    }
+  `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlSearchField {
+export class AlFormSearch {
   readonly field = input.required<FormUiFieldTree | null>();
   readonly element = input.required<FormElement & { type: 'search' }>();
   readonly form = input<FormUiFieldTree | null>(null);
   readonly controller = input<FormController | null>(null);
-
-  private readonly destroyRef = inject(DestroyRef);
-  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
-
-  constructor() {
-    this.destroyRef.onDestroy(() => this.clearTimer());
-
-    effect(() => {
-      const term = String(this.field()?.()?.value() ?? '');
-      const onSearch = this.element().props?.onSearch;
-      if (!onSearch) {
-        return;
-      }
-      untracked(() => this.scheduleSearch(term));
-    });
-  }
 
   protected onClear(event: Event): void {
     this.element().props?.onClear?.(this.ctx(event));
@@ -96,14 +72,8 @@ export class AlSearchField {
     this.element().props?.onTrail?.(this.ctx(event));
   }
 
-  private scheduleSearch(term: string): void {
-    this.clearTimer();
-    const ms = this.element().props?.debounceMs ?? 300;
-    if (!term) {
-      this.emitSearch(term);
-      return;
-    }
-    this.debounceTimer = setTimeout(() => this.emitSearch(term), ms);
+  protected onSearch(term: string): void {
+    this.emitSearch(term);
   }
 
   private emitSearch(term: string, event?: Event): void {
@@ -115,13 +85,6 @@ export class AlSearchField {
       ...this.ctx(event ?? new Event('search')),
       term,
     });
-  }
-
-  private clearTimer(): void {
-    if (this.debounceTimer != null) {
-      clearTimeout(this.debounceTimer);
-      this.debounceTimer = null;
-    }
   }
 
   private ctx(event: Event): FormFieldActionContext {

@@ -50,6 +50,13 @@ export type FormElementType =
   | 'date'
   | 'time'
   | 'datetime'
+  | 'radio'
+  | 'switch'
+  | 'slider'
+  | 'file'
+  | 'color'
+  | 'tags'
+  | 'duration'
   | 'custom'
   | 'group'
   | 'line-break'
@@ -137,6 +144,60 @@ export interface FormTextareaProps {
 
 export interface FormCheckboxProps {
   checkboxLabel?: string;
+}
+
+export interface FormRadioOption {
+  value: string | number | boolean;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface FormRadioProps {
+  options: readonly FormRadioOption[];
+  direction?: 'row' | 'column';
+}
+
+export interface FormSwitchProps {
+  switchLabel?: string;
+}
+
+export interface FormSliderProps {
+  step?: number;
+  /** Show numeric value beside the slider (default true). */
+  showValue?: boolean;
+}
+
+export interface FormFileProps {
+  multiple?: boolean;
+  accept?: string;
+  /** Soft UI hint; does not enforce beyond truncating selection display. */
+  maxFiles?: number;
+}
+
+export interface FormColorProps {
+  /** Show hex text field next to the swatch (default true). */
+  showHex?: boolean;
+}
+
+export interface FormTagsProps {
+  placeholder?: string;
+  maxTags?: number;
+  addOnBlur?: boolean;
+  /** Keys that commit a tag (default Enter + `,`). */
+  separatorKeys?: readonly string[];
+}
+
+/** Value: total seconds (`number | null`). Empty = `null`. */
+export interface FormDurationProps {
+  stepHh?: number;
+  stepMm?: number;
+  stepSs?: number;
+  showSeconds?: boolean;
+  maxHours?: number;
+  minSeconds?: number;
+  maxSeconds?: number;
+  /** Enable mouse-wheel adjustment (default false). */
+  wheel?: boolean;
 }
 
 /** Column definition for multi-column dropdown panels (flat list only; not with tree). */
@@ -310,6 +371,13 @@ export type FormElement<TData = unknown> =
   | (FormElementBaseConfig<TData> & { type: 'date'; props?: FormDateProps })
   | (FormElementBaseConfig<TData> & { type: 'time'; props?: FormTimeProps })
   | (FormElementBaseConfig<TData> & { type: 'datetime'; props?: FormDateTimeProps })
+  | (FormElementBaseConfig<TData> & { type: 'radio'; props: FormRadioProps })
+  | (FormElementBaseConfig<TData> & { type: 'switch'; props?: FormSwitchProps })
+  | (FormElementBaseConfig<TData> & { type: 'slider'; props?: FormSliderProps })
+  | (FormElementBaseConfig<TData> & { type: 'file'; props?: FormFileProps })
+  | (FormElementBaseConfig<TData> & { type: 'color'; props?: FormColorProps })
+  | (FormElementBaseConfig<TData> & { type: 'tags'; props?: FormTagsProps })
+  | (FormElementBaseConfig<TData> & { type: 'duration'; props?: FormDurationProps })
   | (FormElementBaseConfig<TData> & { type: 'custom'; props: FormCustomProps })
   | (FormElementBaseConfig<TData> & { type: 'group'; props: FormElementGroupProps<TData> })
   | (FormElementBaseConfig<TData> & { type: 'line-break'; props?: never })

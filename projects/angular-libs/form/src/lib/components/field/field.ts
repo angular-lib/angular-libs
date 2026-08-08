@@ -64,16 +64,18 @@ let nextFieldId = 0;
     .al-field {
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
-      margin-block: 0.15rem;
+      gap: 0.15rem;
+      margin-block: 0;
     }
     .al-field__header {
       display: flex;
       align-items: baseline;
-      gap: 0.35rem;
+      gap: 0.25rem;
     }
     .al-field__label {
       font-weight: 600;
+      font-size: 0.875rem;
+      line-height: 1.25;
     }
     .al-field__required {
       color: #b00020;
@@ -94,8 +96,11 @@ let nextFieldId = 0;
     .al-field__footer {
       display: flex;
       justify-content: space-between;
-      gap: 0.75rem;
-      min-height: 1.1rem;
+      gap: 0.5rem;
+      min-height: 0;
+    }
+    .al-field__footer:not(:has(.al-field__errors, .al-field__hint, .al-field__footer-right:not(:empty))) {
+      display: none;
     }
     .al-field__footer-left {
       flex: 1;

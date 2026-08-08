@@ -1,14 +1,15 @@
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { FormField } from '@angular/forms/signals';
 import type { FormController } from '../../create-form';
 import type { FormElement } from '../../types';
 import type { FormUiFieldTree } from '../../types/form-ui-field-tree';
 import { useFieldChrome } from '../../utils/field-state';
+import { AlTextarea } from '../controls/textarea';
 import { AlField } from '../field/field';
 
 @Component({
-  selector: 'al-checkbox-field',
-  imports: [AlField, FormField],
+  selector: 'al-form-textarea',
+  imports: [AlField, AlTextarea, FormField],
   template: `
     @if (field(); as f) {
       <al-field
@@ -19,35 +20,32 @@ import { AlField } from '../field/field';
         [controlId]="controlId()"
         [hideHeader]="!!element().hideHeader"
         [hideFooter]="!!element().hideFooter"
+        [meta]="charMeta()"
         [submitAttempted]="submitAttempted()">
-        <label class="al-checkbox" [attr.for]="controlId()">
-          <input
-            type="checkbox"
-            [id]="controlId()"
-            [formField]="$any(f)"
-            [attr.aria-invalid]="invalid() || null"
-            [attr.aria-describedby]="describedById()" />
-          @if (element().props?.checkboxLabel) {
-            <span>{{ element().props?.checkboxLabel }}</span>
-          }
-        </label>
+        <al-textarea
+          [formField]="$any(f)"
+          [id]="controlId()"
+          [placeholder]="element().props?.placeholder"
+          [rows]="element().props?.rows ?? 3"
+          [charMax]="element().props?.maxLength"
+          [autoGrow]="!!element().props?.autoGrow"
+          [describedBy]="describedById()" />
       </al-field>
     } @else {
       <al-field [label]="element().label" [hint]="element().hint" />
     }
   `,
   styles: `
-    .al-checkbox {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
+    :host {
+      display: block;
+      width: 100%;
     }
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlCheckboxField {
+export class AlFormTextarea {
   readonly field = input.required<FormUiFieldTree | null>();
-  readonly element = input.required<FormElement & { type: 'checkbox' }>();
+  readonly element = input.required<FormElement & { type: 'textarea' }>();
   readonly form = input<FormUiFieldTree | null>(null);
   readonly controller = input<FormController | null>(null);
 
@@ -57,8 +55,16 @@ export class AlCheckboxField {
     () => this.controller(),
   );
 
-  protected readonly invalid = this.chrome.invalid;
   protected readonly submitAttempted = this.chrome.submitAttempted;
   protected readonly controlId = this.chrome.controlId;
   protected readonly describedById = this.chrome.describedById;
+
+  protected readonly charMeta = computed(() => {
+    const max = this.element().props?.maxLength;
+    if (max == null) {
+      return null;
+    }
+    const len = String(this.field()?.()?.value() ?? '').length;
+    return `${len}/${max}`;
+  });
 }

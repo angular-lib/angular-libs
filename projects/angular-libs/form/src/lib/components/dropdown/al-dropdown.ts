@@ -5,11 +5,12 @@ import {
   effect,
   ElementRef,
   input,
-  linkedSignal,
+  model,
   output,
   signal,
   viewChild,
 } from '@angular/core';
+import type { FormValueControl } from '@angular/forms/signals';
 import type {
   FormDropdownColumn,
   FormDropdownDatasource,
@@ -42,6 +43,7 @@ import {
   initialExpandedIds,
   type FlatTreeNode,
 } from './tree';
+import { AlPopoverPanel } from '../popover/al-popover-panel';
 
 let nextAnchorId = 0;
 
@@ -54,10 +56,11 @@ export interface AlDropdownValueChange {
 
 /**
  * Reusable Popover-API dropdown (no CDK).
- * Use standalone or via `AlSelectField` inside Signal Forms.
+ * Standalone: `[(value)]` (selected display rows). Form: `AlFormSelect` (S2 id bridge).
  */
 @Component({
   selector: 'al-dropdown',
+  imports: [AlPopoverPanel],
   changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     // Standalone: panel anchors to this host. Inside forms, parent passes `panelAnchor` instead.
@@ -83,7 +86,7 @@ export interface AlDropdownValueChange {
         (click)="onTriggerClick($event)"
         (keydown)="onTriggerKeydown($event)">
         <div class="al-dropdown__value">
-          @if (multiple() && selectedRows().length) {
+          @if (multiple() && value().length) {
             <div class="al-dropdown__chips">
               @for (chip of visibleChips(); track trackRow($index, chip)) {
                 <span class="al-dropdown__chip">
@@ -105,9 +108,9 @@ export interface AlDropdownValueChange {
                 >
               }
             </div>
-          } @else if (!multiple() && selectedRows().length && !searchTerm()) {
-            <span class="al-dropdown__single-label">{{ formatLabel(selectedRows()[0]) }}</span>
-          } @else if (!searchTerm() && !selectedRows().length) {
+          } @else if (!multiple() && value().length && !searchTerm()) {
+            <span class="al-dropdown__single-label">{{ formatLabel(value()[0]) }}</span>
+          } @else if (!searchTerm() && !value().length) {
             <span class="al-dropdown__placeholder">{{ placeholder() }}</span>
           }
           @if (searchable() && !disabled() && !readonly()) {
@@ -118,7 +121,7 @@ export interface AlDropdownValueChange {
               autocomplete="off"
               [attr.aria-autocomplete]="'list'"
               [attr.aria-controls]="listboxId"
-              [placeholder]="selectedRows().length && !multiple() ? '' : ''"
+              [placeholder]="value().length && !multiple() ? '' : ''"
               [value]="searchTerm()"
               (input)="onSearchInput($event)"
               (keydown)="onSearchKeydown($event)"
@@ -138,13 +141,12 @@ export interface AlDropdownValueChange {
         <ng-content select="[alDropdownAction]" />
       </div>
 
-      <div
+      <al-popover-panel
         #panelRef
-        class="al-dropdown__panel"
-        popover="auto"
-        [style.position-anchor]="effectiveAnchor()"
-        [style.max-height.px]="panelMaxHeight()"
-        (toggle)="onPopoverToggle($event)">
+        panelClass="al-dropdown__panel"
+        [anchorName]="effectiveAnchor()"
+        [maxHeight]="panelMaxHeight()"
+        (openChange)="onPanelOpenChange($event)">
         @if (showHeaders() && columns()?.length && !treeCfg().enabled) {
           <div class="al-dropdown__header-row" role="row">
             @if (enableCheckboxes() && multiple()) {
@@ -273,7 +275,7 @@ export interface AlDropdownValueChange {
           </button>
         }
         <ng-content select="[alDropdownFooter]" />
-      </div>
+      </al-popover-panel>
     </div>
   `,
   styles: `
@@ -401,27 +403,15 @@ export interface AlDropdownValueChange {
       border-bottom-color: var(--al-form-border, #c4c4c4);
     }
     .al-dropdown__panel {
-      margin: 0;
       padding: 0;
-      border: 1px solid var(--al-form-border, #c4c4c4);
-      border-radius: 0.25rem;
-      background: #fff;
-      box-sizing: border-box;
       overflow: auto;
-      left: anchor(left);
-      top: anchor(bottom);
-      right: auto;
-      bottom: auto;
       width: anchor-size(width);
       min-width: anchor-size(width);
+      box-shadow: none;
     }
     .al-dropdown--open .al-dropdown__panel {
       border-top-left-radius: 0;
       border-top-right-radius: 0;
-    }
-    .al-dropdown__panel:popover-open {
-      display: flex;
-      flex-direction: column;
     }
     .al-dropdown__list {
       flex: 1;
@@ -512,7 +502,7 @@ export interface AlDropdownValueChange {
     }
   `,
 })
-export class AlDropdown {
+export class AlDropdown implements FormValueControl<DropdownItem[]> {
   readonly id = input<string | undefined>(undefined);
   /**
    * CSS anchor name for the panel (e.g. field host that includes chrome/clear).
@@ -549,14 +539,16 @@ export class AlDropdown {
    * Prefer `onCreate` when mode is `'id'`.
    */
   readonly valueMode = input<'id' | 'object'>('object');
-  /** Controlled selected rows (display objects). */
-  readonly value = input<readonly DropdownItem[]>([]);
+  /** Selected display rows (`FormValueControl` value). */
+  readonly value = model<DropdownItem[]>([]);
 
-  readonly valueChange = output<AlDropdownValueChange>();
+  /** Rich change payload (rows + ids). Prefer `[(value)]` for simple binds. */
+  readonly selectionChange = output<AlDropdownValueChange>();
+  readonly touch = output<void>();
   readonly footerClick = output<void>();
   readonly openChange = output<boolean>();
 
-  private readonly panelRef = viewChild<ElementRef<HTMLElement>>('panelRef');
+  private readonly panelRef = viewChild<AlPopoverPanel>('panelRef');
   private readonly searchRef = viewChild<ElementRef<HTMLInputElement>>('searchRef');
 
   private readonly ownAnchor = `--al-dd-${nextAnchorId++}`;
@@ -576,8 +568,6 @@ export class AlDropdown {
   protected readonly error = signal<string | null>(null);
   protected readonly internalItems = signal<DropdownItem[]>([]);
   protected readonly expandedIds = signal<Set<string>>(new Set());
-  protected readonly selectedRows = linkedSignal(() => [...this.value()]);
-
   private ds: DatasourceController | null = null;
   private staticLoaded = false;
 
@@ -628,7 +618,7 @@ export class AlDropdown {
   protected readonly panelRows = computed(() => {
     const tree = this.treeCfg();
     const nodes = this.filteredFlat();
-    const selected = new Set(this.selectedRows().map((r) => getItemKey(r, this.valueKey())));
+    const selected = new Set(this.value().map((r) => getItemKey(r, this.valueKey())));
     const isDisabled = this.isRowDisabled();
     const labelKeys = this.labelKeys();
     const term = this.searchTerm();
@@ -700,11 +690,11 @@ export class AlDropdown {
   );
 
   protected readonly visibleChips = computed(() =>
-    this.selectedRows().slice(0, this.maxVisibleChips()),
+    this.value().slice(0, this.maxVisibleChips()),
   );
 
   protected readonly overflowChipCount = computed(() =>
-    Math.max(0, this.selectedRows().length - this.maxVisibleChips()),
+    Math.max(0, this.value().length - this.maxVisibleChips()),
   );
 
   protected readonly activeDescendantId = computed(() => {
@@ -766,7 +756,7 @@ export class AlDropdown {
         this.internalItems.set([...items]);
         this.staticLoaded = true;
       },
-      getValue: () => this.selectedRows(),
+      getValue: () => this.value(),
       setValue: (rows) => this.emitValue([...rows]),
       selectById: (id) => this.selectByIds([id]),
       selectByIds: (ids) => this.selectByIds(ids),
@@ -837,10 +827,7 @@ export class AlDropdown {
       return;
     }
     await this.ensureItemsLoaded(true);
-    const panel = this.panelRef()?.nativeElement;
-    if (panel && !panel.matches(':popover-open')) {
-      panel.showPopover();
-    }
+    this.panelRef()?.open();
     this.open.set(true);
     this.openChange.emit(true);
     this.initExpanded();
@@ -851,15 +838,14 @@ export class AlDropdown {
   }
 
   protected closePanel(): void {
-    this.panelRef()?.nativeElement?.hidePopover();
+    this.panelRef()?.close();
     this.open.set(false);
     this.openChange.emit(false);
     this.searchTerm.set('');
     this.focusedIndex.set(-2);
   }
 
-  protected onPopoverToggle(event: ToggleEvent): void {
-    const next = event.newState === 'open';
+  protected onPanelOpenChange(next: boolean): void {
     this.open.set(next);
     this.openChange.emit(next);
     if (!next) {
@@ -867,6 +853,7 @@ export class AlDropdown {
       if (this.createCfg().createOnBlur && this.createEligibility().show) {
         void this.commitCreate();
       }
+      this.touch.emit();
     }
   }
 
@@ -916,7 +903,7 @@ export class AlDropdown {
     if (!tree.enabled) {
       return;
     }
-    const selected = new Set(this.selectedRows().map((r) => getItemKey(r, this.valueKey())));
+    const selected = new Set(this.value().map((r) => getItemKey(r, this.valueKey())));
     this.expandedIds.set(
       initialExpandedIds(this.effectiveItems(), this.valueKey(), selected, tree),
     );
@@ -1005,9 +992,9 @@ export class AlDropdown {
       }
       return;
     }
-    if (key === 'Backspace' && this.multiple() && !this.searchTerm() && this.selectedRows().length) {
+    if (key === 'Backspace' && this.multiple() && !this.searchTerm() && this.value().length) {
       event.preventDefault();
-      const rows = [...this.selectedRows()];
+      const rows = [...this.value()];
       rows.pop();
       this.emitValue(rows);
       return;
@@ -1087,7 +1074,7 @@ export class AlDropdown {
     const tree = this.treeCfg();
 
     if (this.multiple()) {
-      const current = [...this.selectedRows()];
+      const current = [...this.value()];
       const ids = new Set(current.map((r) => getItemKey(r, valueKey)));
       if (ids.has(id)) {
         ids.delete(id);
@@ -1136,7 +1123,7 @@ export class AlDropdown {
   protected removeChip(event: Event, chip: DropdownItem): void {
     event.stopPropagation();
     const id = getItemKey(chip, this.valueKey());
-    this.emitValue(this.selectedRows().filter((r) => getItemKey(r, this.valueKey()) !== id));
+    this.emitValue(this.value().filter((r) => getItemKey(r, this.valueKey()) !== id));
   }
 
   protected async commitCreate(): Promise<void> {
@@ -1165,7 +1152,7 @@ export class AlDropdown {
     }
     this.internalItems.update((list) => [...list, item]);
     if (this.multiple()) {
-      this.emitValue([...this.selectedRows(), item]);
+      this.emitValue([...this.value(), item]);
       this.searchTerm.set('');
     } else {
       this.emitValue([item]);
@@ -1176,7 +1163,7 @@ export class AlDropdown {
   private selectByIds(ids: readonly unknown[]): void {
     const map = new Map<unknown, DropdownItem>();
     this.indexItems(this.effectiveItems(), map, this.valueKey());
-    for (const r of this.selectedRows()) {
+    for (const r of this.value()) {
       map.set(getItemKey(r, this.valueKey()), r);
     }
     const rows = ids.map((id) => map.get(id)).filter(Boolean) as DropdownItem[];
@@ -1184,9 +1171,9 @@ export class AlDropdown {
   }
 
   private emitValue(rows: DropdownItem[]): void {
-    this.selectedRows.set(rows);
+    this.value.set(rows);
     const valueKey = this.valueKey();
-    this.valueChange.emit({
+    this.selectionChange.emit({
       rows,
       ids: rows.map((r) => getItemKey(r, valueKey)),
     });
@@ -1197,12 +1184,12 @@ export class AlDropdown {
     if (!items.length) {
       return false;
     }
-    const selected = new Set(this.selectedRows().map((r) => getItemKey(r, this.valueKey())));
+    const selected = new Set(this.value().map((r) => getItemKey(r, this.valueKey())));
     return items.every((i) => selected.has(getItemKey(i, this.valueKey())));
   }
 
   protected someFilteredSelected(): boolean {
-    const selected = new Set(this.selectedRows().map((r) => getItemKey(r, this.valueKey())));
+    const selected = new Set(this.value().map((r) => getItemKey(r, this.valueKey())));
     return this.filteredItemRows().some((i) => selected.has(getItemKey(i, this.valueKey())));
   }
 
@@ -1218,7 +1205,7 @@ export class AlDropdown {
     const valueKey = this.valueKey();
     if (checked) {
       const map = new Map<unknown, DropdownItem>();
-      for (const r of this.selectedRows()) {
+      for (const r of this.value()) {
         map.set(getItemKey(r, valueKey), r);
       }
       for (const i of filtered) {
@@ -1227,7 +1214,7 @@ export class AlDropdown {
       this.emitValue([...map.values()]);
     } else {
       const remove = new Set(filtered.map((i) => getItemKey(i, valueKey)));
-      this.emitValue(this.selectedRows().filter((r) => !remove.has(getItemKey(r, valueKey))));
+      this.emitValue(this.value().filter((r) => !remove.has(getItemKey(r, valueKey))));
     }
   }
 

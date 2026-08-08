@@ -25,8 +25,8 @@ import { AlFormElementList } from './form-element-list';
       width: 100%;
       box-sizing: border-box;
       min-width: 0;
-      --al-form-row-gap: 0.5rem;
-      --al-form-column-gap: 1rem;
+      --al-form-row-gap: 0.25rem;
+      --al-form-column-gap: 0.75rem;
       container-type: inline-size;
       container-name: al-form;
     }

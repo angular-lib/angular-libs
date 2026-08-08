@@ -8,7 +8,7 @@ import type { FormUiFieldTree } from '../../types/form-ui-field-tree';
  * Renders a custom field component from `formCustom({ props: { component, inputs } })`.
  */
 @Component({
-  selector: 'al-custom-field',
+  selector: 'al-form-custom',
   imports: [NgComponentOutlet],
   template: `
     @if (component()) {
@@ -19,7 +19,7 @@ import type { FormUiFieldTree } from '../../types/form-ui-field-tree';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlCustomField {
+export class AlFormCustom {
   readonly field = input.required<FormUiFieldTree | null>();
   readonly element = input.required<FormElement & { type: 'custom' }>();
   readonly form = input<FormUiFieldTree | null>(null);

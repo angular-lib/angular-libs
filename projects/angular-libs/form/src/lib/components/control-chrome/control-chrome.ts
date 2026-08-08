@@ -53,14 +53,14 @@ import {
     al-control-chrome.al-control {
       display: flex;
       align-items: stretch;
-      gap: 0.25rem;
+      gap: 0.15rem;
       width: 100%;
       box-sizing: border-box;
       border: 1px solid var(--al-form-border, #c4c4c4);
       border-radius: 0.25rem;
       background: #fff;
-      min-height: 2.25rem;
-      padding-inline: 0.35rem;
+      min-height: var(--al-form-control-min-height, 2rem);
+      padding-inline: 0.25rem;
     }
     /* Same focus language as .al-textarea: colored 1px border, wraps prefix/suffix/clear */
     al-control-chrome.al-control.al-control--focused {
@@ -88,8 +88,11 @@ import {
       width: 100%;
     }
     al-control-chrome .al-control__input > input,
+    al-control-chrome .al-control__input input,
     al-control-chrome .al-control__input > textarea,
-    al-control-chrome .al-control__input > button.al-control__control {
+    al-control-chrome .al-control__input textarea,
+    al-control-chrome .al-control__input > button.al-control__control,
+    al-control-chrome .al-control__input > .al-control__control {
       flex: 1 1 auto;
       width: 100%;
       max-width: 100%;
@@ -98,8 +101,12 @@ import {
       outline: none;
       background: transparent;
       font: inherit;
-      padding: 0.35rem 0.25rem;
+      padding: var(--al-form-control-padding-block, 0.25rem)
+        var(--al-form-control-padding-inline, 0.2rem);
       min-width: 0;
+    }
+    al-control-chrome .al-control__input > .al-control__control {
+      display: block;
     }
     al-control-chrome .al-control__input > button.al-control__control {
       text-align: start;
@@ -151,7 +158,7 @@ import {
       border: 0;
       background: transparent;
       cursor: pointer;
-      padding: 0.25rem 0.35rem;
+      padding: 0.15rem 0.25rem;
       font: inherit;
       display: inline-flex;
       align-items: center;

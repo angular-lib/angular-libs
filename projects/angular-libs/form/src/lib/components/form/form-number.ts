@@ -4,11 +4,12 @@ import type { FormController } from '../../create-form';
 import type { FormFieldActionContext } from '../../field-action';
 import type { FormElement } from '../../types';
 import type { FormUiFieldTree } from '../../types/form-ui-field-tree';
+import { AlNumberInput } from '../controls/number-input';
 import { AlFieldShell } from '../field-shell/field-shell';
 
 @Component({
-  selector: 'al-text-field',
-  imports: [AlFieldShell, FormField],
+  selector: 'al-form-number',
+  imports: [AlFieldShell, AlNumberInput, FormField],
   template: `
     <al-field-shell
       #af
@@ -16,22 +17,20 @@ import { AlFieldShell } from '../field-shell/field-shell';
       [element]="element()"
       [form]="form()"
       [controller]="controller()"
-      [clearValue]="''"
+      [clearValue]="null"
       (clear)="onClear($event)">
       @if (leadText()) {
         <span alControlLead class="al-lead">{{ leadText() }}</span>
       }
       @if (field(); as f) {
-        <input
-          #inputRef
-          type="text"
-          [id]="af.controlId()"
+        <al-number-input
+          class="al-control__control"
           [formField]="$any(f)"
-          [attr.placeholder]="element().props?.placeholder ?? null"
-          [attr.aria-invalid]="af.invalid() || null"
-          [attr.aria-describedby]="af.describedById()"
-          (compositionstart)="af.setComposing(true)"
-          (compositionend)="af.setComposing(false)" />
+          [id]="af.controlId()"
+          [placeholder]="element().props?.placeholder"
+          [step]="element().props?.step"
+          [describedBy]="af.describedById()"
+          (composingChange)="af.setComposing($event)" />
       }
       @if (trailText()) {
         @if (element().props?.trailAction) {
@@ -49,11 +48,17 @@ import { AlFieldShell } from '../field-shell/field-shell';
       }
     </al-field-shell>
   `,
+  styles: `
+    :host {
+      display: block;
+      width: 100%;
+    }
+  `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlTextField {
+export class AlFormNumber {
   readonly field = input.required<FormUiFieldTree | null>();
-  readonly element = input.required<FormElement & { type: 'text' }>();
+  readonly element = input.required<FormElement & { type: 'number' }>();
   readonly form = input<FormUiFieldTree | null>(null);
   readonly controller = input<FormController | null>(null);
 

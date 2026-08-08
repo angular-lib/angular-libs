@@ -17,12 +17,12 @@ export const FORM_FIELD_REGISTRY = new InjectionToken<FormFieldRegistry>('FORM_F
  *
  * @example Swap select
  * ```ts
- * provideFormFields({ select: MySelectField })
+ * provideFormFields({ select: MyFormSelect })
  * ```
  *
  * @example Override date field
  * ```ts
- * provideFormFields({ date: MyDateField })
+ * provideFormFields({ date: MyFormDate })
  * ```
  */
 export function provideFormFields(

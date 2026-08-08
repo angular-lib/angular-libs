@@ -4,11 +4,11 @@ import type { FormController } from '../../create-form';
 import type { FieldTree } from '@angular/forms/signals';
 
 @Component({
-  selector: 'al-line-break-field',
+  selector: 'al-form-line-break',
   template: ``,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlLineBreakField {
+export class AlFormLineBreak {
   readonly field = input<FieldTree<unknown> | null>(null);
   readonly element = input.required<FormElement & { type: 'line-break' }>();
   readonly form = input<FieldTree<unknown> | null>(null);

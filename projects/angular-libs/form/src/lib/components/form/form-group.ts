@@ -9,7 +9,7 @@ import { AlFormElements } from '../layout/form-elements';
  * not a nested second `al-form-elements` inside `display: contents`.
  */
 @Component({
-  selector: 'al-group-field',
+  selector: 'al-form-group',
   imports: [AlFormElements],
   template: `
     @if (form(); as f) {
@@ -33,7 +33,7 @@ import { AlFormElements } from '../layout/form-elements';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AlGroupField {
+export class AlFormGroup {
   readonly field = input<FormUiFieldTree | null>(null);
   readonly element = input.required<FormElement & { type: 'group' }>();
   readonly form = input<FormUiFieldTree | null>(null);

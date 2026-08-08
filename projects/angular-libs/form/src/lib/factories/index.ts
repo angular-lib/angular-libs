@@ -4,15 +4,22 @@ import type {
   FormElementBaseConfig,
   FormElementConfig,
   FormCheckboxProps,
+  FormColorProps,
   FormCustomProps,
   FormDateProps,
   FormDateTimeProps,
+  FormDurationProps,
   FormElementGroupProps,
+  FormFileProps,
   FormNumberProps,
   FormPasswordProps,
+  FormRadioProps,
   FormSearchProps,
   FormSelectProps,
+  FormSliderProps,
   FormSpaceProps,
+  FormSwitchProps,
+  FormTagsProps,
   FormTextareaProps,
   FormTextProps,
   FormTimeProps,
@@ -81,6 +88,48 @@ export function formDateTime<TData = any>(
   return { ...config, type: 'datetime' };
 }
 
+export function formRadio<TData = any>(
+  config: Base<TData> & { props: FormRadioProps },
+): FormElement<TData> & { type: 'radio' } {
+  return { ...config, type: 'radio' };
+}
+
+export function formSwitch<TData = any>(
+  config: Base<TData> & { props?: FormSwitchProps },
+): FormElement<TData> & { type: 'switch' } {
+  return { ...config, type: 'switch' };
+}
+
+export function formSlider<TData = any>(
+  config: Base<TData> & { props?: FormSliderProps },
+): FormElement<TData> & { type: 'slider' } {
+  return { ...config, type: 'slider' };
+}
+
+export function formFile<TData = any>(
+  config: Base<TData> & { props?: FormFileProps },
+): FormElement<TData> & { type: 'file' } {
+  return { ...config, type: 'file' };
+}
+
+export function formColor<TData = any>(
+  config: Base<TData> & { props?: FormColorProps },
+): FormElement<TData> & { type: 'color' } {
+  return { ...config, type: 'color' };
+}
+
+export function formTags<TData = any>(
+  config: Base<TData> & { props?: FormTagsProps },
+): FormElement<TData> & { type: 'tags' } {
+  return { ...config, type: 'tags' };
+}
+
+export function formDuration<TData = any>(
+  config: Base<TData> & { props?: FormDurationProps },
+): FormElement<TData> & { type: 'duration' } {
+  return { ...config, type: 'duration' };
+}
+
 export function formCustom<TData = any, TComponent = any>(
   config: Base<TData> & { props: FormCustomProps<TComponent> },
 ): FormElement<TData> & { type: 'custom' } {
@@ -134,7 +183,7 @@ export function formRow<TData = any>(
     width: width ?? FORM_WIDTHS.full,
     props: {
       direction: 'row',
-      gap: gap ?? '1rem',
+      gap: gap ?? '0.75rem',
       alignItems,
       justifyContent,
       elements,
@@ -171,6 +220,13 @@ export function formFactories<TData>() {
     date: (config: Base<TData> & { props?: FormDateProps }) => formDate<TData>(config),
     time: (config: Base<TData> & { props?: FormTimeProps }) => formTime<TData>(config),
     datetime: (config: Base<TData> & { props?: FormDateTimeProps }) => formDateTime<TData>(config),
+    radio: (config: Base<TData> & { props: FormRadioProps }) => formRadio<TData>(config),
+    switch: (config: Base<TData> & { props?: FormSwitchProps }) => formSwitch<TData>(config),
+    slider: (config: Base<TData> & { props?: FormSliderProps }) => formSlider<TData>(config),
+    file: (config: Base<TData> & { props?: FormFileProps }) => formFile<TData>(config),
+    color: (config: Base<TData> & { props?: FormColorProps }) => formColor<TData>(config),
+    tags: (config: Base<TData> & { props?: FormTagsProps }) => formTags<TData>(config),
+    duration: (config: Base<TData> & { props?: FormDurationProps }) => formDuration<TData>(config),
     custom: <TComponent>(config: Base<TData> & { props: FormCustomProps<TComponent> }) =>
       formCustom<TData, TComponent>(config),
     elementGroup: (config: Base<TData> & { props: FormElementGroupProps<TData> }) =>

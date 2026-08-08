@@ -1,14 +1,16 @@
-import { Component, signal } from '@angular/core';
+import { Component, computed, input, signal } from '@angular/core';
 import { JsonPipe } from '@angular/common';
-import { form, min, required } from '@angular/forms/signals';
+import { FormField, form, max, min, required } from '@angular/forms/signals';
 import {
   AlSignalForm,
+  AlTextInput,
   FORM_WIDTHS,
   createForm,
   formFactories,
   seedSelection,
   toColumnDefs,
 } from '@angular-libs/form';
+import type { FormUiFieldTree } from '@angular-libs/form';
 
 interface DemoUser {
   username: string;
@@ -26,6 +28,18 @@ interface DemoUser {
   secret: string;
   query: string;
   website: string;
+  birthDate: string;
+  meetingTime: string;
+  appointment: string;
+  plan: string;
+  notifications: boolean;
+  volume: number;
+  avatar: File | null;
+  attachments: File[];
+  accentColor: string;
+  labels: string[];
+  estimateSeconds: number | null;
+  customNote: string;
 }
 
 const ROLE_ITEMS = [
@@ -96,14 +110,37 @@ const REMOTE_PEOPLE = Array.from({ length: 80 }, (_, i) => ({
 
 const f = formFactories<DemoUser>();
 
+/** Minimal custom field used by `f.custom` in the demo. */
+@Component({
+  selector: 'app-demo-custom-note',
+  imports: [AlTextInput, FormField],
+  template: `
+    @if (field(); as fieldTree) {
+      <al-text-input
+        [formField]="$any(fieldTree)"
+        [placeholder]="placeholder()" />
+    }
+  `,
+  styles: `
+    :host {
+      display: block;
+      width: 100%;
+    }
+  `,
+})
+class DemoCustomNote {
+  readonly field = input<FormUiFieldTree | null>(null);
+  readonly placeholder = input('Custom editor…');
+}
+
 @Component({
   selector: 'app-form-demo',
   imports: [AlSignalForm, JsonPipe],
   template: `
     <h2>Signal Form</h2>
     <p>
-      Host-owned <code>form()</code> + chrome + Popover dropdowns (search, columns, multi,
-      creatable, tree, paged datasource).
+      Host-owned <code>form()</code> + all built-in editors (text, number, pickers, select,
+      radio, switch, slider, file, color, tags, duration, custom, layout).
     </p>
 
     <al-signal-form [form]="userForm" [controller]="formUi" />
@@ -122,7 +159,7 @@ const f = formFactories<DemoUser>();
     }
 
     <h3>Model</h3>
-    <pre>{{ model() | json }}</pre>
+    <pre>{{ modelPreview() | json }}</pre>
 
     <h3>toColumnDefs</h3>
     <pre>{{ columns | json }}</pre>
@@ -166,16 +203,40 @@ export class FormDemoComponent {
     secret: 'analytical',
     query: '',
     website: 'example',
+    birthDate: '1815-12-10',
+    meetingTime: '09:30',
+    appointment: '2026-08-15T14:00',
+    plan: 'pro',
+    notifications: true,
+    volume: 40,
+    avatar: null,
+    attachments: [],
+    accentColor: '#ea580c',
+    labels: ['signals', 'forms'],
+    estimateSeconds: 3723,
+    customNote: 'Hello from custom',
   });
 
   readonly lastSearch = signal('');
   readonly lastCreatedSkill = signal('');
+
+  /** JSON-friendly view (File → name/size/type). */
+  readonly modelPreview = computed(() => {
+    const m = this.model();
+    return {
+      ...m,
+      avatar: fileMeta(m.avatar),
+      attachments: m.attachments.map((file) => fileMeta(file)),
+    };
+  });
 
   readonly userForm = form(this.model, (p) => {
     required(p.username, { message: 'Required' });
     required(p.firstName, { message: 'Required' });
     min(p.age, 0, { message: 'Age must be ≥ 0' });
     min(p.roleId, 1, { message: 'Pick a role' });
+    min(p.volume, 0);
+    max(p.volume, 100);
   });
 
   readonly formUi = createForm<DemoUser>({
@@ -243,6 +304,100 @@ export class FormDemoComponent {
         width: FORM_WIDTHS.half,
         props: { checkboxLabel: 'Enabled' },
       }),
+      f.switch({
+        path: 'notifications',
+        label: 'Notifications',
+        width: FORM_WIDTHS.half,
+        props: { switchLabel: 'Email alerts' },
+      }),
+
+      f.space({ props: { height: '0.35rem' } }),
+
+      f.date({
+        path: 'birthDate',
+        label: 'Birth date',
+        width: FORM_WIDTHS.third,
+        props: { clearable: true },
+      }),
+      f.time({
+        path: 'meetingTime',
+        label: 'Meeting time',
+        width: FORM_WIDTHS.third,
+        props: { step: 5, clearable: true },
+      }),
+      f.datetime({
+        path: 'appointment',
+        label: 'Appointment',
+        width: FORM_WIDTHS.third,
+        props: { step: 15, clearable: true },
+      }),
+      f.lineBreak(),
+      f.duration({
+        path: 'estimateSeconds',
+        label: 'Estimate',
+        width: FORM_WIDTHS.half,
+        labelHelp: 'Total seconds (hh:mm:ss)',
+        props: { showSeconds: true, maxHours: 99 },
+      }),
+      f.color({
+        path: 'accentColor',
+        label: 'Accent',
+        width: FORM_WIDTHS.half,
+        props: { showHex: true },
+      }),
+
+      f.space({ props: { height: '0.35rem' } }),
+
+      f.radio({
+        path: 'plan',
+        label: 'Plan',
+        width: FORM_WIDTHS.full,
+        props: {
+          direction: 'row',
+          options: [
+            { value: 'free', label: 'Free' },
+            { value: 'pro', label: 'Pro' },
+            { value: 'team', label: 'Team' },
+          ],
+        },
+      }),
+      f.slider({
+        path: 'volume',
+        label: 'Volume',
+        width: FORM_WIDTHS.full,
+        labelHelp: 'min/max from form schema (0–100)',
+        props: { step: 5, showValue: true },
+      }),
+      f.tags({
+        path: 'labels',
+        label: 'Labels',
+        width: FORM_WIDTHS.full,
+        props: { placeholder: 'Add label…', maxTags: 8 },
+      }),
+      f.file({
+        path: 'avatar',
+        label: 'Avatar',
+        width: FORM_WIDTHS.half,
+        props: { accept: 'image/*' },
+      }),
+      f.file({
+        path: 'attachments',
+        label: 'Attachments',
+        width: FORM_WIDTHS.half,
+        props: { multiple: true, maxFiles: 5 },
+      }),
+      f.custom({
+        path: 'customNote',
+        label: 'Custom note',
+        width: FORM_WIDTHS.full,
+        labelHelp: 'formCustom + AlTextInput',
+        props: {
+          component: DemoCustomNote,
+          inputs: { placeholder: 'Type in a custom field…' },
+        },
+      }),
+
+      f.space({ props: { height: '0.35rem' } }),
 
       f.select({
         path: 'roleId',
@@ -416,6 +571,18 @@ export class FormDemoComponent {
       secret: '',
       query: '',
       website: '',
+      birthDate: '',
+      meetingTime: '',
+      appointment: '',
+      plan: 'free',
+      notifications: false,
+      volume: 0,
+      avatar: null,
+      attachments: [],
+      accentColor: '#000000',
+      labels: [],
+      estimateSeconds: null,
+      customNote: '',
     };
     this.model.set(empty);
     this.userForm().reset(empty);
@@ -423,6 +590,11 @@ export class FormDemoComponent {
     this.lastSearch.set('');
     this.lastCreatedSkill.set('');
   }
+}
+
+function fileMeta(file: File | null): { name: string; size: number; type: string } | null {
+  if (!file) return null;
+  return { name: file.name, size: file.size, type: file.type };
 }
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {

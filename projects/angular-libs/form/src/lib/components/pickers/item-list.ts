@@ -48,7 +48,9 @@ export interface AlListItem {
   styles: `
     :host {
       display: block;
-      height: inherit;
+      box-sizing: border-box;
+      height: 100%;
+      min-height: 0;
       overflow-y: auto;
       scrollbar-width: none;
       outline: none;
