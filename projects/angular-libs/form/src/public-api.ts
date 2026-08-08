@@ -29,6 +29,10 @@ export type {
   FormTextareaProps,
   FormCheckboxProps,
   FormSelectProps,
+  FormDatePickerBaseProps,
+  FormDateProps,
+  FormTimeProps,
+  FormDateTimeProps,
   FormDropdownColumn,
   FormDropdownLoaderParams,
   FormDropdownDatasource,
@@ -59,6 +63,9 @@ export {
   formSelect,
   formPassword,
   formSearch,
+  formDate,
+  formTime,
+  formDateTime,
   formCustom,
   formElementGroup,
   formRow,
@@ -95,10 +102,32 @@ export type { AlDropdownValueChange } from './lib/components/dropdown/al-dropdow
 export type { AlDropdownApi } from './lib/components/dropdown/dropdown-api';
 export { AlPasswordField } from './lib/components/fields/password-field';
 export { AlSearchField } from './lib/components/fields/search-field';
+export { AlDateField } from './lib/components/fields/date-field';
+export { AlTimeField } from './lib/components/fields/time-field';
+export { AlDateTimeField } from './lib/components/fields/datetime-field';
 export { AlCustomField } from './lib/components/fields/custom-field';
 export { AlGroupField } from './lib/components/fields/group-field';
 export { AlLineBreakField } from './lib/components/fields/line-break-field';
 export { AlSpaceField } from './lib/components/fields/space-field';
+
+/** Picker building blocks (advanced). */
+export { AlCalendarGrid } from './lib/components/pickers/calendar-grid';
+export { AlItemList } from './lib/components/pickers/item-list';
+export type { AlListItem, AlListItemValue } from './lib/components/pickers/item-list';
+export {
+  DEFAULT_MONTHS,
+  DEFAULT_WEEKDAYS,
+  todayLocal,
+  toDateString,
+  toTimeString,
+  toDateTimeString,
+  parseDate,
+  parseTime,
+  parseDateTime,
+  normalizeTime,
+  normalizeDateTime,
+} from './lib/utils/date-time';
+export type { CalendarCell, CalendarWeek } from './lib/utils/date-time';
 
 /** @advanced Layout plumbing */
 export { AlFormItem } from './lib/components/layout/form-item';

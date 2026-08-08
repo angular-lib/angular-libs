@@ -5,6 +5,8 @@ import type {
   FormElementConfig,
   FormCheckboxProps,
   FormCustomProps,
+  FormDateProps,
+  FormDateTimeProps,
   FormElementGroupProps,
   FormNumberProps,
   FormPasswordProps,
@@ -13,6 +15,7 @@ import type {
   FormSpaceProps,
   FormTextareaProps,
   FormTextProps,
+  FormTimeProps,
   FormWidth,
 } from '../types';
 
@@ -58,6 +61,24 @@ export function formSearch<TData = any>(
   config: Base<TData> & { props?: FormSearchProps },
 ): FormElement<TData> & { type: 'search' } {
   return { ...config, type: 'search' };
+}
+
+export function formDate<TData = any>(
+  config: Base<TData> & { props?: FormDateProps },
+): FormElement<TData> & { type: 'date' } {
+  return { ...config, type: 'date' };
+}
+
+export function formTime<TData = any>(
+  config: Base<TData> & { props?: FormTimeProps },
+): FormElement<TData> & { type: 'time' } {
+  return { ...config, type: 'time' };
+}
+
+export function formDateTime<TData = any>(
+  config: Base<TData> & { props?: FormDateTimeProps },
+): FormElement<TData> & { type: 'datetime' } {
+  return { ...config, type: 'datetime' };
 }
 
 export function formCustom<TData = any, TComponent = any>(
@@ -147,6 +168,9 @@ export function formFactories<TData>() {
     select: (config: Base<TData> & { props: FormSelectProps }) => formSelect<TData>(config),
     password: (config: Base<TData> & { props?: FormPasswordProps }) => formPassword<TData>(config),
     search: (config: Base<TData> & { props?: FormSearchProps }) => formSearch<TData>(config),
+    date: (config: Base<TData> & { props?: FormDateProps }) => formDate<TData>(config),
+    time: (config: Base<TData> & { props?: FormTimeProps }) => formTime<TData>(config),
+    datetime: (config: Base<TData> & { props?: FormDateTimeProps }) => formDateTime<TData>(config),
     custom: <TComponent>(config: Base<TData> & { props: FormCustomProps<TComponent> }) =>
       formCustom<TData, TComponent>(config),
     elementGroup: (config: Base<TData> & { props: FormElementGroupProps<TData> }) =>

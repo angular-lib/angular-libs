@@ -47,6 +47,9 @@ export type FormElementType =
   | 'select'
   | 'password'
   | 'search'
+  | 'date'
+  | 'time'
+  | 'datetime'
   | 'custom'
   | 'group'
   | 'line-break'
@@ -187,6 +190,42 @@ export interface FormSelectTreeOptions {
   selectDescendants?: boolean;
 }
 
+/** Shared calendar props for date / datetime pickers. */
+export interface FormDatePickerBaseProps extends FormControlChromeProps {
+  /** `yyyy-MM-dd` (date) or `yyyy-MM-ddTHH:mm` (datetime). */
+  min?: string;
+  /** `yyyy-MM-dd` (date) or `yyyy-MM-ddTHH:mm` (datetime). */
+  max?: string;
+  /** Dates that cannot be selected (`yyyy-MM-dd`). */
+  disabledDates?: string[];
+  /** 0 = Sunday … 6 = Saturday. Default `1` (Monday). */
+  firstDayOfWeek?: number;
+  /** Localized month names (length 12). */
+  months?: string[];
+  /** Localized weekday initials matching `firstDayOfWeek` order (length 7). */
+  weekdays?: string[];
+  showWeekNumbers?: boolean;
+  clearText?: string;
+  todayText?: string;
+}
+
+/** Value: `yyyy-MM-dd` string; empty `''`. */
+export interface FormDateProps extends FormDatePickerBaseProps {}
+
+/** Value: `HH:mm` string; empty `''`. */
+export interface FormTimeProps extends FormControlChromeProps {
+  min?: string;
+  max?: string;
+  /** Minute step (e.g. `5`, `15`). Default `1`. */
+  step?: number | string;
+}
+
+/** Value: `yyyy-MM-ddTHH:mm` string; empty `''`. */
+export interface FormDateTimeProps extends FormDatePickerBaseProps {
+  /** Minute step (e.g. `5`, `15`). Default `1`. */
+  step?: number | string;
+}
+
 export interface FormSelectProps {
   valueKey: string;
   labelKeys: string[];
@@ -268,6 +307,9 @@ export type FormElement<TData = unknown> =
   | (FormElementBaseConfig<TData> & { type: 'select'; props: FormSelectProps })
   | (FormElementBaseConfig<TData> & { type: 'password'; props?: FormPasswordProps })
   | (FormElementBaseConfig<TData> & { type: 'search'; props?: FormSearchProps })
+  | (FormElementBaseConfig<TData> & { type: 'date'; props?: FormDateProps })
+  | (FormElementBaseConfig<TData> & { type: 'time'; props?: FormTimeProps })
+  | (FormElementBaseConfig<TData> & { type: 'datetime'; props?: FormDateTimeProps })
   | (FormElementBaseConfig<TData> & { type: 'custom'; props: FormCustomProps })
   | (FormElementBaseConfig<TData> & { type: 'group'; props: FormElementGroupProps<TData> })
   | (FormElementBaseConfig<TData> & { type: 'line-break'; props?: never })

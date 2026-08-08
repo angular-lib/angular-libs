@@ -20,11 +20,9 @@ export const FORM_FIELD_REGISTRY = new InjectionToken<FormFieldRegistry>('FORM_F
  * provideFormFields({ select: MySelectField })
  * ```
  *
- * @example Register a datepicker type
+ * @example Override date field
  * ```ts
- * provideFormFields({ datepicker: MyDatepickerField })
- * // then formCustom({ path: 'start', props: { component: MyDatepickerField } })
- * // or a factory returning { type: 'datepicker', ... }
+ * provideFormFields({ date: MyDateField })
  * ```
  */
 export function provideFormFields(

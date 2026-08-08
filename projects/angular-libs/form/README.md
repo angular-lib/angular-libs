@@ -98,7 +98,7 @@ Built-ins register when `<al-signal-form>` is constructed (idempotent). Optional
 ```ts
 provideFormFields() // builtins only
 // or
-provideFormFields({ select: MySelectField, datepicker: MyDateField })
+provideFormFields({ select: MySelectField })
 ```
 
 ## Public API (supported)
@@ -179,6 +179,14 @@ Set on a parent (or `:root`):
 | `--al-form-border` | `#c4c4c4` | Control border |
 | `--al-form-focus` | `#ea580c` | Focus border (chrome + textarea) |
 | `--al-form-invalid` | `#b00020` | Invalid border |
+| `--al-picker-surface` | `#fff` | Date/time popover background |
+| `--al-picker-radius` | `0.25rem` | Picker panel / cell radius |
+| `--al-picker-selected-bg` | `--al-form-focus` | Selected day / time |
+| `--al-picker-selected-fg` | `#fff` | Selected foreground |
+| `--al-picker-hover-bg` | `rgba(0,0,0,.06)` | Hover |
+| `--al-picker-muted` | `#9ca3af` | Overflow / disabled |
+| `--al-picker-cell-size` | `2.25rem` | Calendar cell size |
+| `--al-picker-panel-shadow` | soft shadow | Popover elevation |
 
 Control chrome uses scoped classes (`al-control`, `al-control__action`, …). Override in global CSS:
 
@@ -188,19 +196,42 @@ al-control-chrome.al-control {
 }
 :root {
   --al-form-focus: #0ea5e9;
+  --al-picker-selected-bg: #0ea5e9;
 }
 ```
+
+## Date / time / datetime
+
+String values match native HTML inputs (empty = `''`):
+
+| Factory | Value format |
+|---------|----------------|
+| `formDate` | `yyyy-MM-dd` |
+| `formTime` | `HH:mm` |
+| `formDateTime` | `yyyy-MM-ddTHH:mm` |
+
+```ts
+f.date({
+  path: 'birthDate',
+  label: 'Birth date',
+  props: { min: '1900-01-01', max: '2100-12-31', firstDayOfWeek: 1 },
+});
+f.time({ path: 'startTime', label: 'Start', props: { step: 15, min: '08:00', max: '18:00' } });
+f.datetime({ path: 'appointment', label: 'Appointment', props: { step: 5 } });
+```
+
+Hybrid UX: native `date` / `time` / `datetime-local` input plus custom popover (calendar and/or HH:MM lists). Browser baseline: native `popover` + CSS anchor positioning.
 
 ## Extending fields
 
 ```ts
 provideFormFields({
   select: MySelectField,
-  datepicker: MyDatepickerField,
+  date: MyDateField,
 });
 ```
 
-One-off without a new type: `formCustom({ path: 'start', props: { component: MyDatepickerField } })`.
+One-off without a new type: `formCustom({ path: 'start', props: { component: MyDateField } })`.
 
 ## Submit / errors
 
