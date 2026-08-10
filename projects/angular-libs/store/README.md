@@ -7,10 +7,10 @@ Reactive state management library powered by Angular Signals.
 - **Store & Plugins**: Lightweight in-memory `ALStore` extensible using standard plugins (like `persistPlugin` for selective persistence/cross-tab sync).
 - **Cross-Tab Sync**: Out-of-the-box state synchronization across tabs via `BroadcastChannel` or the modular `persistPlugin`.
 - **Plugins**:
-  - `entityPlugin`: Native CRUD for collections.
-  - `resourcePlugin` / `rxResourcePlugin`: Async/HTTP state tracking.
-  - `historyPlugin`: Undo/redo time-travel.
-  - `indexedDBPlugin`: Robust, non-blocking asynchronous state persistence in IndexedDB with real-time cross-tab mirroring and hydration race-condition guards.
+    - `entityPlugin`: Native CRUD for collections.
+    - `resourcePlugin` / `rxResourcePlugin`: Async/HTTP state tracking.
+    - `historyPlugin`: Undo/redo time-travel.
+    - `indexedDBPlugin`: Robust, non-blocking asynchronous state persistence in IndexedDB with real-time cross-tab mirroring and hydration race-condition guards.
 - **Derived State**: Compute derived state easily with `.select()`.
 
 ## Quick Start
@@ -91,6 +91,8 @@ When `syncChannel` is configured, updates are broadcast with `BroadcastChannel.p
 - `historyPlugin`: Adds instant time-travel capabilities (`undo()`, `redo()`, `canUndo()`, `canRedo()`) to any property in your store.
 - `persistPlugin`: Automatically serializes and synchronizes selected keys to localStorage, sessionStorage, or custom storages across browser tabs in real-time.
 - `indexedDBPlugin`: Extends the store with large-capacity, non-blocking asynchronous persistence in IndexedDB. Fully handles slow database startup conditions (by tracking `isReady()`), supports storing complex native objects (like Maps, Sets, and Dates), and handles real-time syncing across sibling browser tabs via BroadcastChannel.
+
+Deferred offline-first SQLite + socket sync is sketched in [OFFLINE_SQLITE_PLAN.md](./OFFLINE_SQLITE_PLAN.md) (not shipped).
 
 ## 🤖 AI / GitHub Copilot Instructions
 

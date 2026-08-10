@@ -1,5 +1,6 @@
 # Changelog
 
+- chore: defer offline-first SQLite; see `OFFLINE_SQLITE_PLAN.md` (kept `onDestroy` plugin hook)
 - feat: add `persist` plugin to store (b5fbcb9) - 2026-06-09
   - Introduced the new `persistPlugin` to replace the old storage system.
   - **BREAKING CHANGES**:

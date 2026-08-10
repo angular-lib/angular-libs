@@ -107,6 +107,7 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
    *    - `onInit(store)`: Called immediately on registration. Gives the plugin access to the `ALStore` reference.
    *    - `onBeforeUpdate(key, prevValue, newValue)`: Called before a property value changes. Return a new value to override what gets written to the state.
    *    - `onAfterUpdate(key, prevValue, newValue)`: Called after a property value changes. Perfect for tracking history, writing side effects, syncing to storage, logging, etc.
+   *    - `onDestroy()`: Called when the store is destroyed. Use for cleanup (subscriptions, DB handles).
    * 3. **Registration Pattern**:
    *    - **Active Plugins**: (e.g., entity, resource, history plugins) that expose API methods should be registered as class fields/properties to allow direct access (e.g., `this.users.add(item)`).
    *    - **Passive Plugins**: (e.g., logging, persistence, or sync plugins) that run completely in the background should be registered directly within the subclass `constructor`.
@@ -160,10 +161,6 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
     if (syncChannel && typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       this.channel = new BroadcastChannel(syncChannel);
 
-      this.destroyRef?.onDestroy(() => {
-        this.channel?.close();
-      });
-
       this.channel.onmessage = (event: MessageEvent<SyncMessage<T>>) => {
         const data = event.data;
         switch (data.action) {
@@ -182,6 +179,26 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
             break;
         }
       };
+    }
+
+    this.destroyRef?.onDestroy(() => {
+      this.channel?.close();
+      this.runOnDestroy();
+    });
+  }
+
+  /**
+   * Runs every plugin's `onDestroy` hook.
+   * Errors are isolated so one failing plugin does not block others.
+   */
+  private runOnDestroy(): void {
+    for (const plugin of this.plugins) {
+      if (!plugin.onDestroy) continue;
+      try {
+        plugin.onDestroy();
+      } catch (e) {
+        console.error('[ALStore] Plugin onDestroy threw.', e);
+      }
     }
   }
 

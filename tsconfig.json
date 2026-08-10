@@ -22,6 +22,9 @@
         "./projects/angular-libs/shortcut/plugins/src/public-api.ts"
       ],
       "@angular-libs/store": ["./projects/angular-libs/store/src/public-api.ts"],
+      "@angular-libs/store/rxjs-interop": [
+        "./projects/angular-libs/store/rxjs-interop/src/public-api.ts"
+      ],
       "@angular-libs/translate": ["./projects/angular-libs/translate/src/public-api.ts"],
       "@angular-libs/web": ["./projects/angular-libs/web/src/public-api.ts"],
       "@angular-libs/socket": ["./projects/angular-libs/socket/src/public-api.ts"],
