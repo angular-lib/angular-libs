@@ -16,6 +16,11 @@ export function focusRealmOf(cell: FocusCell | null | undefined): FocusRealm {
   return cell?.realm ?? 'body';
 }
 
+/** Leaf header rowIndex: 1 when column groups exist, otherwise 0. */
+export function leafHeaderRowIndex(hasColumnGroups: boolean): number {
+  return hasColumnGroups ? 1 : 0;
+}
+
 export interface FocusControllerOptions {
   getRowCount: () => number;
   getColumnIds: () => string[];
@@ -44,10 +49,17 @@ export interface FocusControllerOptions {
   getPageRowCount?: () => number;
   /** Enter on header — toggle sort (Shift = multi). */
   onHeaderActivate?: (columnId: string, multi: boolean) => void;
-  /** Alt+ArrowDown on header — open column menu (may be a stub). */
+  /** Alt+ArrowDown on a leaf header — open column menu. */
   onOpenColumnMenu?: (columnId: string) => void;
+  /** Whether a column-group header row is present (header rowIndex 0). */
+  hasColumnGroups?: () => boolean;
   /** Whether floating filter row is present for continuum navigation. */
   hasFloatingFilters?: () => boolean;
+  /**
+   * Enter on a floating-filter cell — focus the inner control (AG pattern).
+   * Return `true` when handled (preventDefault).
+   */
+  onFloatingFilterEnter?: (columnId: string) => boolean;
   /**
    * Shift+arrows in body — extend cell range (OVERVIEW §5 / K7).
    * Return `true` when handled (skip normal move).
@@ -164,6 +176,17 @@ export class FocusController {
     return this.focused;
   }
 
+  private leafHeaderRow(): number {
+    return leafHeaderRowIndex(this.options.hasColumnGroups?.() ?? false);
+  }
+
+  private isLeafHeader(): boolean {
+    return (
+      focusRealmOf(this.focused) === 'header' &&
+      (this.focused?.rowIndex ?? 0) === this.leafHeaderRow()
+    );
+  }
+
   move(dRow: number, dCol: number): FocusCell | null {
     const cols = this.options.getColumnIds();
     if (!cols.length) {
@@ -177,9 +200,21 @@ export class FocusController {
       : 0;
 
     colIndex = clamp(colIndex + dCol, 0, cols.length - 1);
+    const hasGroups = this.options.hasColumnGroups?.() ?? false;
+    const leafHeader = leafHeaderRowIndex(hasGroups);
 
     if (realm === 'header') {
+      const headerRow = this.focused?.rowIndex ?? leafHeader;
+      const onGroupRow = hasGroups && headerRow === 0;
       if (dRow > 0) {
+        if (onGroupRow) {
+          this.setFocus({
+            rowIndex: leafHeader,
+            columnId: cols[colIndex]!,
+            realm: 'header',
+          });
+          return this.focused;
+        }
         if (this.options.hasFloatingFilters?.()) {
           this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'floatingFilter' });
           return this.focused;
@@ -191,17 +226,32 @@ export class FocusController {
         return this.focused;
       }
       if (dRow < 0) {
-        // Stay on header (no group-header realm yet).
-        this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'header' });
+        if (!onGroupRow && hasGroups) {
+          this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'header' });
+          return this.focused;
+        }
+        this.setFocus({
+          rowIndex: headerRow,
+          columnId: cols[colIndex]!,
+          realm: 'header',
+        });
         return this.focused;
       }
-      this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'header' });
+      this.setFocus({
+        rowIndex: headerRow,
+        columnId: cols[colIndex]!,
+        realm: 'header',
+      });
       return this.focused;
     }
 
     if (realm === 'floatingFilter') {
       if (dRow < 0) {
-        this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'header' });
+        this.setFocus({
+          rowIndex: this.leafHeaderRow(),
+          columnId: cols[colIndex]!,
+          realm: 'header',
+        });
         return this.focused;
       }
       if (dRow > 0 && this.options.getRowCount() > 0) {
@@ -217,13 +267,21 @@ export class FocusController {
       if (this.options.hasFloatingFilters?.()) {
         this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'floatingFilter' });
       } else {
-        this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'header' });
+        this.setFocus({
+          rowIndex: this.leafHeaderRow(),
+          columnId: cols[colIndex]!,
+          realm: 'header',
+        });
       }
       return this.focused;
     }
 
     if (this.options.getRowCount() <= 0) {
-      this.setFocus({ rowIndex: 0, columnId: cols[colIndex]!, realm: 'header' });
+      this.setFocus({
+        rowIndex: this.leafHeaderRow(),
+        columnId: cols[colIndex]!,
+        realm: 'header',
+      });
       return this.focused;
     }
 
@@ -255,7 +313,7 @@ export class FocusController {
         this.move(-1, 0);
         return true;
       case 'ArrowDown':
-        if (realm === 'header' && event.altKey && this.focused) {
+        if (realm === 'header' && event.altKey && this.focused && this.isLeafHeader()) {
           this.options.onOpenColumnMenu?.(this.focused.columnId);
           return true;
         }
@@ -363,7 +421,7 @@ export class FocusController {
             });
           } else if (cols.length) {
             this.setFocus({
-              rowIndex: 0,
+              rowIndex: this.leafHeaderRow(),
               columnId: cols[colIndex] ?? cols[0]!,
               realm: 'header',
             });
@@ -379,15 +437,23 @@ export class FocusController {
         if (!this.focused) {
           return false;
         }
+        // Excel Shift+F2 is cell comments; `notesPlugin` owns that chord.
+        if (event.key === 'F2' && event.shiftKey) {
+          return false;
+        }
         if (realm === 'header') {
           if (event.key === 'Enter') {
-            this.options.onHeaderActivate?.(this.focused.columnId, event.shiftKey);
+            if (this.isLeafHeader()) {
+              this.options.onHeaderActivate?.(this.focused.columnId, event.shiftKey);
+            }
             return true;
           }
           return false;
         }
         if (realm === 'floatingFilter') {
-          // Enter focuses filter control — host/template handles; don't start edit.
+          if (event.key === 'Enter') {
+            return this.options.onFloatingFilterEnter?.(this.focused.columnId) ?? false;
+          }
           return false;
         }
         if (this.options.isGroupRow?.(this.focused.rowIndex)) {

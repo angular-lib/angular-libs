@@ -85,6 +85,12 @@ export interface CreateGridOptions<T = unknown> {
    * Enables {@link GridController.applyTransaction} / {@link GridController.setRows}.
    */
   rows?: WritableSignal<readonly T[]>;
+  /**
+   * When `rows` is set, apply paste / cellEdit / rowEdit onto that signal.
+   * Default true if `rows` is provided. Hosts that intercept `(paste)` / `(cellEdit)`
+   * can set `false` and write themselves.
+   */
+  autoApplyWrites?: boolean;
   /** Pagination / virtualization knobs (writable on the controller). */
   viewport?: GridViewportOptions;
   /** Toolbar / filters / stripe / reorder / context-menu chrome flags. */
@@ -117,6 +123,11 @@ export interface GridController<T = unknown> {
    * Prefer binding `[data]="grid.rows()!"` (or the same host signal).
    */
   readonly rows: Signal<readonly T[]> | null;
+  /**
+   * True when paste / cell / row edits write `rows` automatically (§5a).
+   * Always false when `rows` was omitted.
+   */
+  readonly autoApplyWrites: boolean;
   /**
    * Typed adapter when `rowGroupPlugin` is in `plugins`.
    * Prefer holding the plugin instance; this is for discovery.
@@ -255,6 +266,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     rowEditSchema: options.rowEditSchema ?? null,
     createRowForm: options.createRowForm ?? null,
     rows: ownedRows?.asReadonly() ?? null,
+    autoApplyWrites: ownedRows != null && (options.autoApplyWrites ?? true),
     viewport,
     chrome,
     multiSort,

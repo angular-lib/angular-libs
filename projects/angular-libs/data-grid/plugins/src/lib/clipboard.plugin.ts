@@ -3,6 +3,7 @@ import {
   coerceCellEditValue,
   getCellValue,
   parseClipboardMatrix,
+  tileMatrix,
   writeCellValue,
   type PasteEvent,
 } from '@angular-libs/data-grid';
@@ -97,6 +98,7 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
 
   let startRowIndex = 0;
   let columnIds = [...visible];
+  let matrixToApply = matrix;
 
   if (cellRange) {
     const aCol = visible.indexOf(cellRange.anchor.columnId);
@@ -107,13 +109,26 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
     const colEnd = Math.max(aCol, bCol);
     if (aCol >= 0 && bCol >= 0) {
       columnIds = visible.slice(colStart, colEnd + 1);
+      let dataRowCount = 0;
       for (let i = rowStart; i <= rowEnd; i++) {
         const item = displayRows[i];
         if (item?.kind === 'data') {
-          startRowIndex = item.dataIndex;
-          break;
+          if (!dataRowCount) {
+            startRowIndex = item.dataIndex;
+          }
+          dataRowCount++;
         }
       }
+      const srcCols = matrix.reduce((max, row) => Math.max(max, row.length), 0);
+      if (srcCols > columnIds.length) {
+        columnIds = visible.slice(colStart, colStart + srcCols);
+      }
+      const outRows = Math.max(matrix.length, dataRowCount);
+      const outCols = Math.max(srcCols, columnIds.length);
+      if (outCols > columnIds.length) {
+        columnIds = visible.slice(colStart, colStart + outCols);
+      }
+      matrixToApply = tileMatrix(matrix, outRows, columnIds.length);
     }
   } else if (focus) {
     // Prefer focused data row; otherwise the next data row at/after focus.
@@ -136,7 +151,7 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
   const processed = context.api.getProcessedRows() as T[];
   const { rows: suggestedRows } = applyPasteMatrix(
     processed,
-    matrix,
+    matrixToApply,
     startRowIndex,
     columnIds,
     {
@@ -156,7 +171,7 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
   const payload: PasteEvent<T> = {
     startRowIndex,
     columnIds,
-    matrix,
+    matrix: matrixToApply,
     suggestedRows,
   };
   context.api.emitPaste(payload);

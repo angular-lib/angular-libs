@@ -7,7 +7,7 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
   template: `
     <div class="al-dg-panel" data-testid="al-dg-row-group-panel">
       <div class="al-dg-panel__title">{{ host.locale().groupsPanelLabel }}</div>
-      <p class="al-dg-panel__hint">Group rows by column values. Order is outer → inner.</p>
+      <p class="al-dg-panel__hint">{{ host.locale().groupsPanelHint }}</p>
       <ul class="al-dg-panel__list" role="list">
         @for (col of host.columns(); track col.id) {
           <li class="al-dg-panel__item">
@@ -27,7 +27,7 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
                   class="al-dg-panel__icon-btn"
                   [disabled]="levelOf(col.id) <= 0"
                   (click)="move(col.id, -1)"
-                  aria-label="Move group up"
+                  [attr.aria-label]="host.locale().moveGroupUp"
                 >
                   ↑
                 </button>
@@ -36,7 +36,7 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
                   class="al-dg-panel__icon-btn"
                   [disabled]="levelOf(col.id) >= host.groupColumnIds().length - 1"
                   (click)="move(col.id, 1)"
-                  aria-label="Move group down"
+                  [attr.aria-label]="host.locale().moveGroupDown"
                 >
                   ↓
                 </button>
@@ -53,7 +53,7 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
           (click)="host.setGroupColumns([])"
           data-testid="al-dg-ungroup"
         >
-          Ungroup
+          {{ host.locale().ungroup }}
         </button>
       </div>
     </div>

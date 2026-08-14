@@ -55,6 +55,26 @@ export function getCellValue<T>(
   return undefined;
 }
 
+/** Unformatted cell text for fill / round-trip paste (not `valueFormatter`). */
+export function serializeCellValue(value: unknown): string {
+  if (value == null) {
+    return '';
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      return '';
+    }
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false';
+  }
+  return String(value);
+}
+
 export function formatCellValue<T>(
   value: unknown,
   row: T,

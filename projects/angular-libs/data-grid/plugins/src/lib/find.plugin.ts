@@ -18,6 +18,16 @@ export function findPlugin<T = unknown>(options: FindPluginOptions = {}): DataGr
         id: 'find-keys',
         setup: (element) => {
           const onKeydown = (event: KeyboardEvent): void => {
+            const target = event.target as HTMLElement | null;
+            const typing =
+              !!target &&
+              (target.tagName === 'INPUT' ||
+                target.tagName === 'TEXTAREA' ||
+                target.tagName === 'SELECT' ||
+                target.isContentEditable);
+            if (typing) {
+              return;
+            }
             const meta = event.ctrlKey || event.metaKey;
             if (meta && event.key.toLowerCase() === 'f') {
               event.preventDefault();

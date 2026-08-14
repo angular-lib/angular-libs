@@ -15,6 +15,7 @@ import { DataGridFindBar } from './data-grid-find-bar';
 
 export interface DataGridToolbarLabels {
   quickFilterPlaceholder: string;
+  quickFilterAriaLabel: string;
   findPlaceholder: string;
   findAriaLabel: string;
   findPrevAriaLabel: string;
@@ -39,7 +40,7 @@ export interface DataGridToolbarLabels {
           (input)="quickFilterChange.emit($any($event.target).value)"
           [placeholder]="labels().quickFilterPlaceholder"
           data-testid="al-dg-toolbar-quick-filter"
-          aria-label="Quick filter"
+          [attr.aria-label]="labels().quickFilterAriaLabel"
         />
       }
       @if (findEnabled()) {

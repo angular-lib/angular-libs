@@ -200,6 +200,7 @@ export interface ViewportDeps<T> {
   visibleColumns(): readonly ResolvedColumn<T>[];
   /** True when column sorts are active (row-drag gate). */
   hasActiveSort(): boolean;
+  hasColumnGroups(): boolean;
   resolveRowId(row: T, index: number): string | number;
   rowModelContext(): {
     columnsById: Map<string, ColumnDef<T>>;

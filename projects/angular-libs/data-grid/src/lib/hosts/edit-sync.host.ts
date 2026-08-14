@@ -1,4 +1,4 @@
-import { afterNextRender, signal, type WritableSignal } from '@angular/core';
+import { signal, type WritableSignal } from '@angular/core';
 import type { FieldTree } from '@angular/forms/signals';
 import { focusRealmOf, type FocusCell } from '../controllers/focus';
 import {
@@ -8,7 +8,7 @@ import {
 } from '../editing/edit-interaction';
 import { coerceCellEditValue } from '../utils/coerce-cell-value';
 import { isCustomEditorComponent, isSelectEditor } from '../utils/editors';
-import { isDataDisplayRow, isGroupDisplayRow } from '../utils/row-display';
+import { isDataDisplayRow } from '../utils/row-display';
 import {
   getCellValue,
   isBooleanColumn,
@@ -20,6 +20,12 @@ import { RowEditSession } from '../editing/row-edit-session';
 import type { RowEditAdapter } from '../editing/cell-editor-registry';
 import type { EditSyncDeps } from './binder-surface';
 import type { ColumnDef, ResolvedColumn } from '../components/data-grid/data-grid.types';
+import {
+  activateFloatingFilter as activateFloatingFilterOf,
+  focusEditorInCell as focusEditorInCellOf,
+  isEditorEventTarget as isEditorEventTargetOf,
+  syncDomFocus as syncDomFocusOf,
+} from './edit-focus';
 
 /**
  * Owns cell / full-row edit sessions and editor DOM focus sync.
@@ -53,17 +59,7 @@ export class EditSyncHost<T> {
   }
 
   isEditorEventTarget(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) {
-      return false;
-    }
-    const tag = target.tagName;
-    return (
-      tag === 'INPUT' ||
-      tag === 'TEXTAREA' ||
-      tag === 'SELECT' ||
-      target.isContentEditable ||
-      !!target.closest('.al-data-grid__edit-input, .al-data-grid__edit-check')
-    );
+    return isEditorEventTargetOf(target);
   }
 
   isEditing(rowId: string | number, columnId: string): boolean {
@@ -223,6 +219,28 @@ export class EditSyncHost<T> {
     this.startRowEdit(rows[index]!, rowId, index);
   }
 
+  startEditingCell(rowId: string | number, columnId: string): void {
+    const rows = this.s.processedRows();
+    const dataIndex = rows.findIndex((row, i) => this.s.effectiveRowId()(row, i) === rowId);
+    const col = this.s.columnsById().get(columnId);
+    if (dataIndex < 0 || !col) {
+      return;
+    }
+    const displayIndex = this.s.pagedDisplayRows().findIndex(
+      (item) => isDataDisplayRow(item) && item.rowId === rowId,
+    );
+    if (displayIndex >= 0) {
+      this.s.kernel().focus.focusCell(displayIndex, columnId, 'body');
+    }
+    this.startEdit(
+      rows[dataIndex]!,
+      rowId,
+      dataIndex,
+      col,
+      this.s.cellValue(rows[dataIndex]!, col, dataIndex),
+    );
+  }
+
   commitRowEdit(): boolean {
     const ok = this.rowEditMgr.commit();
     if (ok) {
@@ -313,12 +331,68 @@ export class EditSyncHost<T> {
     this.s.kernel().focus.moveHorizontalWrap(keyEvent.shiftKey ? -1 : 1);
   }
 
+  /** fullRow: Tab walks cells without committing the row (AG / excel). */
+  onRowEditorTab(event: Event): void {
+    if (this.s.effectiveEditInteraction().tabEditing !== 'commitAndMove') {
+      return;
+    }
+    const keyEvent = event as KeyboardEvent;
+    keyEvent.preventDefault();
+    keyEvent.stopPropagation();
+    this.s.kernel().focus.moveHorizontalWrap(keyEvent.shiftKey ? -1 : 1);
+    this.s.syncDomFocusAfterEdit();
+  }
+
+  onEditorEscape(event: Event): void {
+    const keyEvent = event as KeyboardEvent;
+    keyEvent.preventDefault();
+    keyEvent.stopPropagation();
+    this.cancelActiveEdit();
+  }
+
   onEditorBlur(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
     if (this.s.effectiveEditInteraction().editorBlur === 'cancel') {
       this.cancelEdit();
       return;
     }
     this.commitEdit(row, rowId, rowIndex, column);
+  }
+
+  onEditorHostFocusOut(
+    event: FocusEvent,
+    row: T,
+    rowId: string | number,
+    rowIndex: number,
+    column: ResolvedColumn<T>,
+  ): void {
+    const host = event.currentTarget;
+    const next = event.relatedTarget;
+    if (host instanceof Node && next instanceof Node && host.contains(next)) {
+      return;
+    }
+    this.onEditorBlur(row, rowId, rowIndex, column);
+  }
+
+  /** Space on a focused idle boolean cell toggles the value, not row selection. */
+  tryToggleFocusedBoolean(): boolean {
+    if (this.s.effectiveEditMode() === 'fullRow') {
+      return false;
+    }
+    const focus = this.s.kernel().focus.getFocus();
+    if (!focus || focusRealmOf(focus) !== 'body') {
+      return false;
+    }
+    const item = this.s.pagedDisplayRows()[focus.rowIndex];
+    const col = this.s.columnsById().get(focus.columnId);
+    if (!item || !isDataDisplayRow(item) || !col?.editable) {
+      return false;
+    }
+    const value = this.s.cellValue(item.row, col, item.dataIndex);
+    if (!isBooleanColumn(col, value) || isSelectEditor(col) || isCustomEditorComponent(col)) {
+      return false;
+    }
+    this.toggleBoolean(item.row, item.rowId, item.dataIndex, col, !Boolean(value));
+    return true;
   }
 
   cancelEdit(): void {
@@ -407,114 +481,30 @@ export class EditSyncHost<T> {
    * When the focused cell is in a cell/row edit session, focus the nested editor.
    */
   syncDomFocus(cell: FocusCell | null, opts?: { force?: boolean }): void {
-    if (!cell) {
-      return;
-    }
-    const force = opts?.force === true;
-    const apply = (allowRetry: boolean): void => {
-      const realm = focusRealmOf(cell);
-      if (realm === 'header') {
-        const el = this.s.hostElement().querySelector(
-          `[data-testid="al-dg-col-${cell.columnId}"]`,
-        ) as HTMLElement | null;
-        el?.focus({ preventScroll: true });
-        return;
-      }
-      if (realm === 'floatingFilter') {
-        const el = this.s.hostElement().querySelector(
-          `[data-testid="al-dg-filter-${cell.columnId}"]`,
-        ) as HTMLElement | null;
-        if (!el) {
-          return;
-        }
-        const active = typeof document !== 'undefined' ? document.activeElement : null;
-        if (active instanceof HTMLElement && el.contains(active) && active !== el) {
-          return;
-        }
-        el.focus({ preventScroll: true });
-        return;
-      }
-      const item = this.s.pagedDisplayRows()[cell.rowIndex];
-      if (!item) {
-        return;
-      }
-      if (isGroupDisplayRow(item)) {
-        const el = this.s.hostElement().querySelector(
-          `[data-testid="al-dg-group-${item.id}"] .al-data-grid__group-toggle`,
-        ) as HTMLElement | null;
-        el?.focus({ preventScroll: true });
-        return;
-      }
-      if (!isDataDisplayRow(item)) {
-        return;
-      }
-      const el = this.s.hostElement().querySelector(
-        `[data-testid="al-dg-cell-${item.rowId}-${cell.columnId}"]`,
-      ) as HTMLElement | null;
-      const col = this.s.columnsById().get(cell.columnId);
-      const cellEditing =
-        this.editingCell()?.rowId === item.rowId &&
-        this.editingCell()?.columnId === cell.columnId;
-      const rowEditing = this.rowEditMgr.isEditing(item.rowId) && !!col?.editable;
-      const wantsEditor = cellEditing || rowEditing;
-      const active = typeof document !== 'undefined' ? document.activeElement : null;
-
-      if (
-        wantsEditor &&
-        el &&
-        active instanceof HTMLElement &&
-        el.contains(active) &&
-        this.isEditorEventTarget(active)
-      ) {
-        return;
-      }
-      if (wantsEditor && this.focusEditorInCell(item.rowId, cell.columnId)) {
-        return;
-      }
-      if (wantsEditor && allowRetry) {
-        afterNextRender(() => apply(false), { injector: this.s.injector() });
-        return;
-      }
-      if (
-        !force &&
-        active instanceof HTMLElement &&
-        el &&
-        !el.contains(active) &&
-        active !== document.body &&
-        active !== this.s.hostElement()
-      ) {
-        return;
-      }
-      el?.focus({ preventScroll: true });
-    };
-
-    queueMicrotask(() => apply(true));
+    syncDomFocusOf(this.editFocusModel(), cell, opts);
   }
 
   /** Focus nested editor in a cell. Returns true when found. */
   focusEditorInCell(rowId: string | number, columnId: string, select = true): boolean {
-    const root = this.s.hostElement().querySelector(
-      `[data-testid="al-dg-cell-${rowId}-${columnId}"]`,
-    ) as HTMLElement | null;
-    if (!root) {
-      return false;
-    }
-    const editor = root.querySelector(
-      '.al-data-grid__edit-input, .al-data-grid__edit-check, .al-data-grid__editor-host input, .al-data-grid__editor-host textarea, .al-data-grid__editor-host select',
-    ) as HTMLElement | null;
-    if (!editor) {
-      return false;
-    }
-    editor.focus({ preventScroll: true });
-    if (
-      select &&
-      editor instanceof HTMLInputElement &&
-      editor.type !== 'checkbox' &&
-      editor.type !== 'date' &&
-      typeof editor.select === 'function'
-    ) {
-      editor.select();
-    }
-    return true;
+    return focusEditorInCellOf(this.s.hostElement(), rowId, columnId, select);
+  }
+
+  /**
+   * Enter on a floating-filter cell — focus the inner control (AG pattern).
+   * Returns true when focus moved into the control.
+   */
+  activateFloatingFilter(columnId: string): boolean {
+    return activateFloatingFilterOf(this.s.hostElement(), columnId);
+  }
+
+  private editFocusModel() {
+    return {
+      hostElement: () => this.s.hostElement(),
+      injector: () => this.s.injector(),
+      pagedDisplayRows: () => this.s.pagedDisplayRows(),
+      columnsById: () => this.s.columnsById(),
+      editingCell: () => this.editingCell(),
+      isRowEditing: (rowId: string | number) => this.rowEditMgr.isEditing(rowId),
+    };
   }
 }

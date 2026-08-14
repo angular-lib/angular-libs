@@ -90,7 +90,7 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | Autosize | **Done** | `api.autoSizeColumns` / `autosizePlugin` | |
 | Column object API | **Better-path** | Resolved columns via `api.getColumnsById` / layout state | No mutable `Column`, no `addEventListener` |
 | Column events | **Better-path** | Grid-level `sortChange`, `filterChange`, `columnOrderChange`, `stateChange` | No per-column event bus |
-| Column header menu | **Later** | Header pin menu today | Lean menu later — not AG legacy/new dualism |
+| Column header menu | **Done** | Lean menu: pin / sort / autosize / hide | Alt+↓ / header right-click — not AG legacy/new dualism |
 | Column virtualization | **Never** | — | Row virtualization only |
 
 **ColumnDef checklist** (vs [column-properties](https://www.ag-grid.com/angular-data-grid/column-properties/)):
@@ -138,7 +138,7 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | --- | --- | --- | --- |
 | Cell edit | **Done** | `(cellEdit)` + `applyCellEdit` | Built-in + custom editors |
 | Full-row Signal Forms | **Done** | `[rowForm]`, `[(rowEditSession)]`, `(rowEdit)` | Canonical DX |
-| Start/stop interaction | **Partial** | dblclick, Enter/F2, Escape, blur→commit | Policy design — §5b (not AG flag soup) |
+| Start/stop interaction | **Done** | `'default'` / `'excel'` presets + sparse overrides | dblclick, Enter/F2, Tab, type-to-edit, `api.startEditingCell` |
 | Read-only / host commit | **Better-path** | Always host-owned writes | Same spirit as AG `readOnlyEdit` without the flag maze |
 | Batch edit | **Later** | Host drafts / Signal Forms | Not a grid-owned pending map |
 | Undo / redo | **Later** | Host history helper over apply events | Not a mutable in-grid stack |
@@ -192,8 +192,8 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | --- | --- | --- | --- |
 | Body focus / arrows / Home End / Page | **Done** | `FocusController` + roving `tabindex` on cells | |
 | Edit keys / select-all / group Space | **Done** | | |
-| Header keyboard navigation | **Done** | `FocusController` header realm | ←→, Enter sort, Alt+↓ menu — [KEYBOARD.md](./KEYBOARD.md) |
-| Body ↔ header continuum | **Done** | ArrowUp/Down + PageUp/Down bridges | Floating filter when present |
+| Header keyboard navigation | **Done** | `FocusController` header realm | ←→, Enter sort, Alt+↓ menu, group header ↑↓ — [KEYBOARD.md](./KEYBOARD.md) |
+| Body ↔ header continuum | **Done** | ArrowUp/Down + PageUp/Down bridges | Floating filter Enter focuses control; Escape returns |
 | Tab enter/leave grid | **Done** | Roving tabindex + `restoreOrFocusDefault`; Tab not captured | Page citizen — `handleKeydown('Tab')` → false |
 | Custom nav / suppress hooks | **Later** | — | Sparse; not AG’s five callbacks |
 | Full a11y matrix | **Partial** | Cell `aria-selected` (row **or** range) shipped | Broader SR / announcements still backlog |
@@ -222,8 +222,8 @@ fill-handle identity. Prefer **simpler and better**.
 | Coordinates | `{ rowIndex, columnId }` on **display** rows; resolve data via `DisplayRow` + `rowId` |
 | vs row selection | **Separate** from `[(selectedIds)]` — never overload row selection for cells |
 | Keyboard | Shift+arrows extend `active`; focus moves with active corner |
-| Clipboard | When a range exists, copy/paste use the range matrix (extend `clipboardPlugin`) |
-| Fill | Copy-fill via fill handle → `(paste)` + `suggestedRows` → host applies |
+| Clipboard | When a range exists, copy/paste use the range; paste **tiles** a smaller matrix into a larger range |
+| Fill | Copy-fill via fill handle → `(paste)` as `FillEvent` (raw cell values, not formatters). `fillHandle: false` hides the handle |
 | Multi-range | **v2+ / Never unless measured** |
 | Series fill | Start with **copy-fill**; smart series (dates/numbers) as optional pure util later |
 
@@ -329,7 +329,7 @@ function applyRowTransaction<T>(
 1. `applyRowTransaction` util + unit tests (id match, addIndex, missing ids)
 2. `createGrid({ rows })` + `grid.rows` / `setRows` / `applyTransaction`
 3. Docs + demo: CRUD buttons without host reimplementing merge
-4. Optional: paste/edit auto-apply when controller has `rows` (feature-flag / opt-in on createGrid, not a new DataGrid input)
+4. ✅ paste/edit auto-apply when controller has `rows` (`autoApplyWrites`, default true)
 
 ### Prepare / non-goals
 
@@ -366,6 +366,7 @@ Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur, tabEditi
 `enterIdle: 'moveDown'` moves focus on Enter without opening an editor (F2 still edits).
 `pointerStart: 'none'` ≈ suppress click/dblclick edit (API / custom UI starts edit).
 `tabEditing: 'commitAndMove'` commits and moves horizontally with row wrap (Shift+Tab reverse).
+In **fullRow**, the same policy walks cells **without** committing the row (Enter still commits the row).
 `typeToEdit: 'off'` disables type-to-edit (Enter / F2 / pointer still work).
 `arrowEditing: 'moveHorizontal'` (excel) moves ←→ between fullRow editors; `'caret'` (default) keeps arrows in the field.
 
@@ -478,7 +479,7 @@ Keyboard **F2** always starts edit when idle (unless we later add an explicit su
 | 4 | Tab policy (`tabEditing`) | ✅ |
 | 5 | `typeToEdit` after shortcut matrix is stable | ✅ |
 
-Also: `api.startEditingCell(rowId, columnId)` when we need symmetry with row edit — independent of the policy bag.
+Also: `api.startEditingCell(rowId, columnId)` — shipped for symmetry with `startEditingRow`.
 
 ### Rejected
 
@@ -570,23 +571,23 @@ Inside grid:     arrows / Home / End / Page / Enter / Space / F2
 | Ctrl/Cmd+Home / End | First / last row |
 | PageUp / PageDown | Viewport-sized jump |
 | Enter / F2 | Start edit (or group toggle) — see §5b |
-| Space | Toggle row selection / group |
-| Escape | Cancel edit / close menu |
+| Space | Toggle row selection / group; focused boolean cell toggles the value |
+| Escape | Cancel edit (range stays); second Escape clears range / close menu |
 | Ctrl/Cmd+A | Select all (multi) |
 | Shift+arrows | Extend cell range (**when** §5 plugin active) |
 
-**Header (Later — enterprise gap):**
+**Header (Done):**
 
 | Key | Action |
 | --- | --- |
 | ←→ | Move across header cells |
 | ↑↓ | Between header rows (groups ↔ leaves); ↓ from leaf header → body row 0 |
-| Enter | Toggle sort (Shift+Enter multi-sort) |
-| Alt+↓ | Open lean column menu (§ backlog) |
+| Enter | Toggle sort (Shift+Enter multi-sort); no-op on group headers |
+| Alt+↓ | Open lean column menu (leaf headers) |
 | Escape | Close menu / return focus |
 
-**Floating filters (Later):** Enter focuses filter control; Escape returns to
-header cell (AG’s pattern is good here — steal it).
+**Floating filters (Done):** Enter focuses the filter control; Escape from the
+control returns to the floating-filter cell; Escape again returns to the leaf header.
 
 **Do not** ship AG’s range-selection header Enter variants until §5 exists.
 

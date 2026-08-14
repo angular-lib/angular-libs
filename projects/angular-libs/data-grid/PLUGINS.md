@@ -372,9 +372,9 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 | `aggregateRowPlugin` | `registerAggregate` |
 | `infiniteScrollPlugin` | `registerInteraction` → `api.notifyNearEnd` (scroll + ResizeObserver) |
 | `findPlugin` | `enableFind` + key interaction |
-| `notesPlugin` | `registerCellDecorator` + context menu + hover preview / `Shift+F2` editor |
+| `notesPlugin` | `registerCellDecorator` + context menu + hover preview / `Shift+F2` editor (`api.getLocale()`) |
 | `flashCellsPlugin` | `registerCellDecorator` + held `flashCells` / `clearFlash` adapter |
-| `cellRangePlugin` | decorator + drag/fill interaction + Shift+arrow via focus; binds range adapter on `api` |
+| `cellRangePlugin` | decorator + copy-fill (`FillEvent` via `(paste)`); `fillHandle: false` hides the handle; Shift+arrow via focus |
 | `statusBarPlugin` / `sideBarPlugin` / `rowDragPlugin` | chrome slots (localized) |
 | `csvExportPlugin` / `autosizePlugin` | toolbar slot actions |
 

@@ -56,6 +56,26 @@ export interface DataGridLocale {
   sortClear: string;
   autosizeColumn: string;
   hideColumn: string;
+  filterAny: string;
+  filterTrue: string;
+  filterFalse: string;
+  filterPlaceholder: string;
+  filterSet: string;
+  filterNoValues: string;
+  copyCell: string;
+  copyRow: string;
+  exportCsvAction: string;
+  autosizeColumns: string;
+  clearFilters: string;
+  copyShortcut: string;
+  groupsPanelHint: string;
+  moveGroupUp: string;
+  moveGroupDown: string;
+  noteTitle: string;
+  noteAdd: string;
+  noteEdit: string;
+  noteRemove: string;
+  notePlaceholder: string;
 }
 
 export const defaultGridLocale: DataGridLocale = {
@@ -111,6 +131,26 @@ export const defaultGridLocale: DataGridLocale = {
   sortClear: 'Clear sort',
   autosizeColumn: 'Autosize this column',
   hideColumn: 'Hide column',
+  filterAny: 'Any',
+  filterTrue: 'True',
+  filterFalse: 'False',
+  filterPlaceholder: 'Filter…',
+  filterSet: 'Set',
+  filterNoValues: 'No values',
+  copyCell: 'Copy cell',
+  copyRow: 'Copy row',
+  exportCsvAction: 'Export CSV',
+  autosizeColumns: 'Autosize columns',
+  clearFilters: 'Clear filters',
+  copyShortcut: '⌘C',
+  groupsPanelHint: 'Group rows by column values. Order is outer → inner.',
+  moveGroupUp: 'Move group up',
+  moveGroupDown: 'Move group down',
+  noteTitle: 'Note',
+  noteAdd: 'Add note',
+  noteEdit: 'Edit note',
+  noteRemove: 'Remove note',
+  notePlaceholder: 'Write a note…',
 };
 
 export function mergeGridLocale(partial?: Partial<DataGridLocale> | null): DataGridLocale {
@@ -120,6 +160,7 @@ export function mergeGridLocale(partial?: Partial<DataGridLocale> | null): DataG
 /** Toolbar chrome labels derived from locale (binder + plugins). */
 export function toolbarLabelsFromLocale(locale: DataGridLocale): {
   quickFilterPlaceholder: string;
+  quickFilterAriaLabel: string;
   findPlaceholder: string;
   findAriaLabel: string;
   findPrevAriaLabel: string;
@@ -127,6 +168,7 @@ export function toolbarLabelsFromLocale(locale: DataGridLocale): {
 } {
   return {
     quickFilterPlaceholder: locale.quickFilterPlaceholder,
+    quickFilterAriaLabel: locale.filtersQuickFilterLabel,
     findPlaceholder: locale.findPlaceholder,
     findAriaLabel: locale.findAriaLabel,
     findPrevAriaLabel: locale.findPrevAriaLabel,

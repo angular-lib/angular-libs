@@ -7,11 +7,11 @@ import type { ColumnDef, ColumnOrGroupDef } from './data-grid.types';
 import type { DataGridPlugin } from '../../plugins/types';
 import { filterRows, quickFilterRows, toDateKey } from '../../utils/filter-rows';
 import { sortRows, nextSortDirection } from '../../utils/sort-rows';
-import { resolveColumns, getCellValue, formatCellValue, moveItem } from '../../utils/cell-value';
+import { resolveColumns, getCellValue, formatCellValue, serializeCellValue, moveItem } from '../../utils/cell-value';
 import { rowsToCsv } from '../../utils/csv';
 import { collectFindMatches, splitFindHighlight } from '../../utils/find';
 import { cloneRowDraft } from '../../utils/row-edit';
-import { applyCellEdit } from '../../utils/apply-edit';
+import { applyCellEdit, mergeRowsById } from '../../utils/apply-edit';
 import {
   resolveColumnTracks,
   resolveColumnWidths,
@@ -24,7 +24,7 @@ import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/typ
 import { parseGridState, serializeGridState } from '../../utils/state';
 import { flattenColumnDefs, buildLeafGroupMap, buildVisibleGroupHeaderRow, resolveColumnOrGroupDefs, sameColumnGroup } from '../../utils/column-groups';
 import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
-import { parseClipboardMatrix } from '../../utils/clipboard-paste';
+import { parseClipboardMatrix, tileMatrix } from '../../utils/clipboard-paste';
 import {
   findPlugin,
   rowGroupPlugin,
@@ -81,6 +81,8 @@ describe('data-grid utils', () => {
         valueFormatter: (v) => `$${v}`,
       }, 0),
     ).toBe('$1000');
+    expect(serializeCellValue(70000)).toBe('70000');
+    expect(serializeCellValue(new Date(2024, 4, 2))).toBe('2024-05-02');
   });
 
   it('filters, quick-filters, and sorts rows', () => {
@@ -116,6 +118,15 @@ describe('data-grid utils', () => {
     expect(parsed?.hiddenColumnIds).toEqual(['city']);
     expect(parsed?.columnPins).toEqual({ name: 'left' });
     expect(parsed?.activeSidePanel).toBe('filters');
+  });
+
+  it('mergeRowsById writes suggested rows back by id', () => {
+    const source = people;
+    const suggested = [{ ...people[1]!, name: 'Hopper' }, people[0]!];
+    const merged = mergeRowsById(source, suggested, (r) => r.id);
+    expect(merged[0]!.name).toBe('Ada');
+    expect(merged[1]!.name).toBe('Hopper');
+    expect(merged[2]!.name).toBe('Alan');
   });
 
   it('finds and highlights matching cells', () => {
@@ -163,6 +174,11 @@ describe('data-grid utils', () => {
     );
     expect(locked.tracks).toBe('40px 120px minmax(200px, 1fr) 132px');
     expect(locked.widthsPx['city']).toBe(200);
+
+    const withoutActions = resolveColumnTracks(cols, {}, { select: true });
+    const withActions = resolveColumnTracks(cols, {}, { select: true, rowEdit: true });
+    expect(withoutActions.tracks).not.toBe(withActions.tracks);
+    expect(withActions.tracks.endsWith(' 132px')).toBe(true);
 
     const next = applyCellEdit(
       people,
@@ -310,6 +326,10 @@ describe('data-grid utils', () => {
       ['a', 'b'],
       ['c', 'd'],
     ]);
+    expect(tileMatrix([['x']], 2, 3)).toEqual([
+      ['x', 'x', 'x'],
+      ['x', 'x', 'x'],
+    ]);
   });
 
   it('splits group headers when children straddle pin sides', () => {
@@ -375,6 +395,8 @@ describe('data-grid utils', () => {
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '')).toBeNull();
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '  ')).toBeNull();
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '42')).toBe(42);
+    expect(coerceCellEditValue({ field: 'salary', type: 'number' }, '$70,000')).toBe(70000);
+    expect(coerceCellEditValue({ field: 'salary', type: 'number' }, '1.234,56')).toBe(1234.56);
 
     const prev = new Date(2024, 4, 1);
     const next = coerceCellEditValue({ field: 'born', type: 'date' }, '2024-05-02', prev);
@@ -606,6 +628,30 @@ describe('DataGrid', () => {
 
     expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: 'Ada' });
   });
+
+  it('uses a single roving tabindex=0 inside the grid frame', async () => {
+    const el: HTMLElement = fixture.nativeElement;
+    const cell = el.querySelector('[data-testid="al-dg-cell-1-name"]') as HTMLElement;
+    expect(cell).toBeTruthy();
+    cell.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const frame = el.querySelector('[data-testid="al-dg-frame"]') as HTMLElement;
+    const zeros = [...frame.querySelectorAll('[tabindex="0"]')];
+    expect(zeros).toEqual([cell]);
+    expect(frame.getAttribute('tabindex')).toBe('-1');
+    expect(el.querySelector('.al-data-grid__header-btn')?.getAttribute('tabindex')).toBe('-1');
+    expect(el.querySelector('.al-data-grid__edit-check')?.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('exposes aria-rowindex on header and body rows', () => {
+    const el: HTMLElement = fixture.nativeElement;
+    const header = el.querySelector('.al-data-grid__header-row:not(.al-data-grid__header-row--group)');
+    expect(header?.getAttribute('aria-rowindex')).toBeTruthy();
+    const body = el.querySelector('.al-data-grid__tbody [role="row"]');
+    expect(body?.getAttribute('aria-rowindex')).toBeTruthy();
+  });
 });
 
 @Component({
@@ -695,6 +741,23 @@ describe('DataGrid header pin context menu', () => {
     fixture.detectChanges();
     expect(grid.api.getSortModel()).toEqual([{ columnId: 'age', direction: 'asc' }]);
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeNull();
+  });
+
+  it('moves focus between column menu items with ArrowDown', async () => {
+    const { fixture, grid, el } = await mount();
+    grid.api.openColumnMenu('age');
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const first = el.querySelector('[data-testid="al-dg-ctx-sort-asc"]') as HTMLButtonElement;
+    const second = el.querySelector('[data-testid="al-dg-ctx-sort-desc"]') as HTMLButtonElement;
+    expect(document.activeElement).toBe(first);
+
+    el.querySelector('.al-data-grid__ctx')!.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
+    );
+    expect(document.activeElement).toBe(second);
   });
 });
 
@@ -1046,6 +1109,77 @@ describe('createGrid + controller binding', () => {
     const el: HTMLElement = fixture.nativeElement;
     expect(el.querySelectorAll('[data-testid^="al-dg-group-"]').length).toBeGreaterThanOrEqual(3);
     expect(fixture.componentInstance.grid.api()).toBeTruthy();
+  });
+
+  it('collapseAll includes nested group ids when a parent is already collapsed', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class NestedCollapseHost {
+      readonly rows = signal(people);
+      readonly groups = rowGroupPlugin<Person>({ columns: ['active', 'city'] });
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        viewport: { virtual: false, pagination: false },
+        plugins: [this.groups],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [NestedCollapseHost] }).compileComponents();
+    const fixture = TestBed.createComponent(NestedCollapseHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const host = fixture.componentInstance;
+    const resolved = resolveColumns(columns);
+    const byId = new Map(resolved.map((c) => [c.id, c]));
+    const ids = collectAllGroupIds(people, ['active', 'city'], byId);
+    const parentId = ids.find((id) => id.split('/').length === 2)!;
+    const nestedId = ids.find((id) => id.startsWith(`${parentId}/`))!;
+    expect(nestedId).toBeTruthy();
+
+    host.groups.toggleCollapsed(parentId);
+    fixture.detectChanges();
+    host.grid.api()?.collapseAll();
+    fixture.detectChanges();
+    expect(host.groups.collapsedIds().has(nestedId)).toBe(true);
+  });
+
+  it('focuses group rows with roving tabindex and aria-rowindex', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class GroupFocusHost {
+      readonly rows = signal(people);
+      readonly groups = rowGroupPlugin<Person>({ columns: ['city'] });
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        viewport: { virtual: false, pagination: false },
+        plugins: [this.groups],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [GroupFocusHost] }).compileComponents();
+    const fixture = TestBed.createComponent(GroupFocusHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const el: HTMLElement = fixture.nativeElement;
+    const group = el.querySelector('[data-testid^="al-dg-group-"]') as HTMLElement;
+    const cell = group.querySelector('[role="gridcell"]') as HTMLElement;
+    expect(group.getAttribute('aria-rowindex')).toBeTruthy();
+    expect(cell.getAttribute('tabindex')).toBe('-1');
+    group.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(cell.getAttribute('tabindex')).toBe('0');
+    expect(cell.classList.contains('al-data-grid__td--focused')).toBe(true);
   });
 
   it('setPlugins while mounted recomposes via kernel (not a DataGrid effect)', async () => {
@@ -1520,5 +1654,239 @@ describe('createGrid + controller binding', () => {
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeTruthy();
     // Right-click must not start a range selection.
     expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
+  });
+});
+
+describe('DataGrid editing API + auto-apply', () => {
+  it('startEditingCell opens the cell editor', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class EditApiHost {
+      readonly rows = signal(people);
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        editMode: 'cell',
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [EditApiHost] }).compileComponents();
+    const fixture = TestBed.createComponent(EditApiHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
+    expect(grid.rowEditAdapter).toBeTruthy();
+    grid.api.startEditingCell(1, 'age');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await Promise.resolve();
+    expect(grid.editSyncHost.editingCell()).toEqual({ rowId: 1, columnId: 'age' });
+    const editor = fixture.nativeElement.querySelector(
+      '[data-testid="al-dg-cell-1-age"] .al-data-grid__edit-input',
+    );
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it('excel fullRow arrows move DOM focus between cell editors', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class FullRowExcelHost {
+      readonly rows = signal(people);
+      readonly grid = createGrid({
+        columns: [
+          { field: 'name', editable: true },
+          { field: 'age', editable: true, type: 'number' },
+        ] as ColumnDef<Person>[],
+        rowId: (r: Person) => r.id,
+        editMode: 'fullRow',
+        editInteraction: 'excel',
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [FullRowExcelHost] }).compileComponents();
+    const fixture = TestBed.createComponent(FullRowExcelHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
+    grid.api.startEditingCell(1, 'name');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await Promise.resolve();
+
+    const nameInput = fixture.nativeElement.querySelector(
+      '[data-testid="al-dg-cell-1-name"] .al-data-grid__edit-input',
+    ) as HTMLInputElement;
+    expect(document.activeElement).toBe(nameInput);
+
+    nameInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const ageInput = fixture.nativeElement.querySelector(
+      '[data-testid="al-dg-cell-1-age"] .al-data-grid__edit-input',
+    );
+    expect(document.activeElement).toBe(ageInput);
+  });
+
+  it('Escape from an editor cancels edit without clearing the cell range', async () => {
+    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class EscapeRangeHost {
+      readonly rows = signal(people);
+      readonly ranges = cellRangePlugin<Person>();
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        editMode: 'cell',
+        viewport: { virtual: false, pagination: false },
+        plugins: [this.ranges],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [EscapeRangeHost] }).compileComponents();
+    const fixture = TestBed.createComponent(EscapeRangeHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const host = fixture.componentInstance;
+    const api = host.grid.api()!;
+    api.focusCell(0, 'name');
+    expect(api.extendCellRange(0, 1)).toBe(true);
+    expect(api.getCellRange()).toBeTruthy();
+
+    const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
+    grid.api.startEditingCell(1, 'age');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await Promise.resolve();
+
+    const editor = fixture.nativeElement.querySelector(
+      '[data-testid="al-dg-cell-1-age"] .al-data-grid__edit-input',
+    ) as HTMLInputElement;
+    expect(editor).toBeTruthy();
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+
+    expect(grid.editSyncHost.editingCell()).toBeNull();
+    expect(api.getCellRange()).toBeTruthy();
+
+    grid.onEscapeKey(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(api.getCellRange()).toBeNull();
+  });
+
+  it('Space on a focused boolean cell toggles the value', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class BooleanSpaceHost {
+      readonly rows = signal(people.map((p) => ({ ...p })));
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        rows: this.rows,
+        editMode: 'cell',
+        selection: 'multi',
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [BooleanSpaceHost] }).compileComponents();
+    const fixture = TestBed.createComponent(BooleanSpaceHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const host = fixture.componentInstance;
+    const api = host.grid.api()!;
+    api.focusCell(0, 'active');
+    fixture.detectChanges();
+    await Promise.resolve();
+
+    const gridEl = fixture.debugElement.query(By.directive(DataGrid)).nativeElement as HTMLElement;
+    gridEl.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+    fixture.detectChanges();
+    expect(host.rows()[0]!.active).toBe(false);
+    expect(api.getSelectedIds()).toEqual([]);
+  });
+
+  it('keeps column tracks when toggling fullRow edit off', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class TrackStableHost {
+      readonly rows = signal(people);
+      readonly grid = createGrid({
+        columns: [
+          { field: 'name', width: 120 },
+          { field: 'city', flex: 1, minWidth: 80 },
+        ] as ColumnDef<Person>[],
+        rowId: (r: Person) => r.id,
+        editMode: 'fullRow',
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [TrackStableHost] }).compileComponents();
+    const fixture = TestBed.createComponent(TrackStableHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
+    const whileFullRow = grid.columnLayoutHost.gridTemplateColumns();
+    expect(whileFullRow).toContain('132px');
+
+    fixture.componentInstance.grid.editMode.set('cell');
+    fixture.detectChanges();
+    expect(grid.columnLayoutHost.gridTemplateColumns()).toBe(whileFullRow);
+    expect(grid.effectiveEditMode()).toBe('cell');
+  });
+
+  it('auto-applies cell edits when createGrid({ rows }) owns the signal', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class AutoApplyHost {
+      readonly rows = signal(people.map((p) => ({ ...p })));
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        rows: this.rows,
+        editMode: 'cell',
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [AutoApplyHost] }).compileComponents();
+    const fixture = TestBed.createComponent(AutoApplyHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const host = fixture.componentInstance;
+    expect(host.grid.autoApplyWrites).toBe(true);
+    const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
+    const row = host.rows()[0]!;
+    const col = grid.columnLayoutHost.columnsById().get('active')!;
+    grid.editSyncHost.toggleBoolean(row, row.id, 0, col, false);
+    fixture.detectChanges();
+    expect(host.rows()[0]!.active).toBe(false);
   });
 });

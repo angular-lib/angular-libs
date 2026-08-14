@@ -49,10 +49,14 @@ groups.clear();
   [controller]="grid"
   [data]="rows()"
   [(selectedIds)]="selected"
-  (cellEdit)="rows.set(applyCellEdit(rows(), $event, idOf))"
-  (paste)="rows.set($event.suggestedRows)"
+  (cellEdit)="onEdit($event)"
+  (paste)="onPaste($event)"
 />
 ```
+
+When `createGrid({ rows })` owns the same signal, paste / cell / row edits
+**auto-apply** onto it (`autoApplyWrites`, default true). Hosts that intercept
+`(paste)` / `(cellEdit)` to transform first should pass `autoApplyWrites: false`.
 
 Compose plugins once on `createGrid`. Toggle chrome via held adapters
 (e.g. `sideBar.setEnabled(false)`) or controller UX signals
@@ -95,7 +99,7 @@ const grid = createGrid({
 
 - **Canonical:** host `[rowForm]` + `createGrid({ editMode: 'fullRow' })` (toggle with `grid.editMode.set`) + `(rowEdit)` / `applyRowEdit`
 - **Fallback:** omit `rowForm`, pass `rowEditSchema` / `createRowForm` (grid creates a session form)
-- **Optional sugar:** `grid.rowEditAdapter` / `api.startEditingRow` / `api.stopEditing`
+- **Optional sugar:** `gridRef.rowEditAdapter` / `api.startEditingRow` / `api.startEditingCell` / `api.stopEditing`
 - Observe session with `[(rowEditSession)]` when the host needs commit/cancel metadata
 
 ## Plugins

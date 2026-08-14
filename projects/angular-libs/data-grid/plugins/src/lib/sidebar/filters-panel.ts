@@ -146,6 +146,7 @@ const panelStyles = `
                   [value]="host.filters()[col.id] ?? ''"
                   [setOptions]="host.getSetFilterOptions(col.id)"
                   [ariaLabel]="host.locale().filterColumnAriaLabel + ' ' + col.header"
+                  [locale]="host.locale()"
                   variant="panel"
                   (valueChange)="host.setFilter(col.id, $event)"
                 />

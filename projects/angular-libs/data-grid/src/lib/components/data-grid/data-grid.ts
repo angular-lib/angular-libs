@@ -43,11 +43,7 @@ import {
 import {
   type ResolvedEditInteraction,
 } from '../../editing/edit-interaction';
-import {
-  CellEditorRegistry,
-  defaultCellEditorRegistry,
-  resolveCellEditor,
-} from '../../editing/cell-editor-registry';
+import { CellEditorRegistry, defaultCellEditorRegistry, resolveCellEditor, type RowEditAdapter } from '../../editing/cell-editor-registry';
 import {
   type DataGridPlugin,
   type DataGridToolbarSlotItem,
@@ -85,6 +81,7 @@ import type {
 import {
   ariaBodyRowIndexOf,
   ariaColIndexOf,
+  ariaHeaderRowIndexOf,
   ariaRowCountOf,
   cellAriaSelectedOf,
   headerRowCountOf,
@@ -556,6 +553,11 @@ export class DataGrid<T = unknown> {
 
   getLocale(): DataGridLocale { return this.resolvedLocale(); }
 
+  /** Imperative full-row edit adapter (optional DX sugar). */
+  get rowEditAdapter(): RowEditAdapter<T> {
+    return this.editSyncHost.rowEditAdapter;
+  }
+
   contextMenuTemplate() { return this.contextMenuOverlay()?.template ?? null; }
 
   trackRow(_viewIndex: number, item: DisplayRow<T>): string { return item.id; }
@@ -655,6 +657,11 @@ export class DataGrid<T = unknown> {
   }
 
   focusHeaderColumn(columnId: string): void {
+    const row = this.columnLayoutHost.hasColumnGroups() ? 1 : 0;
+    this.session.kernel.focus.focusCell(row, columnId, 'header');
+  }
+
+  focusGroupHeaderColumn(columnId: string): void {
     this.session.kernel.focus.focusCell(0, columnId, 'header');
   }
 
@@ -679,6 +686,10 @@ export class DataGrid<T = unknown> {
       this.viewportHost.rowDragEnabled(),
       this.selectionHost.showSelection(),
     );
+  }
+
+  ariaHeaderRowIndex(kind: 'group' | 'leaf' | 'filter'): number {
+    return ariaHeaderRowIndexOf(this.columnLayoutHost.hasColumnGroups(), kind);
   }
 
   ariaBodyRowIndex(displayIndex: number): number {
@@ -762,6 +773,13 @@ export class DataGrid<T = unknown> {
       return;
     }
 
+    if ((event.key === ' ' || event.key === 'Spacebar') && !inField) {
+      if (this.editSyncHost.tryToggleFocusedBoolean()) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     const interaction = this.effectiveEditInteraction();
     const fullRowEditing =
       this.effectiveEditMode() === 'fullRow' && this.editSyncHost.rowEditMgr.editingId() != null;
@@ -784,9 +802,14 @@ export class DataGrid<T = unknown> {
   }
 
   onEscapeKey(event?: Event): void {
+    if (event?.defaultPrevented) {
+      return;
+    }
     const focus = this.session.kernel.focus.getFocus();
-    if (focus && focusRealmOf(focus) === 'floatingFilter') {
-      this.session.kernel.focus.focusCell(0, focus.columnId, 'header');
+    const hadEdit =
+      this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null;
+    if (hadEdit) {
+      this.editSyncHost.cancelActiveEdit();
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
@@ -796,16 +819,37 @@ export class DataGrid<T = unknown> {
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
+    if (focus && focusRealmOf(focus) === 'floatingFilter') {
+      const filterEl = this.host.nativeElement.querySelector(
+        `[data-testid="al-dg-filter-${focus.columnId}"]`,
+      ) as HTMLElement | null;
+      const active = typeof document !== 'undefined' ? document.activeElement : null;
+      if (
+        filterEl &&
+        active instanceof HTMLElement &&
+        filterEl.contains(active) &&
+        active !== filterEl
+      ) {
+        filterEl.focus({ preventScroll: true });
+        (event as KeyboardEvent | undefined)?.preventDefault?.();
+        return;
+      }
+      this.session.kernel.focus.focusCell(
+        this.columnLayoutHost.hasColumnGroups() ? 1 : 0,
+        focus.columnId,
+        'header',
+      );
+      (event as KeyboardEvent | undefined)?.preventDefault?.();
+      return;
+    }
     if (this.api.getCellRange()) {
       this.api.clearCellRange();
       (event as KeyboardEvent | undefined)?.preventDefault?.();
       return;
     }
-    const hadEdit = this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null;
     const hadMenu = this.menuHost.contextMenuState() != null;
-    this.editSyncHost.cancelActiveEdit();
     this.menuHost.closeContextMenu();
-    if (hadEdit || hadMenu) {
+    if (hadMenu) {
       (event as KeyboardEvent | undefined)?.preventDefault?.();
     }
   }

@@ -1,4 +1,4 @@
-import { computed, signal, type Signal, type WritableSignal } from '@angular/core';
+import { computed, linkedSignal, signal, type Signal, type WritableSignal } from '@angular/core';
 import { attachColumnResize } from '../utils/column-interactions';
 import {
   emptyColumnLayout,
@@ -116,6 +116,15 @@ export class ColumnLayoutHost<T> {
     this.resolvedColumns().some((c) => !!c.filter),
   );
 
+  /**
+   * Keep the row-edit track once full-row mode has been on, so toggling back to
+   * cell edit does not reflow flex / fill columns.
+   */
+  readonly reserveRowEditColumn = linkedSignal({
+    source: () => this.s.fullRowEdit(),
+    computation: (fullRow, previous): boolean => fullRow || (previous?.value ?? false),
+  });
+
   readonly reservedChromeWidth: Signal<number> = computed(() => {
     let w = 0;
     if (this.s.showSelection()) {
@@ -124,7 +133,7 @@ export class ColumnLayoutHost<T> {
     if (this.s.rowDragEnabled()) {
       w += CHROME_TRACK.drag;
     }
-    if (this.s.fullRowEdit()) {
+    if (this.reserveRowEditColumn()) {
       w += CHROME_TRACK.rowEdit;
     }
     return w;
@@ -135,7 +144,7 @@ export class ColumnLayoutHost<T> {
     resolveColumnTracks(this.visibleColumns(), this.widthOverrides(), {
       drag: this.s.rowDragEnabled(),
       select: this.s.showSelection(),
-      rowEdit: this.s.fullRowEdit(),
+      rowEdit: this.reserveRowEditColumn(),
     }),
   );
 
@@ -517,7 +526,7 @@ export class ColumnLayoutHost<T> {
       columnId,
       this.visibleColumns(),
       this.resolvedWidths(),
-      this.s.fullRowEdit(),
+      this.reserveRowEditColumn(),
     );
   }
 

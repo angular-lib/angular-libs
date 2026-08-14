@@ -19,6 +19,7 @@ import type { DataGridEventMap } from '../api/grid-events';
 import type { GridController } from '../create-grid';
 import { GridKernel } from '../kernel/grid-kernel';
 import { getCellValue } from '../utils/cell-value';
+import { applyCellEdit, applyRowEdit, mergeRowsById } from '../utils/apply-edit';
 import { runGridRowModel } from '../utils/grid-row-model';
 import type { DisplayRow } from '../utils/row-display';
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
@@ -192,6 +193,30 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     opts.publish('queryChange', out.queryChange, getQuery());
   };
 
+  const applyOwnedCellEdit = (event: DataGridEventMap<T>['cellEdit']): void => {
+    const c = ctrl();
+    if (!c.autoApplyWrites || !c.rows) {
+      return;
+    }
+    c.setRows(applyCellEdit(c.rows(), event, c.rowId));
+  };
+
+  const applyOwnedRowEdit = (event: DataGridEventMap<T>['rowEdit']): void => {
+    const c = ctrl();
+    if (!c.autoApplyWrites || !c.rows) {
+      return;
+    }
+    c.setRows(applyRowEdit(c.rows(), event, c.rowId));
+  };
+
+  const applyOwnedPaste = (event: PasteEvent<T>): void => {
+    const c = ctrl();
+    if (!c.autoApplyWrites || !c.rows) {
+      return;
+    }
+    c.setRows(mergeRowsById(c.rows(), event.suggestedRows, c.rowId));
+  };
+
   const rowModelContext = () => ({
     columnsById: columnLayout.columnsById() as Map<string, ColumnDef<T>>,
     rowId: (row: T, index: number) => effectiveRowId()(row, index),
@@ -279,6 +304,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     processedRows: () => processedRows(),
     visibleColumns: () => columnLayout.visibleColumns(),
     hasActiveSort: () => columnLayout.sorts().length > 0,
+    hasColumnGroups: () => columnLayout.hasColumnGroups(),
     resolveRowId: (row, index) => effectiveRowId()(row, index),
     rowModelContext,
     hostElement: opts.hostElement,
@@ -339,9 +365,15 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     hostElement: opts.hostElement,
     injector: opts.injector,
     parentInjector: opts.parentInjector,
-    publishCellEdit: (payload) => opts.publish('cellEdit', out.cellEdit, payload),
+    publishCellEdit: (payload) => {
+      applyOwnedCellEdit(payload);
+      opts.publish('cellEdit', out.cellEdit, payload);
+    },
     publishRowEditStart: (payload) => opts.publish('rowEditStart', out.rowEditStart, payload),
-    publishRowEdit: (payload) => opts.publish('rowEdit', out.rowEdit, payload),
+    publishRowEdit: (payload) => {
+      applyOwnedRowEdit(payload);
+      opts.publish('rowEdit', out.rowEdit, payload);
+    },
     publishRowEditCancel: (payload) =>
       opts.publish('rowEditCancel', out.rowEditCancel, payload),
     syncDomFocusAfterEdit: () => editSync.syncDomFocus(kernel.focus.getFocus()),
@@ -396,7 +428,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       rowGroup: viewport,
       clipboard: {
         getSelectionClipboardText: () => selection.getSelectionClipboardText(),
-        emitPaste: (event) => opts.publish('paste', out.paste, event),
+        emitPaste: (event) => {
+          applyOwnedPaste(event);
+          opts.publish('paste', out.paste, event);
+        },
       },
       locale: { getLocale: () => opts.getLocale() },
       sideBar: {
@@ -439,6 +474,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       onHeaderActivate: (columnId, multi) => columnLayout.activateHeaderSort(columnId, multi),
       onOpenColumnMenu: (columnId) => menu.openColumnMenu(columnId),
       hasFloatingFilters: () => ctrl().chrome.floatingFilters() && columnLayout.hasFilters(),
+      hasColumnGroups: () => columnLayout.hasColumnGroups(),
+      onFloatingFilterEnter: (columnId) => editSync.activateFloatingFilter(columnId),
       onExtendRange: (dRow, dCol) => api.extendCellRange(dRow, dCol),
       onClearRange: () => api.clearCellRange(),
       getFindMatchCount: (): number => viewport.findMatches().length,
@@ -459,6 +496,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     getCellElement: (rowId, columnId) => viewport.getCellElement(rowId, columnId),
     getScrollRoot: () => viewport.getScrollRoot(),
     hostElement: opts.hostElement,
+    showFillHandle: () => api.isFillHandleEnabled(),
   });
 
   return {
@@ -473,7 +511,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     displayRows,
     pageRows,
     paintedOverlays,
-    emitPaste: (event) => opts.publish('paste', out.paste, event),
+    emitPaste: (event) => {
+      applyOwnedPaste(event);
+      opts.publish('paste', out.paste, event);
+    },
     getQuery,
     emitState,
     emitQueryIfServer,

@@ -23,14 +23,18 @@ import type {
   BoundRowGroupAdapter,
   BoundTreeDataAdapter,
 } from '../api/grid-api';
-import type { FocusCell } from '../controllers/focus';
+import { leafHeaderRowIndex, type FocusCell } from '../controllers/focus';
 import type { ResolvedColumn, SideBarConfig } from '../components/data-grid/data-grid.types';
 import type { DisplayRow } from '../utils/row-display';
 import {
+  groupHeaderLeafIdsOf,
+  isBodyRowFocusedOf,
   isCellFocusedOf,
   isFloatingFilterFocusedOf,
+  isGroupHeaderCellFocusedOf,
   isHeaderFocusedOf,
 } from './binder-template.helpers';
+import { collectAllGroupIds } from '../utils/collect-group-ids';
 
 /**
  * Owns scroll / paging / find / virtual window / group collapse / row drag / sidebar panel.
@@ -414,15 +418,21 @@ export class ViewportHost<T> {
 
   collapseAll(): void {
     const adapter = this.boundRowGroupAdapter();
+    if (adapter) {
+      adapter.collapseAll(
+        collectAllGroupIds(
+          this.s.processedRows(),
+          adapter.columns(),
+          this.s.rowModelContext().columnsById,
+        ),
+      );
+      return;
+    }
     const all = this.s.kernel().capabilities.buildDisplayRows(this.s.processedRows(), {
       ...this.s.rowModelContext(),
       collapsedGroupIds: new Set(),
     });
     const ids = all.filter((row) => row.kind === 'group').map((row) => row.id);
-    if (adapter) {
-      adapter.collapseAll(ids);
-      return;
-    }
     this.collapsedGroupIds.set(new Set(ids));
   }
 
@@ -455,8 +465,47 @@ export class ViewportHost<T> {
     return isCellFocusedOf(this.focusedCell(), rowIndex, columnId);
   }
 
+  isBodyRowFocused(displayIndex: number): boolean {
+    return isBodyRowFocusedOf(this.focusedCell(), displayIndex);
+  }
+
+  focusBodyRow(displayIndex: number): void {
+    const columnId = this.s.visibleColumns()[0]?.id ?? '';
+    this.s.kernel().focus.focusCell(displayIndex, columnId, 'body');
+  }
+
   isHeaderFocused(columnId: string): boolean {
-    return isHeaderFocusedOf(this.focusedCell(), columnId);
+    return isHeaderFocusedOf(
+      this.focusedCell(),
+      columnId,
+      leafHeaderRowIndex(this.s.hasColumnGroups()),
+    );
+  }
+
+  isGroupHeaderCellFocused(cell: {
+    columnId?: string;
+    startColumnId?: string;
+    endColumnId?: string;
+  }): boolean {
+    if (!this.s.hasColumnGroups()) {
+      return false;
+    }
+    return isGroupHeaderCellFocusedOf(
+      this.focusedCell(),
+      cell,
+      this.s.visibleColumns().map((c) => c.id),
+    );
+  }
+
+  groupHeaderLeafIds(cell: {
+    columnId?: string;
+    startColumnId?: string;
+    endColumnId?: string;
+  }): string {
+    return groupHeaderLeafIdsOf(
+      cell,
+      this.s.visibleColumns().map((c) => c.id),
+    );
   }
 
   isFloatingFilterFocused(columnId: string): boolean {

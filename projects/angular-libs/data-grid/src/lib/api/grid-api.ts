@@ -46,6 +46,8 @@ export interface BoundCellRangeAdapter {
   clearRange(): void;
   getClipboardText(): string | null;
   extendRange(dRow: number, dCol: number): boolean;
+  /** When false, the range ring paints without a fill handle (default true). */
+  fillHandleEnabled?: boolean;
 }
 
 /** Selection + query read/write. */
@@ -83,6 +85,7 @@ export interface DataGridColumnsHost {
 /** Cell / full-row editing. */
 export interface DataGridEditingHost {
   startRowEditById?(rowId: string | number): void;
+  startEditingCell?(rowId: string | number, columnId: string): void;
   stopEditing?(cancel?: boolean): void;
 }
 
@@ -323,6 +326,14 @@ export class DataGridApi<T = unknown> {
     this.host.startRowEditById?.(rowId);
   }
 
+  /**
+   * Start cell (or full-row) edit for `rowId` + `columnId`.
+   * Full-row mode opens the row session; cell mode opens that column's editor.
+   */
+  startEditingCell(rowId: string | number, columnId: string): void {
+    this.host.startEditingCell?.(rowId, columnId);
+  }
+
   stopEditing(cancel = false): void {
     this.host.stopEditing?.(cancel);
   }
@@ -398,6 +409,11 @@ export class DataGridApi<T = unknown> {
 
   getCellRange(): import('../components/data-grid/data-grid.types').CellRange | null {
     return this.cellRangeAdapter?.getRange() ?? null;
+  }
+
+  /** @internal — session overlay paint; false when `cellRangePlugin({ fillHandle: false })`. */
+  isFillHandleEnabled(): boolean {
+    return this.cellRangeAdapter?.fillHandleEnabled !== false;
   }
 
   clearCellRange(): void {

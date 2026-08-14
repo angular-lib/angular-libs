@@ -1,3 +1,4 @@
+import { defaultGridLocale } from '@angular-libs/data-grid';
 import { signal } from '@angular/core';
 import { GridCapabilities } from './capabilities';
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
@@ -42,7 +43,7 @@ describe('notesPlugin', () => {
     const caps = new GridCapabilities<Person>();
     const element = document.createElement('div');
     const cleanup = notes.setup!({
-      api: {} as never,
+      api: { getLocale: () => defaultGridLocale } as never,
       element,
       injector: null as never,
       slots: {} as never,
@@ -85,6 +86,7 @@ describe('notesPlugin', () => {
       close: () => undefined,
     });
     expect(menu.some((i) => i.id === 'note-add')).toBe(true);
+    expect(menu.find((i) => i.id === 'note-add')?.label).toBe(defaultGridLocale.noteAdd);
 
     await notes.setNote(1, 'name', { text: 'again' });
     notes.refreshNotes();

@@ -3,6 +3,7 @@ import type {
   DataGridContextMenuItem,
   DataGridContextMenuItems,
 } from '../components/data-grid/data-grid.types';
+import { defaultGridLocale, type DataGridLocale } from '../locale/default-locale';
 
 export function resolveContextMenuItems<T>(
   items: DataGridContextMenuItems<T> | null | undefined,
@@ -22,28 +23,30 @@ export function defaultContextMenuItems<T>(helpers: {
   autoSize: () => void;
   clearFilters: () => void;
   hasFilters: boolean;
+  locale?: DataGridLocale;
 }): DataGridContextMenuItem<T>[] {
+  const locale = helpers.locale ?? defaultGridLocale;
   const items: DataGridContextMenuItem<T>[] = [
     {
       id: 'copy-cell',
-      label: 'Copy cell',
-      shortcut: '⌘C',
+      label: locale.copyCell,
+      shortcut: locale.copyShortcut,
       action: () => helpers.copyCell(),
     },
     {
       id: 'copy-row',
-      label: 'Copy row',
+      label: locale.copyRow,
       action: () => helpers.copyRow(),
     },
     {
       id: 'export-csv',
-      label: 'Export CSV',
+      label: locale.exportCsvAction,
       separator: true,
       action: () => helpers.exportCsv(),
     },
     {
       id: 'autosize',
-      label: 'Autosize columns',
+      label: locale.autosizeColumns,
       action: () => helpers.autoSize(),
     },
   ];
@@ -51,7 +54,7 @@ export function defaultContextMenuItems<T>(helpers: {
   if (helpers.hasFilters) {
     items.push({
       id: 'clear-filters',
-      label: 'Clear filters',
+      label: locale.clearFilters,
       separator: true,
       action: () => helpers.clearFilters(),
     });

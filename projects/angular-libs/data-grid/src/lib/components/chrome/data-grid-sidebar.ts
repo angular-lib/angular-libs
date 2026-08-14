@@ -34,7 +34,7 @@ import {
       [class.al-dg-sidebar--collapsed]="!openPanel()"
       data-testid="al-dg-sidebar"
     >
-      <div class="al-dg-sidebar__tabs" role="tablist" aria-label="Grid tool panels">
+      <div class="al-dg-sidebar__tabs" role="tablist" [attr.aria-label]="locale().sidebarAriaLabel">
         @for (panel of panels(); track panel.id) {
           <button
             type="button"

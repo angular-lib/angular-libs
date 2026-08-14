@@ -104,6 +104,20 @@ export function headerRowCountOf(
   return 1 + (hasColumnGroups ? 1 : 0) + (floatingFilters ? 1 : 0);
 }
 
+/** 1-based `aria-rowindex` for header / floating-filter rows. */
+export function ariaHeaderRowIndexOf(
+  hasColumnGroups: boolean,
+  kind: 'group' | 'leaf' | 'filter',
+): number {
+  if (kind === 'group') {
+    return 1;
+  }
+  if (kind === 'leaf') {
+    return hasColumnGroups ? 2 : 1;
+  }
+  return 1 + (hasColumnGroups ? 1 : 0) + 1;
+}
+
 export function ariaRowCountOf(
   headerRows: number,
   displayRowCount: number,
@@ -131,8 +145,64 @@ export function isCellFocusedOf(
   );
 }
 
-export function isHeaderFocusedOf(focus: FocusCell | null, columnId: string): boolean {
-  return !!focus && focusRealmOf(focus) === 'header' && focus.columnId === columnId;
+export function isBodyRowFocusedOf(
+  focus: FocusCell | null,
+  displayIndex: number,
+): boolean {
+  return !!focus && focusRealmOf(focus) === 'body' && focus.rowIndex === displayIndex;
+}
+
+export function isHeaderFocusedOf(
+  focus: FocusCell | null,
+  columnId: string,
+  headerRowIndex = 0,
+): boolean {
+  return (
+    !!focus &&
+    focusRealmOf(focus) === 'header' &&
+    focus.columnId === columnId &&
+    (focus.rowIndex ?? 0) === headerRowIndex
+  );
+}
+
+export function isGroupHeaderCellFocusedOf(
+  focus: FocusCell | null,
+  cell: {
+    columnId?: string;
+    startColumnId?: string;
+    endColumnId?: string;
+  },
+  visibleColumnIds: readonly string[],
+): boolean {
+  if (!focus || focusRealmOf(focus) !== 'header' || (focus.rowIndex ?? 0) !== 0) {
+    return false;
+  }
+  if (cell.columnId) {
+    return cell.columnId === focus.columnId;
+  }
+  const start = visibleColumnIds.indexOf(cell.startColumnId ?? '');
+  const end = visibleColumnIds.indexOf(cell.endColumnId ?? '');
+  const idx = visibleColumnIds.indexOf(focus.columnId);
+  return start >= 0 && end >= 0 && idx >= start && idx <= end;
+}
+
+export function groupHeaderLeafIdsOf(
+  cell: {
+    columnId?: string;
+    startColumnId?: string;
+    endColumnId?: string;
+  },
+  visibleColumnIds: readonly string[],
+): string {
+  if (cell.columnId) {
+    return cell.columnId;
+  }
+  const start = visibleColumnIds.indexOf(cell.startColumnId ?? '');
+  const end = visibleColumnIds.indexOf(cell.endColumnId ?? '');
+  if (start < 0 || end < 0 || end < start) {
+    return cell.startColumnId ?? '';
+  }
+  return visibleColumnIds.slice(start, end + 1).join(' ');
 }
 
 export function isFloatingFilterFocusedOf(

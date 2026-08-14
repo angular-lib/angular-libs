@@ -54,6 +54,8 @@ function trackForColumn<T>(
  * When every data column is fixed px (e.g. after resize lock), the last
  * unpinned column becomes `minmax(px, 1fr)` so leftover viewport space is
  * filled instead of leaving a gap before sticky right chrome.
+ * `rowEdit` appends a 132px actions track — callers may keep that flag on after
+ * leaving full-row mode so flex columns do not reflow.
  */
 export function resolveColumnTracks<T>(
   columns: readonly ResolvedColumn<T>[],

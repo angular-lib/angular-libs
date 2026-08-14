@@ -27,6 +27,7 @@ export function createPaintedOverlays<T>(opts: {
   getCellElement: (rowId: string | number, columnId: string) => HTMLElement | null;
   getScrollRoot: () => HTMLElement | null;
   hostElement: () => HTMLElement;
+  showFillHandle?: () => boolean;
 }): Signal<PaintedOverlay[]> {
   return computed(() => {
     const epoch = opts.kernel().capabilities.overlayPaintEpoch();
@@ -80,6 +81,7 @@ export function createPaintedOverlays<T>(opts: {
       getCellElement: opts.getCellElement,
       getScrollRoot: opts.getScrollRoot,
       hostElement: opts.hostElement(),
+      showFillHandle: opts.showFillHandle?.() ?? true,
     });
     if (rangeLayouts?.ring) {
       pushPainted('cell-range-ring', 'range-ring', rangeLayouts.ring);

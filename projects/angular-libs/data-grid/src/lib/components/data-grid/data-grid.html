@@ -32,7 +32,7 @@
         <div
           class="al-data-grid__frame"
           role="grid"
-          tabindex="0"
+          [attr.tabindex]="viewportHost.focusedCell() ? -1 : 0"
           [attr.aria-rowcount]="ariaRowCount()"
           [attr.aria-colcount]="colSpan()"
           [attr.aria-label]="resolvedLocale().gridAriaLabel"
@@ -52,7 +52,7 @@
               >
               <div class="al-data-grid__thead">
                 @if (columnLayoutHost.hasColumnGroups()) {
-                  <div class="al-data-grid__header-row al-data-grid__header-row--group" role="row">
+                  <div class="al-data-grid__header-row al-data-grid__header-row--group" role="row" [attr.aria-rowindex]="ariaHeaderRowIndex('group')">
                     @if (viewportHost.rowDragEnabled()) {
                       <div class="al-data-grid__th al-data-grid__th--drag"></div>
                     }
@@ -60,12 +60,14 @@
                       <div class="al-data-grid__th al-data-grid__th--select"></div>
                     }
                     @for (cell of columnLayoutHost.groupHeaderRow(); track $index) {
+                      @let groupFocused = viewportHost.isGroupHeaderCellFocused(cell);
                       <div
                         class="al-data-grid__th"
                         [class.al-data-grid__th--group]="!cell.columnId"
                         [class.al-data-grid__th--group-spacer]="!!cell.columnId"
                         [class.al-data-grid__th--pinned-left]="cell.pinned === 'left'"
                         [class.al-data-grid__th--pinned-right]="cell.pinned === 'right'"
+                        [class.al-data-grid__th--focused]="groupFocused"
                         [style.left.px]="
                           cell.pinned === 'left' && cell.startColumnId
                             ? columnLayoutHost.pinnedLeftOffset(cell.startColumnId)
@@ -77,7 +79,11 @@
                             : null
                         "
                         role="columnheader"
+                        [attr.tabindex]="groupFocused ? 0 : -1"
+                        [attr.data-testid]="'al-dg-group-h-' + (cell.startColumnId || cell.columnId || $index)"
+                        [attr.data-leaf-ids]="viewportHost.groupHeaderLeafIds(cell)"
                         [style.gridColumn]="'span ' + cell.colspan"
+                        (click)="focusGroupHeaderColumn(cell.startColumnId || cell.columnId || '')"
                       >
                         @if (!cell.columnId) {
                           <span class="al-data-grid__header-label">{{ cell.label }}</span>
@@ -95,7 +101,7 @@
                     }
                   </div>
                 }
-                <div class="al-data-grid__header-row" role="row">
+                <div class="al-data-grid__header-row" role="row" [attr.aria-rowindex]="ariaHeaderRowIndex('leaf')">
                   @if (viewportHost.rowDragEnabled()) {
                     <div class="al-data-grid__th al-data-grid__th--drag" role="columnheader"></div>
                   }
@@ -104,6 +110,7 @@
                       @if (effectiveSelectionMode() === 'multi') {
                         <input
                           type="checkbox"
+                          tabindex="-1"
                           [checked]="selectionHost.allVisibleSelected()"
                           [indeterminate]="selectionHost.someVisibleSelected() && !selectionHost.allVisibleSelected()"
                           (change)="selectionHost.toggleSelectAll($event)"
@@ -138,6 +145,7 @@
                       <button
                         type="button"
                         class="al-data-grid__header-btn"
+                        tabindex="-1"
                         [disabled]="!col.sortable"
                         (click)="columnLayoutHost.toggleSort(col, $event)"
                       >
@@ -168,7 +176,7 @@
                 </div>
 
                 @if (floatingFilters() && columnLayoutHost.hasFilters()) {
-                  <div class="al-data-grid__filter-row" role="row">
+                  <div class="al-data-grid__filter-row" role="row" [attr.aria-rowindex]="ariaHeaderRowIndex('filter')">
                     @if (viewportHost.rowDragEnabled()) {
                       <div class="al-data-grid__th al-data-grid__th--drag"></div>
                     }
@@ -195,6 +203,7 @@
                             [value]="columnLayoutHost.filters()[col.id] ?? ''"
                             [setOptions]="columnLayoutHost.setFilterOptions(col)"
                             [ariaLabel]="resolvedLocale().filterColumnAriaLabel + ' ' + col.header"
+                            [locale]="resolvedLocale()"
                             variant="floating"
                             (valueChange)="columnLayoutHost.setFilter(col.id, $event)"
                           />
@@ -246,15 +255,24 @@
                     @let displayIndex = viewportHost.renderedStart() + viewIndex;
                     @switch (item.kind) {
                       @case ('group') {
+                        @let groupFocused = viewportHost.isBodyRowFocused(displayIndex);
                         @if (session.kernel.capabilities.getDisplayView('group'); as view) {
                           <div
                             class="al-data-grid__row al-data-grid__row--group"
                             role="row"
+                            [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-group-' + item.id"
+                            [class.al-data-grid__row--focused]="groupFocused"
                             [style.height.px]="rowHeight()"
-                            (click)="viewportHost.toggleGroup(item.id)"
+                            (click)="viewportHost.focusBodyRow(displayIndex); viewportHost.toggleGroup(item.id)"
                           >
-                            <div class="al-data-grid__td al-data-grid__td--group" role="gridcell" [style.gridColumn]="'1 / -1'">
+                            <div
+                              class="al-data-grid__td al-data-grid__td--group"
+                              role="gridcell"
+                              [attr.tabindex]="groupFocused ? 0 : -1"
+                              [class.al-data-grid__td--focused]="groupFocused"
+                              [style.gridColumn]="'1 / -1'"
+                            >
                               <ng-container
                                 [ngComponentOutlet]="view.component"
                                 [ngComponentOutletInputs]="{ item, api }"
@@ -265,19 +283,24 @@
                       <div
                         class="al-data-grid__row al-data-grid__row--group"
                         role="row"
+                        [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                         [attr.data-testid]="'al-dg-group-' + item.id"
+                        [class.al-data-grid__row--focused]="groupFocused"
                         [style.height.px]="rowHeight()"
-                        (click)="viewportHost.toggleGroup(item.id)"
+                        (click)="viewportHost.focusBodyRow(displayIndex); viewportHost.toggleGroup(item.id)"
                       >
                         <div
                           class="al-data-grid__td al-data-grid__td--group"
                           role="gridcell"
+                          [attr.tabindex]="groupFocused ? 0 : -1"
+                          [class.al-data-grid__td--focused]="groupFocused"
                           [style.gridColumn]="'1 / -1'"
                           [style.paddingLeft.px]="10 + item.level * 16"
                         >
                           <button
                             type="button"
                             class="al-data-grid__group-toggle"
+                            tabindex="-1"
                             [attr.aria-expanded]="item.expanded"
                             (click)="viewportHost.toggleGroup(item.id); $event.stopPropagation()"
                           >
@@ -325,6 +348,7 @@
                         <div class="al-data-grid__td al-data-grid__td--select" role="gridcell">
                           <input
                             type="checkbox"
+                            tabindex="-1"
                             [checked]="selectionHost.isSelected(id)"
                             [disabled]="!selectionHost.isRowSelectable(row, id)"
                             (click)="$event.stopPropagation()"
@@ -386,7 +410,8 @@
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
                                 (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
-                                (keydown.escape)="editSyncHost.cancelRowEdit()"
+                                (keydown.tab)="editSyncHost.onRowEditorTab($event)"
+                                (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               />
                             } @else if (isSelectEditor(col)) {
                               <select
@@ -400,7 +425,8 @@
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
                                 (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
-                                (keydown.escape)="editSyncHost.cancelRowEdit()"
+                                (keydown.tab)="editSyncHost.onRowEditorTab($event)"
+                                (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               >
                                 @for (opt of selectValues(col, row); track opt) {
                                   <option [value]="opt">{{ opt }}</option>
@@ -425,11 +451,18 @@
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
                                 (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
-                                (keydown.escape)="editSyncHost.cancelRowEdit()"
+                                (keydown.tab)="editSyncHost.onRowEditorTab($event)"
+                                (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               />
                             }
                           } @else if (editing && customEditorType(col); as Editor) {
-                            <div class="al-data-grid__editor-host">
+                            <div
+                              class="al-data-grid__editor-host"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col); $event.preventDefault(); $event.stopPropagation()"
+                              (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
+                              (keydown.escape)="editSyncHost.onEditorEscape($event)"
+                              (focusout)="editSyncHost.onEditorHostFocusOut($event, row, id, rowIndex, col)"
+                            >
                               <ng-container
                                 [ngComponentOutlet]="Editor"
                                 [ngComponentOutletInputs]="{
@@ -437,17 +470,6 @@
                                 }"
                               />
                             </div>
-                          } @else if (editing && booleanCol) {
-                            <input
-                              type="checkbox"
-                              class="al-data-grid__edit-check"
-                              [checked]="editSyncHost.editDraft() === 'true'"
-                              (click)="$event.stopPropagation()"
-                              (dblclick)="$event.stopPropagation()"
-                              (change)="editSyncHost.editDraft.set($any($event.target).checked ? 'true' : 'false'); editSyncHost.commitEdit(row, id, rowIndex, col)"
-                              (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
-                              (keydown.escape)="editSyncHost.cancelEdit()"
-                            />
                           } @else if (editing && isSelectEditor(col)) {
                             <select
                               class="al-data-grid__edit-input"
@@ -455,8 +477,10 @@
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
                               (change)="editSyncHost.editDraft.set($any($event.target).value); editSyncHost.commitEdit(row, id, rowIndex, col)"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col); $event.preventDefault()"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
-                              (keydown.escape)="editSyncHost.cancelEdit()"
+                              (keydown.escape)="editSyncHost.onEditorEscape($event)"
+                              (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
                             >
                               @for (opt of selectValues(col, row); track opt) {
                                 <option [value]="opt">{{ opt }}</option>
@@ -472,7 +496,7 @@
                               (input)="editSyncHost.editDraft.set($any($event.target).value)"
                               (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
-                              (keydown.escape)="editSyncHost.cancelEdit()"
+                              (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
                             />
                           } @else if (editing) {
@@ -489,13 +513,14 @@
                               (input)="editSyncHost.editDraft.set($any($event.target).value)"
                               (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
-                              (keydown.escape)="editSyncHost.cancelEdit()"
+                              (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
                             />
                           } @else if (col.editable && booleanCol && effectiveEditMode() !== 'fullRow') {
                             <input
                               type="checkbox"
                               class="al-data-grid__edit-check"
+                              tabindex="-1"
                               [checked]="!!value"
                               (click)="$event.stopPropagation()"
                               (change)="editSyncHost.toggleBoolean(row, id, rowIndex, col, $any($event.target).checked)"
@@ -532,6 +557,7 @@
                               <button
                                 type="button"
                                 class="al-data-grid__tool-btn al-data-grid__tool-btn--primary"
+                                tabindex="-1"
                                 (click)="editSyncHost.commitRowEdit(); $event.stopPropagation()"
                                 [disabled]="editSyncHost.rowFormInvalid()"
                                 data-testid="al-dg-row-save"
@@ -541,6 +567,7 @@
                               <button
                                 type="button"
                                 class="al-data-grid__tool-btn"
+                                tabindex="-1"
                                 (click)="editSyncHost.cancelRowEdit(); $event.stopPropagation()"
                                 data-testid="al-dg-row-cancel"
                               >
@@ -551,6 +578,7 @@
                             <button
                               type="button"
                               class="al-data-grid__tool-btn"
+                              tabindex="-1"
                               (click)="editSyncHost.startRowEdit(row, id, rowIndex); $event.stopPropagation()"
                               data-testid="al-dg-row-edit"
                             >
@@ -562,14 +590,24 @@
                     </div>
                       }
                       @case ('plugin') {
+                        @let pluginFocused = viewportHost.isBodyRowFocused(displayIndex);
                         @if (session.kernel.capabilities.getDisplayView(item.pluginKind); as view) {
                           <div
                             class="al-data-grid__row"
                             role="row"
+                            [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
+                            [class.al-data-grid__row--focused]="pluginFocused"
                             [style.height.px]="rowHeight()"
+                            (click)="viewportHost.focusBodyRow(displayIndex)"
                           >
-                            <div class="al-data-grid__td" [style.gridColumn]="'1 / -1'">
+                            <div
+                              class="al-data-grid__td"
+                              role="gridcell"
+                              [attr.tabindex]="pluginFocused ? 0 : -1"
+                              [class.al-data-grid__td--focused]="pluginFocused"
+                              [style.gridColumn]="'1 / -1'"
+                            >
                               <ng-container
                                 [ngComponentOutlet]="view.component"
                                 [ngComponentOutletInputs]="{ item, api }"
@@ -580,10 +618,19 @@
                           <div
                             class="al-data-grid__row al-data-grid__row--plugin-fallback"
                             role="row"
+                            [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
+                            [class.al-data-grid__row--focused]="pluginFocused"
                             [style.height.px]="rowHeight()"
+                            (click)="viewportHost.focusBodyRow(displayIndex)"
                           >
-                            <div class="al-data-grid__td" [style.gridColumn]="'1 / -1'"></div>
+                            <div
+                              class="al-data-grid__td"
+                              role="gridcell"
+                              [attr.tabindex]="pluginFocused ? 0 : -1"
+                              [class.al-data-grid__td--focused]="pluginFocused"
+                              [style.gridColumn]="'1 / -1'"
+                            ></div>
                           </div>
                         }
                       }
@@ -705,6 +752,7 @@
         [style.left.px]="menu.left"
         [style.top.px]="menu.top"
         (pointerdown)="$event.stopPropagation()"
+        (keydown)="menuHost.onMenuKeydown($event)"
       >
         @if (menu.source !== 'header' && contextMenuTemplate(); as tpl) {
           <ng-container

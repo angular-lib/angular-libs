@@ -78,6 +78,16 @@ describe('FocusController keyboard matrix (KEYBOARD.md)', () => {
       ]);
     });
 
+    it('Shift+F2 does not start edit (notes / comments chord)', () => {
+      const starts: string[] = [];
+      const focus = createFocus({
+        onStartEdit: (_cell, reason) => starts.push(reason),
+      });
+      focus.focusCell(1, 'b');
+      expect(focus.handleKeydown(key('F2', { shiftKey: true }))).toBe(false);
+      expect(starts).toEqual([]);
+    });
+
     it('Space toggles selection; group Space toggles group', () => {
       const selected: number[] = [];
       const groups: number[] = [];
@@ -186,6 +196,52 @@ describe('FocusController keyboard matrix (KEYBOARD.md)', () => {
       expect(focus.handleKeydown(key('ArrowDown', { altKey: true }))).toBe(true);
       expect(menus).toEqual(['a']);
       expect(focus.getFocus()?.realm).toBe('header');
+    });
+
+    it('ArrowUp from leaf header → group header when hasColumnGroups', () => {
+      const focus = createFocus({ hasColumnGroups: () => true });
+      focus.setFocus({ rowIndex: 1, columnId: 'b', realm: 'header' });
+      expect(focus.handleKeydown(key('ArrowUp'))).toBe(true);
+      expect(focus.getFocus()).toEqual({ rowIndex: 0, columnId: 'b', realm: 'header' });
+      expect(focus.handleKeydown(key('ArrowDown'))).toBe(true);
+      expect(focus.getFocus()).toEqual({ rowIndex: 1, columnId: 'b', realm: 'header' });
+    });
+
+    it('ArrowUp from body lands on leaf header when groups exist', () => {
+      const focus = createFocus({
+        hasColumnGroups: () => true,
+        hasFloatingFilters: () => false,
+      });
+      focus.focusCell(0, 'a');
+      expect(focus.handleKeydown(key('ArrowUp'))).toBe(true);
+      expect(focus.getFocus()).toEqual({ rowIndex: 1, columnId: 'a', realm: 'header' });
+    });
+
+    it('Enter on group header does not sort', () => {
+      const activated: string[] = [];
+      const focus = createFocus({
+        hasColumnGroups: () => true,
+        onHeaderActivate: (id) => activated.push(id),
+      });
+      focus.setFocus({ rowIndex: 0, columnId: 'b', realm: 'header' });
+      expect(focus.handleKeydown(key('Enter'))).toBe(true);
+      expect(activated).toEqual([]);
+      focus.setFocus({ rowIndex: 1, columnId: 'b', realm: 'header' });
+      expect(focus.handleKeydown(key('Enter'))).toBe(true);
+      expect(activated).toEqual(['b']);
+    });
+
+    it('Enter on floatingFilter calls onFloatingFilterEnter', () => {
+      const cols: string[] = [];
+      const focus = createFocus({
+        onFloatingFilterEnter: (id) => {
+          cols.push(id);
+          return true;
+        },
+      });
+      focus.setFocus({ rowIndex: 0, columnId: 'c', realm: 'floatingFilter' });
+      expect(focus.handleKeydown(key('Enter'))).toBe(true);
+      expect(cols).toEqual(['c']);
     });
   });
 

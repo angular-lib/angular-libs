@@ -34,6 +34,29 @@ export function applyRowEdit<T>(
   return rows.map((row, index) => (rowId(row, index) === event.rowId ? event.value : row));
 }
 
+/**
+ * Merge `suggested` rows into `source` by `rowId` (paste / fill write-back).
+ * Source order is preserved; ids only in `suggested` are ignored.
+ */
+export function mergeRowsById<T>(
+  source: readonly T[],
+  suggested: readonly T[],
+  rowId: (row: T, index: number) => string | number,
+): T[] {
+  if (!suggested.length) {
+    return [...source];
+  }
+  const byId = new Map<string | number, T>();
+  for (let i = 0; i < suggested.length; i++) {
+    const row = suggested[i]!;
+    byId.set(rowId(row, i), row);
+  }
+  return source.map((row, i) => {
+    const id = rowId(row, i);
+    return byId.has(id) ? byId.get(id)! : row;
+  });
+}
+
 export function writeCellValue<T>(
   row: T,
   column: ColumnDef<T>,

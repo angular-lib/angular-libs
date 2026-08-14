@@ -125,7 +125,7 @@ export { serializeGridState, parseGridState, createEmptyGridState } from './lib/
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
 export type { FindMatch, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';
-export { applyCellEdit, applyRowEdit, writeCellValue } from './lib/utils/apply-edit';
+export { applyCellEdit, applyRowEdit, writeCellValue, mergeRowsById } from './lib/utils/apply-edit';
 export {
   applyRowTransaction,
 } from './lib/utils/apply-row-transaction';
@@ -137,10 +137,11 @@ export {
   toDateKey,
   formatLocalDateKey,
 } from './lib/utils/filter-rows';
-export { parseClipboardMatrix, applyPasteMatrix } from './lib/utils/clipboard-paste';
+export { parseClipboardMatrix, applyPasteMatrix, tileMatrix } from './lib/utils/clipboard-paste';
 export {
   formatCellValue,
   getCellValue,
+  serializeCellValue,
   isBooleanColumn,
   isDateColumn,
 } from './lib/utils/cell-value';

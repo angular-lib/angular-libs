@@ -5,6 +5,8 @@ import {
   input,
   output,
 } from '@angular/core';
+import type { DataGridLocale } from '../../locale/default-locale';
+import { defaultGridLocale } from '../../locale/default-locale';
 import type { ResolvedColumn } from '../data-grid/data-grid.types';
 import { isDateColumn } from '../../utils/cell-value';
 import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
@@ -21,14 +23,15 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
       <select
         class="al-dg-filter-field__input"
         [class.al-data-grid__filter-input]="variant() === 'floating'"
+        [attr.tabindex]="floatingTabIndex()"
         [value]="value()"
         (change)="valueChange.emit($any($event.target).value)"
         [attr.aria-label]="ariaLabel() || null"
         data-testid="al-dg-filter-field-boolean"
       >
-        <option value="">Any</option>
-        <option value="true">True</option>
-        <option value="false">False</option>
+        <option value="">{{ labels().filterAny }}</option>
+        <option value="true">{{ labels().filterTrue }}</option>
+        <option value="false">{{ labels().filterFalse }}</option>
       </select>
     } @else if (isSet()) {
       @if (variant() === 'panel') {
@@ -43,12 +46,12 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
               <span>{{ opt || '(empty)' }}</span>
             </label>
           } @empty {
-            <span class="al-dg-filter-field__hint">No values</span>
+            <span class="al-dg-filter-field__hint">{{ labels().filterNoValues }}</span>
           }
         </div>
       } @else {
         <details class="al-dg-filter-field__set al-data-grid__set-filter" data-testid="al-dg-set-filter">
-          <summary>Set</summary>
+          <summary [attr.tabindex]="floatingTabIndex()">{{ labels().filterSet }}</summary>
           <div class="al-dg-filter-field__set-list al-data-grid__set-filter-list">
             @for (opt of setOptions(); track opt) {
               <label class="al-dg-filter-field__set-item al-data-grid__set-filter-item">
@@ -67,6 +70,7 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
       <input
         class="al-dg-filter-field__input"
         [class.al-data-grid__filter-input]="variant() === 'floating'"
+        [attr.tabindex]="floatingTabIndex()"
         type="date"
         [value]="value()"
         (change)="valueChange.emit($any($event.target).value)"
@@ -77,11 +81,12 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
       <input
         class="al-dg-filter-field__input"
         [class.al-data-grid__filter-input]="variant() === 'floating'"
+        [attr.tabindex]="floatingTabIndex()"
         type="{{ isNumber() ? 'number' : 'search' }}"
         [value]="value()"
         (input)="valueChange.emit($any($event.target).value)"
         [attr.aria-label]="ariaLabel() || null"
-        placeholder="Filter…"
+        [placeholder]="labels().filterPlaceholder"
         data-testid="al-dg-filter-field-text"
       />
     }
@@ -168,7 +173,11 @@ export class DataGridFilterField {
   readonly ariaLabel = input('');
   /** `floating` = compact header dropdown; `panel` = inline checklist for set filters. */
   readonly variant = input<'floating' | 'panel'>('floating');
+  readonly locale = input<DataGridLocale | null>(null);
   readonly valueChange = output<string>();
+
+  readonly labels = computed(() => this.locale() ?? defaultGridLocale);
+  readonly floatingTabIndex = computed(() => (this.variant() === 'floating' ? -1 : null));
 
   readonly isBoolean = computed(() => {
     const col = this.column();

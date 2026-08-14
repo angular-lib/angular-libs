@@ -9,6 +9,7 @@ import {
 import {
   closeNotePopover,
   openNotePopover,
+  type NotePopoverLabels,
   type NotePopoverMode,
 } from './notes-popover';
 import {
@@ -174,6 +175,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
           isNew: mode === 'edit' && (forceNew || !existing),
           mode,
           container: context.element,
+          labels: noteLabels(context),
           handlers: {
             onSave: (text) => {
               const trimmed = text.trim();
@@ -214,12 +216,13 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
         id: 'notes-menu',
         order: 5,
         items: (ctx) => {
+          const locale = context.api.getLocale();
           const existing = adapter.getNote(ctx.rowId, ctx.columnId);
           if (existing) {
             return [
               {
                 id: 'note-edit',
-                label: 'Edit note',
+                label: locale.noteEdit,
                 shortcut: '⇧F2',
                 separator: true,
                 action: () =>
@@ -227,7 +230,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
               },
               {
                 id: 'note-remove',
-                label: 'Remove note',
+                label: locale.noteRemove,
                 action: () => {
                   void adapter.setNote(ctx.rowId, ctx.columnId, undefined);
                   destroyActivePopover();
@@ -238,7 +241,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
           return [
             {
               id: 'note-add',
-              label: 'Add note',
+              label: locale.noteAdd,
               shortcut: '⇧F2',
               separator: true,
               action: () =>
@@ -314,8 +317,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
             if (!display || !isDataDisplayRow(display)) {
               return;
             }
-            const rowId =
-              context.api.resolveRowId?.(display.row, focus.rowIndex) ?? display.id;
+            const rowId = display.rowId;
             const td = findCellElement(element, rowId, focus.columnId);
             if (!td) {
               return;
@@ -356,6 +358,19 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
   };
 
   return plugin;
+}
+
+function noteLabels<T>(context: DataGridPluginContext<T>): NotePopoverLabels {
+  const locale = context.api.getLocale();
+  return {
+    title: locale.noteTitle,
+    add: locale.noteAdd,
+    edit: locale.noteEdit,
+    remove: locale.noteRemove,
+    placeholder: locale.notePlaceholder,
+    save: locale.save,
+    cancel: locale.cancel,
+  };
 }
 
 function findCellElement(

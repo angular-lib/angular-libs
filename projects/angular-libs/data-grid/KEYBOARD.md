@@ -22,9 +22,10 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Ctrl/Cmd+Home / End | First / last **row** (same column) |
 | PageUp / PageDown | Jump by viewport-sized page |
 | Enter / F2 | Start cell/row edit (group row: Enter toggles expand) |
-| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; Space reserved for selection) |
-| Space | Toggle row selection (group: expand/collapse) |
-| Escape | Cancel edit / close context menu |
+| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; Space reserved for selection except boolean cells) |
+| Space | Toggle row selection (group: expand/collapse; focused boolean cell: toggle value) |
+| Shift+F2 | Notes editor (`notesPlugin`) — does **not** start cell/row edit |
+| Escape | Cancel edit (does not clear range); second Escape clears range / close context menu |
 | Ctrl/Cmd+A | Select all visible rows when `selection: 'multi'` |
 
 ## Body — edit (cell editor open)
@@ -32,8 +33,8 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Key | Action |
 | --- | --- |
 | Enter | Commit (`excel`: commit + move down) |
-| Tab / Shift+Tab | `tabEditing: 'commitAndMove'` → commit + next/prev cell (wrap); `'browser'` → leave page (default) |
-| Escape | Cancel edit |
+| Tab / Shift+Tab | `tabEditing: 'commitAndMove'` → commit + next/prev cell (wrap); **fullRow** walks cells without committing the row; `'browser'` → leave page (default) |
+| Escape | Cancel edit (range stays); second Escape clears range |
 | ← → (fullRow + `arrowEditing: 'moveHorizontal'`) | Move to adjacent cell editor |
 | Home / End / ↑ ↓ while editing | Stay with the input |
 
@@ -42,11 +43,19 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Key | Action |
 | --- | --- |
 | ← → | Move across header cells |
-| ↑ ↓ | Header rows / into body (↓ from leaf → body row 0) |
+| ↑ ↓ | Header rows (group ↔ leaf when column groups exist) / into body (↓ from leaf → body row 0) |
 | PageDown | Jump into body row 0 (same column) |
-| Enter | Toggle sort: asc → desc → none (Shift+Enter multi-sort) |
-| Alt+↓ | Open lean column menu (pin / sort / autosize / hide) |
+| Enter | Toggle sort on **leaf** headers: asc → desc → none (Shift+Enter multi-sort) |
+| Alt+↓ | Open lean column menu (pin / sort / autosize / hide) — leaf headers |
 | Escape | Close menu |
+
+## Floating filters
+
+| Key | Action |
+| --- | --- |
+| ← → | Move across filter cells |
+| Enter | Focus the inner filter control |
+| Escape | From the control → filter cell; from the cell → leaf header |
 
 ## Body PageUp / PageDown continuum
 
@@ -59,14 +68,19 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 ## Checklist (manual / CI)
 
 - [x] Arrow keys move focus without mouse — `keyboard.spec.ts`
-- [ ] Only one cell has `tabindex="0"` at a time
+- [x] Only one cell has `tabindex="0"` at a time — `data-grid.spec.ts`
 - [x] Home/End and PageUp/PageDown behave as above — `keyboard.spec.ts`
 - [x] Enter/F2 start edit on editable columns — `keyboard.spec.ts` (controller callbacks)
-- [ ] `syncDomFocus` puts focus on the editor when the cell is in an edit session
-- [ ] fullRow + excel: ←→ move between cell editors; default: caret stays in field
+- [x] `syncDomFocus` puts focus on the editor when the cell is in an edit session — `data-grid.spec.ts`
+- [x] fullRow + excel: ←→ move between cell editors; default: caret stays in field — `data-grid.spec.ts`
 - [x] Space toggles selection in multi mode — `keyboard.spec.ts`
-- [x] Escape cancels edit — `keyboard.spec.ts`
+- [x] Escape cancels edit without clearing the cell range — `data-grid.spec.ts`
 - [x] Group Enter/Space expands/collapses — `keyboard.spec.ts` + existing specs
+- [x] Group rows use roving tabindex + `aria-rowindex` — `data-grid.spec.ts`
+- [x] Space on a focused boolean cell toggles the value — `data-grid.spec.ts`
 - [x] Tab from focused cell leaves the grid (page citizen) — `keyboard.spec.ts` (`handleKeydown` returns false)
 - [x] Header continuum (ArrowUp/Down, PageUp/Down, Enter, Alt+↓) — `keyboard.spec.ts`
+- [x] Column-group header ↑↓ (leaf rowIndex 1) — `keyboard.spec.ts`
+- [x] Floating filter Enter focuses control — `keyboard.spec.ts` (`onFloatingFilterEnter`)
+- [x] Shift+F2 does not start edit — `keyboard.spec.ts` (notes chord)
 - [x] Shift+arrows extend range when `onExtendRange` returns true — `keyboard.spec.ts`

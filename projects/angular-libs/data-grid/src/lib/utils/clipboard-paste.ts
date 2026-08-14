@@ -47,6 +47,31 @@ export interface PasteApplyResult<T> {
 }
 
 /**
+ * Repeat a clipboard/fill matrix to cover `rowCount` × `colCount`
+ * (Excel / AG: a smaller copy tiles into a larger range).
+ */
+export function tileMatrix(
+  matrix: string[][],
+  rowCount: number,
+  colCount: number,
+): string[][] {
+  if (!matrix.length || rowCount <= 0 || colCount <= 0) {
+    return [];
+  }
+  const out: string[][] = [];
+  for (let r = 0; r < rowCount; r++) {
+    const src = matrix[r % matrix.length]!;
+    const row: string[] = [];
+    const srcLen = Math.max(1, src.length);
+    for (let c = 0; c < colCount; c++) {
+      row.push(src[c % srcLen] ?? '');
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/**
  * Apply a pasted matrix starting at `startRowIndex` across `columnIds`.
  * Uses shallow field writes; hosts should prefer listening to `paste` and updating themselves.
  */

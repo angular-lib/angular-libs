@@ -40,8 +40,11 @@ export function coerceCellEditValue<T>(
     if (isBlankCellInput(raw)) {
       return null;
     }
-    const asNumber = Number(raw);
-    return Number.isNaN(asNumber) ? raw : asNumber;
+    if (typeof raw === 'number') {
+      return raw;
+    }
+    const asNumber = parseNumericInput(String(raw));
+    return asNumber == null ? raw : asNumber;
   }
 
   if (isDateColumn(column) || column.cellEditor === 'date') {
@@ -66,4 +69,37 @@ export function coerceCellEditValue<T>(
   }
 
   return raw;
+}
+
+/**
+ * Parse a pasted/filled number, including currency and thousands separators
+ * (`$70,000`, `1.234,56`, `70 000`).
+ */
+function parseNumericInput(raw: string): number | null {
+  const text = raw.trim();
+  if (!text) {
+    return null;
+  }
+  const direct = Number(text);
+  if (!Number.isNaN(direct)) {
+    return direct;
+  }
+  let s = text.replace(/[\s\u00a0]/g, '').replace(/[^0-9,.\-eE+]/g, '');
+  if (!s || s === '-' || s === '+' || s === '.') {
+    return null;
+  }
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  if (lastComma >= 0 && lastDot >= 0) {
+    if (lastComma > lastDot) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      s = s.replace(/,/g, '');
+    }
+  } else if (lastComma >= 0) {
+    const frac = s.slice(lastComma + 1);
+    s = frac.length === 3 ? s.replace(/,/g, '') : s.replace(',', '.');
+  }
+  const parsed = Number(s);
+  return Number.isNaN(parsed) ? null : parsed;
 }

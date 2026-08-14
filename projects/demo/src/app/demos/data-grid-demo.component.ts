@@ -3,8 +3,6 @@ import { form, min, required } from '@angular/forms/signals';
 import {
   DataGrid,
   DataGridCellDirective,
-  applyCellEdit,
-  applyRowEdit,
   createGrid,
   type CellEditEvent,
   type ColumnOrGroupDef,
@@ -599,12 +597,10 @@ export class DataGridDemoComponent {
   }
 
   onEdit(event: CellEditEvent<Employee>): void {
-    this.rows.update((list) => applyCellEdit(list, event, (row) => row.id));
     this.lastAction.set(`cell edit #${event.rowId}.${event.columnId}`);
   }
 
   onRowEdit(event: RowEditEvent<Employee>): void {
-    this.rows.update((list) => applyRowEdit(list, event, (row) => row.id));
     this.lastAction.set(`row saved #${event.rowId}`);
   }
 
@@ -614,18 +610,6 @@ export class DataGridDemoComponent {
   }
 
   onPaste(event: PasteEvent<Employee>): void {
-    this.rows.update((list) => {
-      const next = [...list];
-      for (let i = 0; i < event.suggestedRows.length; i++) {
-        const suggested = event.suggestedRows[i]!;
-        const id = suggested.id;
-        const idx = next.findIndex((r) => r.id === id);
-        if (idx >= 0) {
-          next[idx] = suggested;
-        }
-      }
-      return next;
-    });
     this.lastAction.set(`pasted ${event.matrix.length}×${event.columnIds.length}`);
   }
 

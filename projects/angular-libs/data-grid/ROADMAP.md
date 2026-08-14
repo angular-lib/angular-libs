@@ -105,6 +105,8 @@ Prioritized product lista lives in [OVERVIEW.md](./OVERVIEW.md) §7. Snapshot:
 | Selection row+range coexistence | OVERVIEW §5d — both allowed |
 | Foundation waves | OVERVIEW §10 |
 | `applyRowTransaction` | Util + `createGrid({ rows })` / `applyTransaction` (Wave 3) |
+| Apply paste/edit when `createGrid({ rows })` | ✅ `autoApplyWrites` (default true) |
+| `api.startEditingCell` | ✅ symmetry with `startEditingRow` |
 | Header / column menu (lean) | ✅ Wave 4 — pin / sort / autosize / hide |
 | Filter extensibility seam | Typed; no AG filter framework |
 | Cell range + fill | ✅ Wave 4 — `cellRangePlugin`; single rect + copy-fill |

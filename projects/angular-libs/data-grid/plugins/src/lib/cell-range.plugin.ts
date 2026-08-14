@@ -4,9 +4,11 @@ import {
   coerceCellEditValue,
   formatCellValue,
   getCellValue,
+  serializeCellValue,
+  tileMatrix,
   writeCellValue,
   type CellRange,
-  type PasteEvent,
+  type FillEvent,
 } from '@angular-libs/data-grid';
 import {
   cellInNormalizedRange,
@@ -34,6 +36,8 @@ export interface CellRangeAdapter {
    * Moves focus to the new `active` corner.
    */
   extendRange(dRow: number, dCol: number): boolean;
+  /** False when constructed with `fillHandle: false`. */
+  readonly fillHandleEnabled: boolean;
 }
 
 export type CellRangePlugin<T = unknown> = DataGridPlugin<T> & CellRangeAdapter;
@@ -116,6 +120,7 @@ export function cellRangePlugin<T = unknown>(
   };
 
   const adapter: CellRangeAdapter = {
+    fillHandleEnabled,
     getRange: () => range(),
     setRange: (next) => setRangeInternal(next),
     clearRange: () => setRangeInternal(null),
@@ -163,6 +168,7 @@ export function cellRangePlugin<T = unknown>(
     clearRange: () => adapter.clearRange(),
     getClipboardText: () => adapter.getClipboardText(),
     extendRange: (dRow, dCol) => adapter.extendRange(dRow, dCol),
+    fillHandleEnabled,
 
     setup(context: DataGridPluginContext<T>): () => void {
       liveContext = context;
@@ -412,7 +418,7 @@ function runFill<T>(
         continue;
       }
       const value = getCellValue(item.row, col, item.dataIndex);
-      row.push(String(formatCellValue(value, item.row, col, item.dataIndex) ?? ''));
+      row.push(serializeCellValue(value));
     }
     matrix.push(row);
   }
@@ -431,15 +437,7 @@ function runFill<T>(
     return;
   }
 
-  const tiled: string[][] = [];
-  for (let i = 0; i < targetDataRows.length; i++) {
-    const srcRow = matrix[i % matrix.length]!;
-    const outRow: string[] = [];
-    for (let c = 0; c < targetNorm.columnIds.length; c++) {
-      outRow.push(srcRow[c % srcRow.length] ?? '');
-    }
-    tiled.push(outRow);
-  }
+  const tiled = tileMatrix(matrix, targetDataRows.length, targetNorm.columnIds.length);
 
   const startRowIndex = targetDataRows[0]!.dataIndex;
   const processed = context.api.getProcessedRows() as T[];
@@ -462,11 +460,13 @@ function runFill<T>(
     },
   );
 
-  const payload: PasteEvent<T> = {
+  const payload: FillEvent<T> = {
     startRowIndex,
     columnIds: targetNorm.columnIds,
     matrix: tiled,
     suggestedRows,
+    range: target,
+    source,
   };
   context.api.emitPaste(payload);
 }

@@ -1,6 +1,10 @@
 /**
  * Binder-owned cell-range overlay geometry (relative to the range layer).
  * Plugins must not query `.al-data-grid__range-layer` for paint.
+ *
+ * Uses **visible** cells in the range so a virtualized window still paints a
+ * ring when a corner has scrolled out of the DOM (AG/Excel clip the selection
+ * to the viewport rather than dropping it).
  */
 
 import type { CellRange } from '../components/data-grid/data-grid.types';
@@ -15,6 +19,7 @@ export function computeCellRangeOverlayLayouts<T>(opts: {
   getCellElement: (rowId: string | number, columnId: string) => HTMLElement | null;
   getScrollRoot: () => HTMLElement | null;
   hostElement: HTMLElement;
+  showFillHandle?: boolean;
 }): { ring: OverlayLayout; handle: OverlayLayout | null } | null {
   const { range, visibleColumnIds, displayRows } = opts;
   if (!range) {
@@ -24,14 +29,40 @@ export function computeCellRangeOverlayLayouts<T>(opts: {
   if (!norm) {
     return null;
   }
-  const tlItem = displayRows[norm.rowStart];
-  const brItem = displayRows[norm.rowEnd];
-  if (!tlItem || !isDataDisplayRow(tlItem) || !brItem || !isDataDisplayRow(brItem)) {
-    return null;
+
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  let found = false;
+  let brRect: DOMRect | null = null;
+  const lastCol = norm.columnIds[norm.columnIds.length - 1]!;
+
+  for (let ri = norm.rowStart; ri <= norm.rowEnd; ri++) {
+    const item = displayRows[ri];
+    if (!item || !isDataDisplayRow(item)) {
+      continue;
+    }
+    for (const columnId of norm.columnIds) {
+      const el = opts.getCellElement(item.rowId, columnId);
+      if (!el) {
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 && r.height < 1) {
+        continue;
+      }
+      found = true;
+      left = Math.min(left, r.left);
+      top = Math.min(top, r.top);
+      right = Math.max(right, r.right);
+      bottom = Math.max(bottom, r.bottom);
+      if (ri === norm.rowEnd && columnId === lastCol) {
+        brRect = r;
+      }
+    }
   }
-  const tl = opts.getCellElement(tlItem.rowId, norm.columnIds[0]!);
-  const br = opts.getCellElement(brItem.rowId, norm.columnIds[norm.columnIds.length - 1]!);
-  if (!tl || !br) {
+  if (!found) {
     return null;
   }
 
@@ -41,12 +72,6 @@ export function computeCellRangeOverlayLayouts<T>(opts: {
   const scroll = opts.getScrollRoot();
   const clip = scroll?.getBoundingClientRect();
   const origin = host.getBoundingClientRect();
-  const a = tl.getBoundingClientRect();
-  const b = br.getBoundingClientRect();
-  let left = Math.min(a.left, b.left);
-  let top = Math.min(a.top, b.top);
-  let right = Math.max(a.right, b.right);
-  let bottom = Math.max(a.bottom, b.bottom);
 
   if (clip) {
     left = Math.max(left, clip.left);
@@ -68,8 +93,12 @@ export function computeCellRangeOverlayLayouts<T>(opts: {
     height,
   };
 
-  const handleLeft = right - 10;
-  const handleTop = bottom - 10;
+  if (opts.showFillHandle === false || !brRect) {
+    return { ring, handle: null };
+  }
+
+  const handleLeft = brRect.right - 10;
+  const handleTop = brRect.bottom - 10;
   const outsideClip =
     !!clip &&
     (handleLeft + 11 > clip.right ||

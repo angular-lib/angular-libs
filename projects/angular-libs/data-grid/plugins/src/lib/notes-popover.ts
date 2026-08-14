@@ -27,7 +27,28 @@ export interface OpenNotePopoverOptions {
    * Falls back to `document.body`.
    */
   container?: HTMLElement | null;
+  labels?: NotePopoverLabels;
 }
+
+export interface NotePopoverLabels {
+  title: string;
+  add: string;
+  edit: string;
+  remove: string;
+  placeholder: string;
+  save: string;
+  cancel: string;
+}
+
+const DEFAULT_NOTE_LABELS: NotePopoverLabels = {
+  title: 'Note',
+  add: 'Add note',
+  edit: 'Edit note',
+  remove: 'Remove note',
+  placeholder: 'Write a note…',
+  save: 'Save',
+  cancel: 'Cancel',
+};
 
 export function openNotePopover(options: OpenNotePopoverOptions): HTMLElement {
   if (options.mode === 'preview') {
@@ -43,6 +64,7 @@ function mountRoot(options: OpenNotePopoverOptions, root: HTMLElement): void {
 }
 
 function openPreviewPopover(options: OpenNotePopoverOptions): HTMLElement {
+  const labels = { ...DEFAULT_NOTE_LABELS, ...options.labels };
   const root = document.createElement('div');
   root.className = 'al-dg-note-popover al-dg-note-popover--preview';
   root.setAttribute('data-testid', 'al-dg-note-preview');
@@ -50,7 +72,7 @@ function openPreviewPopover(options: OpenNotePopoverOptions): HTMLElement {
 
   const title = document.createElement('div');
   title.className = 'al-dg-note-popover__title';
-  title.textContent = 'Note';
+  title.textContent = labels.title;
 
   const body = document.createElement('div');
   body.className = 'al-dg-note-popover__body';
@@ -62,20 +84,22 @@ function openPreviewPopover(options: OpenNotePopoverOptions): HTMLElement {
 }
 
 function openEditPopover(options: OpenNotePopoverOptions): HTMLElement {
+  const labels = { ...DEFAULT_NOTE_LABELS, ...options.labels };
+  const heading = options.isNew ? labels.add : labels.edit;
   const root = document.createElement('div');
   root.className = 'al-dg-note-popover';
   root.setAttribute('data-testid', 'al-dg-note-popover');
   root.setAttribute('role', 'dialog');
-  root.setAttribute('aria-label', options.isNew ? 'Add note' : 'Edit note');
+  root.setAttribute('aria-label', heading);
 
   const title = document.createElement('div');
   title.className = 'al-dg-note-popover__title';
-  title.textContent = options.isNew ? 'Add note' : 'Edit note';
+  title.textContent = heading;
 
   const input = document.createElement('textarea');
   input.className = 'al-dg-note-popover__input';
   input.value = options.note?.text ?? '';
-  input.placeholder = 'Write a note…';
+  input.placeholder = labels.placeholder;
   input.setAttribute('data-testid', 'al-dg-note-input');
 
   const actions = document.createElement('div');
@@ -84,19 +108,19 @@ function openEditPopover(options: OpenNotePopoverOptions): HTMLElement {
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
   removeBtn.className = 'al-dg-note-popover__btn al-dg-note-popover__btn--danger';
-  removeBtn.textContent = 'Remove';
+  removeBtn.textContent = labels.remove;
   removeBtn.disabled = options.isNew && !options.note?.text;
   removeBtn.setAttribute('data-testid', 'al-dg-note-remove');
 
   const cancelBtn = document.createElement('button');
   cancelBtn.type = 'button';
   cancelBtn.className = 'al-dg-note-popover__btn';
-  cancelBtn.textContent = 'Cancel';
+  cancelBtn.textContent = labels.cancel;
 
   const saveBtn = document.createElement('button');
   saveBtn.type = 'button';
   saveBtn.className = 'al-dg-note-popover__btn al-dg-note-popover__btn--primary';
-  saveBtn.textContent = 'Save';
+  saveBtn.textContent = labels.save;
   saveBtn.setAttribute('data-testid', 'al-dg-note-save');
 
   actions.append(removeBtn, cancelBtn, saveBtn);

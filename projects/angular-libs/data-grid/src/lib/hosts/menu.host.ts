@@ -66,6 +66,7 @@ export class MenuHost<T> {
       source: 'header',
       items,
     });
+    this.focusFirstMenuItem();
   }
 
   closeColumnMenu(): void {
@@ -147,6 +148,7 @@ export class MenuHost<T> {
         clearFilters: () => this.s.clearFilters(),
         hasFilters:
           Object.keys(this.s.filters()).length > 0 || this.s.quickFilter().trim().length > 0,
+        locale: this.s.resolvedLocale(),
       });
     }
     const items = [...pluginItems, ...hostItems];
@@ -158,6 +160,7 @@ export class MenuHost<T> {
     const pos = positionMenu(event.clientX, event.clientY, 200, 8 + items.length * 36);
     this.contextMenuState.set({ left: pos.left, top: pos.top, ctx, source: 'cell', items });
     this.s.publishContextMenuOpened(ctx);
+    this.focusFirstMenuItem();
   }
 
   /**
@@ -180,6 +183,7 @@ export class MenuHost<T> {
       source: 'header',
       items,
     });
+    this.focusFirstMenuItem();
   }
 
   runContextMenuItem(item: DataGridContextMenuItem<T>): void {
@@ -203,6 +207,48 @@ export class MenuHost<T> {
     this.contextMenuState.set(null);
     this.columnMenuColumnId.set(null);
     this.s.publishContextMenuClosed();
+  }
+
+  /** Arrow / Home / End / Escape while a column or context menu is open (AG pattern). */
+  onMenuKeydown(event: KeyboardEvent): void {
+    if (!this.contextMenuState()) {
+      return;
+    }
+    const items = this.menuItemElements();
+    if (!items.length) {
+      return;
+    }
+    const current = typeof document !== 'undefined' ? document.activeElement : null;
+    let index = items.findIndex((el) => el === current || el.contains(current));
+    if (index < 0) {
+      index = 0;
+    }
+    if (event.key === 'ArrowDown') {
+      items[(index + 1) % items.length]!.focus();
+    } else if (event.key === 'ArrowUp') {
+      items[(index - 1 + items.length) % items.length]!.focus();
+    } else if (event.key === 'Home') {
+      items[0]!.focus();
+    } else if (event.key === 'End') {
+      items[items.length - 1]!.focus();
+    } else if (event.key === 'Escape') {
+      this.closeContextMenu();
+      this.closeColumnMenu();
+    } else {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  private menuItemElements(): HTMLElement[] {
+    return Array.from(
+      this.s.hostElement().querySelectorAll<HTMLElement>('.al-data-grid__ctx-item:not(:disabled)'),
+    );
+  }
+
+  private focusFirstMenuItem(): void {
+    queueMicrotask(() => this.menuItemElements()[0]?.focus());
   }
 
   onDocumentPointerDown(event: Event): void {
