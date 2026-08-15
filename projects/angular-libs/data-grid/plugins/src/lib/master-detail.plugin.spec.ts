@@ -33,7 +33,10 @@ describe('masterDetailPlugin', () => {
       isExpanded: (id) => expanded.has(id as number),
       getDetailRows: (r) => r.orders,
       detailRowHeight: 160,
-      detailColumns: [{ field: 'sku' }, { field: 'qty' }],
+      detailGrid: {
+        columns: [{ field: 'sku' }, { field: 'qty' }],
+        rowId: (r) => r.sku,
+      },
     });
 
     expect(rows.map((r) => r.kind)).toEqual([
@@ -98,12 +101,34 @@ describe('masterDetailPlugin', () => {
   it('expandColumn wires renderer params to the adapter', () => {
     const md = masterDetailPlugin<Customer, Order>({
       getDetailRows: (r) => r.orders,
-      detailColumns: [{ field: 'sku' }],
+      detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
     });
     const col = md.expandColumn();
     expect(col.id).toBe('__masterDetailExpand');
     expect(col.cellRenderer).toBeTruthy();
     expect(col.cellRendererParams?.['masterDetail']).toBe(md);
+  });
+
+  it('normalizes detailColumns into detailGrid on the payload', () => {
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailColumns: [{ field: 'sku' }],
+    });
+    const rows = buildMasterDetailDisplayRows({
+      rows: customers,
+      rowId: (r) => r.id,
+      isExpanded: (id) => id === 1,
+      getDetailRows: (r) => r.orders,
+      detailRowHeight: 120,
+      detailGrid: { columns: [{ field: 'sku' }] },
+    });
+    const detail = rows.find((r) => r.kind === 'plugin');
+    expect(detail?.kind).toBe('plugin');
+    if (detail?.kind === 'plugin') {
+      const payload = detail.payload as { detailGrid?: { columns: unknown[] } };
+      expect(payload.detailGrid?.columns).toHaveLength(1);
+    }
+    expect(md.id).toBe('masterDetail');
   });
 
   it('variable virtual window accounts for detail heights', () => {

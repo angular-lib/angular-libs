@@ -344,6 +344,25 @@
   overflow: auto;
 }
 
+.al-data-grid__detail--nested {
+  padding: 8px 12px 10px;
+  overflow: hidden;
+}
+
+.al-data-grid__detail-grid {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  border: 1px solid var(--al-dg-border);
+  border-radius: var(--al-dg-radius);
+  background: var(--al-dg-bg);
+}
+
+.al-data-grid__detail-grid.al-data-grid {
+  /* Nested instance — keep chrome compact inside the master row. */
+  --al-dg-header-height: 36px;
+}
+
 .al-data-grid__detail-table {
   width: 100%;
   border-collapse: collapse;

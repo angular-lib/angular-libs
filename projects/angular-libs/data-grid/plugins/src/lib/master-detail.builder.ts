@@ -5,6 +5,7 @@ import {
 } from '@angular-libs/data-grid/internals';
 import {
   MASTER_DETAIL_PLUGIN_KIND,
+  type MasterDetailGridOptions,
   type MasterDetailPayload,
 } from './master-detail.types';
 
@@ -16,7 +17,7 @@ export interface BuildMasterDetailRowsOptions<T, D = unknown> {
   getDetailRows: (row: T) => readonly D[];
   isRowMaster?: (row: T) => boolean;
   detailRowHeight: number;
-  detailColumns?: readonly import('@angular-libs/data-grid').ColumnDef<D>[];
+  detailGrid?: MasterDetailGridOptions<D>;
 }
 
 /**
@@ -32,7 +33,7 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
     getDetailRows,
     isRowMaster,
     detailRowHeight,
-    detailColumns,
+    detailGrid,
   } = options;
 
   const out: DisplayRow<T>[] = [];
@@ -53,7 +54,7 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
       master: data.row,
       masterRowId: data.rowId,
       detailRows,
-      detailColumns,
+      detailGrid,
     };
     out.push({
       kind: 'plugin',

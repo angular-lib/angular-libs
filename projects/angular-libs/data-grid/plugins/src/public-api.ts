@@ -81,6 +81,7 @@ export type {
   MasterDetailPluginOptions,
   MasterDetailPayload,
   MasterDetailExpandColumnOptions,
+  MasterDetailGridOptions,
 } from './lib/master-detail.plugin';
 export { defaultGridPlugins } from './lib/default-plugins';
 export type { DefaultGridPluginsOptions } from './lib/default-plugins';

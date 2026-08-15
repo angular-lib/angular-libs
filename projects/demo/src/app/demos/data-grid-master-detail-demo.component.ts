@@ -76,7 +76,7 @@ const detailColumns: ColumnDef<CallRecord>[] = [
           <h2>Master / Detail</h2>
           <p>
             AG-inspired expand rows via <code>masterDetailPlugin</code> — detail is a
-            full-width display-kind panel (built-in table or custom component).
+            nested <code>al-data-grid</code> (or a custom <code>detailComponent</code>).
           </p>
         </div>
         <div class="demo__controls">
@@ -160,8 +160,12 @@ export class DataGridMasterDetailDemoComponent {
 
   readonly masterDetail = masterDetailPlugin<Account, CallRecord>({
     getDetailRows: (row) => row.calls,
-    detailColumns,
-    detailRowHeight: 168,
+    detailGrid: {
+      columns: detailColumns,
+      rowId: (row) => row.callId,
+      selection: 'single',
+    },
+    detailRowHeight: 200,
     isRowMaster: (row) => row.calls.length > 0,
     isOpenByDefault: (row) => row.id === 1,
   });

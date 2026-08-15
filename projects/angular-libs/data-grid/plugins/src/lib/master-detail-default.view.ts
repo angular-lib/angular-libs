@@ -2,44 +2,51 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   input,
+  signal,
+  untracked,
 } from '@angular/core';
-import type { ColumnDef, DataGridApi } from '@angular-libs/data-grid';
+import {
+  DataGrid,
+  createGrid,
+  type DataGridApi,
+  type GridController,
+} from '@angular-libs/data-grid';
 import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
-import type { MasterDetailPayload } from './master-detail.types';
+import type {
+  MasterDetailGridOptions,
+  MasterDetailPayload,
+} from './master-detail.types';
 
 /**
- * Default detail panel — compact HTML table over `detailColumns` + payload rows.
- * Swap via `detailComponent` for forms / nested grids / custom chrome.
+ * Default detail panel — nested `<al-data-grid>` (AG detail grid spirit).
+ * Override with `detailComponent` for forms / custom chrome.
  */
 @Component({
   selector: 'al-dg-master-detail-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [DataGrid],
   template: `
-    <div class="al-data-grid__detail" data-testid="al-dg-master-detail">
-      @if (!columns().length) {
-        <p class="al-data-grid__detail-empty">No detail columns configured.</p>
-      } @else if (!detailRows().length) {
-        <p class="al-data-grid__detail-empty">No detail rows.</p>
+    <div
+      class="al-data-grid__detail al-data-grid__detail--nested"
+      data-testid="al-dg-master-detail"
+      (click)="$event.stopPropagation()"
+      (keydown)="$event.stopPropagation()"
+    >
+      @if (detailGrid(); as cfg) {
+        @if (detailController(); as ctrl) {
+          <al-data-grid
+            class="al-data-grid__detail-grid"
+            [controller]="ctrl"
+            [data]="detailRows()"
+            [emptyMessage]="'No detail rows.'"
+          />
+        } @else {
+          <p class="al-data-grid__detail-empty">Preparing detail grid…</p>
+        }
       } @else {
-        <table class="al-data-grid__detail-table">
-          <thead>
-            <tr>
-              @for (col of columns(); track col.id ?? col.field ?? $index) {
-                <th>{{ col.header ?? col.field ?? col.id }}</th>
-              }
-            </tr>
-          </thead>
-          <tbody>
-            @for (row of detailRows(); track $index) {
-              <tr>
-                @for (col of columns(); track col.id ?? col.field ?? $index) {
-                  <td>{{ cellText(row, col, $index) }}</td>
-                }
-              </tr>
-            }
-          </tbody>
-        </table>
+        <p class="al-data-grid__detail-empty">No detail grid configured.</p>
       }
     </div>
   `,
@@ -47,7 +54,7 @@ import type { MasterDetailPayload } from './master-detail.types';
 export class MasterDetailDefaultView<T = unknown, D = unknown> {
   /** Display row from the binder (`pluginKind: 'masterDetail'`). */
   readonly item = input.required<CustomDisplayRow>();
-  /** Bound master grid API (available to custom views; unused by the table). */
+  /** Bound master grid API (available to custom views). */
   readonly api = input<DataGridApi<T> | null>(null);
 
   readonly payload = computed((): MasterDetailPayload<T, D> | null => {
@@ -59,22 +66,57 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
   });
 
   readonly detailRows = computed(() => this.payload()?.detailRows ?? []);
-  readonly columns = computed(
-    (): readonly ColumnDef<D>[] => this.payload()?.detailColumns ?? [],
-  );
 
-  cellText(row: D, col: ColumnDef<D>, rowIndex: number): string {
-    const value = col.valueGetter
-      ? col.valueGetter(row, rowIndex)
-      : col.field
-        ? (row as Record<string, unknown>)[col.field]
-        : undefined;
-    if (col.valueFormatter) {
-      return col.valueFormatter(value, row, rowIndex);
+  readonly detailGrid = computed((): MasterDetailGridOptions<D> | null => {
+    const p = this.payload();
+    if (!p) {
+      return null;
     }
-    if (value == null) {
-      return '';
+    if (p.detailGrid?.columns?.length) {
+      return p.detailGrid;
     }
-    return String(value);
+    if (p.detailColumns?.length) {
+      return { columns: p.detailColumns };
+    }
+    return null;
+  });
+
+  /** One controller per expanded detail instance (own sort/filter/selection). */
+  readonly detailController = signal<GridController<D> | null>(null);
+
+  constructor() {
+    effect(() => {
+      const cfg = this.detailGrid();
+      if (!cfg?.columns?.length) {
+        this.detailController.set(null);
+        return;
+      }
+      untracked(() => {
+        if (this.detailController()) {
+          return;
+        }
+        this.detailController.set(
+          createGrid<D>({
+            columns: cfg.columns,
+            rowId: cfg.rowId,
+            plugins: cfg.plugins ?? [],
+            selection: cfg.selection ?? 'none',
+            viewport: {
+              virtual: false,
+              rowHeight: 32,
+              ...cfg.viewport,
+            },
+            chrome: {
+              showToolbar: false,
+              floatingFilters: false,
+              stripe: true,
+              columnReorder: false,
+              contextMenu: false,
+              ...cfg.chrome,
+            },
+          }),
+        );
+      });
+    });
   }
 }

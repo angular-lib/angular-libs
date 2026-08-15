@@ -120,7 +120,7 @@ aggregates) and/or **chrome** (toolbar / status / sidebar). See [PLUGINS.md](./P
 | `infiniteScrollPlugin()` | Scroll + resize near-end → `(nearEnd)` |
 | `rowGroupPlugin({ columns })` | Display builder + `RowGroupAdapter` |
 | `treeDataPlugin({ getDataPath })` | Tree display builder + `TreeDataAdapter` |
-| `masterDetailPlugin({ getDetailRows, detailColumns })` | Expand + detail panel (display-kind); `expandColumn()` |
+| `masterDetailPlugin({ getDetailRows, detailGrid })` | Expand + nested detail `<al-data-grid>`; `expandColumn()` |
 
 Also available **only** from `@angular-libs/data-grid/plugins` (preferred).
 
@@ -171,7 +171,10 @@ tree.expandAll();
 ```ts
 const md = masterDetailPlugin({
   getDetailRows: (r) => r.orders,
-  detailColumns: [{ field: 'sku' }, { field: 'qty', type: 'number' }],
+  detailGrid: {
+    columns: [{ field: 'sku' }, { field: 'qty', type: 'number' }],
+    rowId: (r) => r.sku,
+  },
   isRowMaster: (r) => r.orders.length > 0,
 });
 plugins = [...defaultGridPlugins({ sideBar: false }), md];
@@ -182,7 +185,7 @@ columns = [md.expandColumn(), { field: 'name' }];
 - Toolbar: Expand / Collapse / Ungroup (localized via `[locale]`)
 - API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
 - Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`)
-- Master/detail: held adapter + `expandColumn()`; detail via display-kind panel
+- Master/detail: nested detail grid via `detailGrid` / `detailColumns`; `expandColumn()`
 
 ## Row drag
 

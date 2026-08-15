@@ -189,9 +189,19 @@ createGrid({
 ```
 
 Expanded masters insert a full-width `plugin` display row
-(`pluginKind: 'masterDetail'`). Override with `detailComponent` for forms or a
-nested `<al-data-grid>`. Mutually exclusive with `rowGroupPlugin` /
-`treeDataPlugin` (one display builder).
+(`pluginKind: 'masterDetail'`). The default panel hosts a nested
+`<al-data-grid>` from `detailColumns` / `detailGrid` (AG `detailGridOptions`
+spirit). Override with `detailComponent` for forms. Mutually exclusive with
+`rowGroupPlugin` / `treeDataPlugin` (one display builder).
+
+```ts
+detailGrid: {
+  columns: [{ field: 'sku' }, { field: 'qty', type: 'number' }],
+  rowId: (r) => r.sku,
+  selection: 'multi',
+  // plugins / viewport / chrome optional — lean defaults
+},
+```
 
 ## Locale
 

@@ -10,11 +10,13 @@ import { MasterDetailExpandCell } from './master-detail-expand.cell';
 import {
   MASTER_DETAIL_PLUGIN_KIND,
   type MasterDetailExpandColumnOptions,
+  type MasterDetailGridOptions,
   type MasterDetailPluginOptions,
 } from './master-detail.types';
 
 export type {
   MasterDetailExpandColumnOptions,
+  MasterDetailGridOptions,
   MasterDetailPayload,
   MasterDetailPluginOptions,
 } from './master-detail.types';
@@ -43,22 +45,38 @@ function resolveOpenByDefault<T>(
     : isOpenByDefault;
 }
 
+function resolveDetailGrid<T, D>(
+  options: MasterDetailPluginOptions<T, D>,
+): MasterDetailGridOptions<D> | undefined {
+  if (options.detailGrid?.columns?.length) {
+    return options.detailGrid;
+  }
+  if (options.detailColumns?.length) {
+    return { columns: options.detailColumns };
+  }
+  return undefined;
+}
+
 /**
  * Master / detail via display-kind plugin rows (AG Grid–inspired, Angular-native).
  *
  * - Expand state lives on the held adapter (`toggle` / `expandAll` / …)
  * - Detail is a full-width `plugin` display row (`pluginKind: 'masterDetail'`)
- * - Default detail UI is a compact table; override with `detailComponent`
+ * - Default detail UI is a nested `<al-data-grid>` (`detailColumns` / `detailGrid`)
+ * - Override with `detailComponent` for forms or fully custom chrome
  * - Mutually exclusive with `rowGroupPlugin` / `treeDataPlugin` (one display builder)
  *
  * @example
  * ```ts
  * const md = masterDetailPlugin({
  *   getDetailRows: (row) => row.orders,
- *   detailColumns: [
- *     { field: 'sku', header: 'SKU' },
- *     { field: 'qty', header: 'Qty', type: 'number' },
- *   ],
+ *   detailGrid: {
+ *     columns: [
+ *       { field: 'sku', header: 'SKU' },
+ *       { field: 'qty', header: 'Qty', type: 'number' },
+ *     ],
+ *     rowId: (r) => r.sku,
+ *   },
  *   detailRowHeight: 180,
  *   isRowMaster: (row) => row.orders.length > 0,
  * });
@@ -78,7 +96,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   const detailView = options.detailComponent ?? MasterDetailDefaultView;
   const getDetailRows = options.getDetailRows;
   const isRowMaster = options.isRowMaster;
-  const detailColumns = options.detailColumns;
+  const detailGrid = resolveDetailGrid(options);
   const isOpenByDefault = options.isOpenByDefault;
 
   const openDefaultFor = (row: T): boolean =>
@@ -127,7 +145,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             getDetailRows,
             isRowMaster,
             detailRowHeight,
-            detailColumns,
+            detailGrid,
           }),
       });
 
