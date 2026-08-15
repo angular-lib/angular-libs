@@ -27,9 +27,51 @@ import type {
   selector: 'al-dg-master-detail-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DataGrid],
+  host: {
+    class: 'al-dg-master-detail-view',
+  },
+  styles: `
+    :host {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0;
+      min-height: 0;
+      min-width: 0;
+      height: 100%;
+      box-sizing: border-box;
+      padding: 8px 12px 10px;
+      background: color-mix(in srgb, var(--al-dg-header-bg, #f5f7f7) 65%, var(--al-dg-bg, #fff));
+    }
+
+    .al-dg-master-detail__body {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0;
+      min-height: 0;
+      min-width: 0;
+    }
+
+    .al-dg-master-detail__grid {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 0;
+      min-height: 0;
+      border: 1px solid var(--al-dg-border, #dde2eb);
+      border-radius: var(--al-dg-radius, 3px);
+      background: var(--al-dg-bg, #fff);
+      /* Compact nested chrome */
+      --al-dg-header-height: 36px;
+    }
+
+    .al-dg-master-detail__empty {
+      margin: 0;
+      color: var(--al-dg-muted, #5f6368);
+      font-size: 12.5px;
+    }
+  `,
   template: `
     <div
-      class="al-data-grid__detail al-data-grid__detail--nested"
+      class="al-dg-master-detail__body"
       data-testid="al-dg-master-detail"
       (click)="$event.stopPropagation()"
       (keydown)="$event.stopPropagation()"
@@ -37,16 +79,16 @@ import type {
       @if (detailGrid(); as cfg) {
         @if (detailController(); as ctrl) {
           <al-data-grid
-            class="al-data-grid__detail-grid"
+            class="al-dg-master-detail__grid"
             [controller]="ctrl"
             [data]="detailRows()"
             [emptyMessage]="'No detail rows.'"
           />
         } @else {
-          <p class="al-data-grid__detail-empty">Preparing detail grid…</p>
+          <p class="al-dg-master-detail__empty">Preparing detail grid…</p>
         }
       } @else {
-        <p class="al-data-grid__detail-empty">No detail grid configured.</p>
+        <p class="al-dg-master-detail__empty">No detail grid configured.</p>
       }
     </div>
   `,
