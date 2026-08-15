@@ -1,105 +1,107 @@
 /**
  * Store-style expand adapter for `masterDetailPlugin`.
+ *
+ * Explicit overrides win; otherwise `isOpenByDefault` is evaluated purely in the
+ * display builder (no signal writes inside computed).
  */
 
 import { computed, signal, type Signal } from '@angular/core';
 
 export interface MasterDetailAdapter {
+  /** Row ids explicitly forced open. */
   readonly expandedIds: Signal<ReadonlySet<string | number>>;
+  /** Row ids explicitly forced closed. */
+  readonly collapsedIds: Signal<ReadonlySet<string | number>>;
   readonly active: Signal<boolean>;
-  isExpanded(rowId: string | number): boolean;
-  toggle(rowId: string | number): void;
+  /**
+   * @param openByDefault Result of `isOpenByDefault` for this row (pure).
+   */
+  isExpanded(rowId: string | number, openByDefault?: boolean): boolean;
+  toggle(rowId: string | number, openByDefault?: boolean): void;
   expand(rowId: string | number): void;
   collapse(rowId: string | number): void;
   expandAll(rowIds: readonly (string | number)[]): void;
-  collapseAll(): void;
   /**
-   * One-shot open-by-default seeding for unseen master ids.
-   * Safe to call from a display builder (may rewrite `expandedIds` once).
+   * Collapse everything. When `isOpenByDefault` is used, pass all master ids
+   * (or omit to block default-open until an explicit expand).
    */
-  seedOpenByDefault<T>(options: {
-    rows: readonly T[];
-    rowId: (row: T, index: number) => string | number;
-    isRowMaster?: (row: T) => boolean;
-    isOpenByDefault: boolean | ((row: T) => boolean);
-  }): void;
+  collapseAll(allMasterIds?: readonly (string | number)[]): void;
 }
 
 export function createMasterDetailAdapter(): MasterDetailAdapter {
-  const expandedIds = signal<ReadonlySet<string | number>>(new Set());
-  const seededIds = new Set<string | number>();
+  /** Explicit true/false per row id. */
+  const overrides = signal<ReadonlyMap<string | number, boolean>>(new Map());
+  /** After collapseAll() without ids — ignore openByDefault until expand. */
+  const blockDefaultOpen = signal(false);
+
+  const expandedIds = computed(() => {
+    const ids = new Set<string | number>();
+    for (const [id, open] of overrides()) {
+      if (open) {
+        ids.add(id);
+      }
+    }
+    return ids as ReadonlySet<string | number>;
+  });
+
+  const collapsedIds = computed(() => {
+    const ids = new Set<string | number>();
+    for (const [id, open] of overrides()) {
+      if (!open) {
+        ids.add(id);
+      }
+    }
+    return ids as ReadonlySet<string | number>;
+  });
+
+  const isExpanded = (rowId: string | number, openByDefault = false): boolean => {
+    const forced = overrides().get(rowId);
+    if (forced !== undefined) {
+      return forced;
+    }
+    if (blockDefaultOpen()) {
+      return false;
+    }
+    return openByDefault;
+  };
+
+  const setOverride = (rowId: string | number, open: boolean): void => {
+    overrides.update((prev) => {
+      if (prev.get(rowId) === open) {
+        return prev;
+      }
+      const next = new Map(prev);
+      next.set(rowId, open);
+      return next;
+    });
+  };
 
   return {
-    expandedIds: expandedIds.asReadonly(),
+    expandedIds,
+    collapsedIds,
     active: computed(() => true),
-    isExpanded(rowId) {
-      return expandedIds().has(rowId);
-    },
-    toggle(rowId) {
-      expandedIds.update((prev) => {
-        const next = new Set(prev);
-        if (next.has(rowId)) {
-          next.delete(rowId);
-        } else {
-          next.add(rowId);
-        }
-        return next;
-      });
+    isExpanded,
+    toggle(rowId, openByDefault = false) {
+      setOverride(rowId, !isExpanded(rowId, openByDefault));
     },
     expand(rowId) {
-      expandedIds.update((prev) => {
-        if (prev.has(rowId)) {
-          return prev;
-        }
-        const next = new Set(prev);
-        next.add(rowId);
-        return next;
-      });
+      setOverride(rowId, true);
     },
     collapse(rowId) {
-      expandedIds.update((prev) => {
-        if (!prev.has(rowId)) {
-          return prev;
-        }
-        const next = new Set(prev);
-        next.delete(rowId);
-        return next;
-      });
+      setOverride(rowId, false);
     },
     expandAll(rowIds) {
-      for (const id of rowIds) {
-        seededIds.add(id);
-      }
-      expandedIds.set(new Set(rowIds));
+      blockDefaultOpen.set(false);
+      overrides.set(new Map(rowIds.map((id) => [id, true])));
     },
-    collapseAll() {
-      expandedIds.set(new Set());
-    },
-    seedOpenByDefault({ rows, rowId, isRowMaster, isOpenByDefault }) {
-      let changed = false;
-      const next = new Set(expandedIds());
-      rows.forEach((row, index) => {
-        const id = rowId(row, index);
-        if (seededIds.has(id)) {
-          return;
-        }
-        seededIds.add(id);
-        const master = isRowMaster ? isRowMaster(row) : true;
-        if (!master) {
-          return;
-        }
-        const open =
-          typeof isOpenByDefault === 'function'
-            ? isOpenByDefault(row)
-            : isOpenByDefault;
-        if (open) {
-          next.add(id);
-          changed = true;
-        }
-      });
-      if (changed) {
-        expandedIds.set(next);
+    collapseAll(allMasterIds) {
+      if (allMasterIds?.length) {
+        blockDefaultOpen.set(false);
+        overrides.set(new Map(allMasterIds.map((id) => [id, false])));
+        return;
       }
+      overrides.set(new Map());
+      blockDefaultOpen.set(true);
     },
   };
 }

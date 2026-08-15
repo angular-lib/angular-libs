@@ -11,7 +11,8 @@ import {
 export interface BuildMasterDetailRowsOptions<T, D = unknown> {
   rows: readonly T[];
   rowId: (row: T, index: number) => string | number;
-  expandedIds: ReadonlySet<string | number>;
+  /** Pure expand check (adapter + optional open-by-default). */
+  isExpanded: (rowId: string | number, row: T) => boolean;
   getDetailRows: (row: T) => readonly D[];
   isRowMaster?: (row: T) => boolean;
   detailRowHeight: number;
@@ -27,7 +28,7 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
   const {
     rows,
     rowId,
-    expandedIds,
+    isExpanded,
     getDetailRows,
     isRowMaster,
     detailRowHeight,
@@ -43,7 +44,7 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
     }
 
     const master = isRowMaster ? isRowMaster(data.row) : true;
-    if (!master || !expandedIds.has(data.rowId)) {
+    if (!master || !isExpanded(data.rowId, data.row)) {
       continue;
     }
 

@@ -26,10 +26,11 @@ const customers: Customer[] = [
 
 describe('masterDetailPlugin', () => {
   it('inserts detail plugin rows only for expanded masters', () => {
+    const expanded = new Set([1, 3]);
     const rows = buildMasterDetailDisplayRows({
       rows: customers,
       rowId: (r) => r.id,
-      expandedIds: new Set([1, 3]),
+      isExpanded: (id) => expanded.has(id as number),
       getDetailRows: (r) => r.orders,
       detailRowHeight: 160,
       detailColumns: [{ field: 'sku' }, { field: 'qty' }],
@@ -55,7 +56,7 @@ describe('masterDetailPlugin', () => {
     const rows = buildMasterDetailDisplayRows({
       rows: customers,
       rowId: (r) => r.id,
-      expandedIds: new Set([1, 2, 3]),
+      isExpanded: () => true,
       getDetailRows: (r) => r.orders,
       isRowMaster: (r) => r.orders.length > 0,
       detailRowHeight: 120,
@@ -65,39 +66,33 @@ describe('masterDetailPlugin', () => {
     expect(plugins.map((r) => r.id)).toEqual(['md:1', 'md:3']);
   });
 
-  it('adapter toggles expand state', () => {
+  it('adapter toggles expand state with open-by-default', () => {
     const adapter = createMasterDetailAdapter();
-    expect(adapter.isExpanded(1)).toBe(false);
-    adapter.toggle(1);
-    expect(adapter.isExpanded(1)).toBe(true);
-    adapter.toggle(1);
-    expect(adapter.isExpanded(1)).toBe(false);
+    expect(adapter.isExpanded(1, true)).toBe(true);
+    expect(adapter.isExpanded(1, false)).toBe(false);
+
+    adapter.toggle(1, true);
+    expect(adapter.isExpanded(1, true)).toBe(false);
+    expect(adapter.collapsedIds().has(1)).toBe(true);
+
+    adapter.toggle(1, true);
+    expect(adapter.isExpanded(1, true)).toBe(true);
+
     adapter.expandAll([1, 3]);
     expect([...adapter.expandedIds()].sort()).toEqual([1, 3]);
-    adapter.collapseAll();
-    expect(adapter.expandedIds().size).toBe(0);
+
+    adapter.collapseAll([1, 2, 3]);
+    expect(adapter.isExpanded(1, true)).toBe(false);
+    expect(adapter.isExpanded(3, true)).toBe(false);
   });
 
-  it('seeds open-by-default once per row id', () => {
+  it('collapseAll without ids blocks open-by-default', () => {
     const adapter = createMasterDetailAdapter();
-    adapter.seedOpenByDefault({
-      rows: customers,
-      rowId: (r) => r.id,
-      isRowMaster: (r) => r.orders.length > 0,
-      isOpenByDefault: true,
-    });
-    expect([...adapter.expandedIds()].sort()).toEqual([1, 3]);
-
-    adapter.collapse(1);
-    adapter.seedOpenByDefault({
-      rows: customers,
-      rowId: (r) => r.id,
-      isRowMaster: (r) => r.orders.length > 0,
-      isOpenByDefault: true,
-    });
-    // Already seeded — does not re-open 1
-    expect(adapter.isExpanded(1)).toBe(false);
-    expect(adapter.isExpanded(3)).toBe(true);
+    expect(adapter.isExpanded(1, true)).toBe(true);
+    adapter.collapseAll();
+    expect(adapter.isExpanded(1, true)).toBe(false);
+    adapter.expand(1);
+    expect(adapter.isExpanded(1, true)).toBe(true);
   });
 
   it('expandColumn wires renderer params to the adapter', () => {

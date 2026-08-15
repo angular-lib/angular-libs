@@ -31,6 +31,18 @@ export type MasterDetailPlugin<T = unknown, D = unknown> = DataGridPlugin<T> &
     expandColumn(options?: MasterDetailExpandColumnOptions): ColumnDef<T>;
   };
 
+function resolveOpenByDefault<T>(
+  row: T,
+  isOpenByDefault: boolean | ((row: T) => boolean) | undefined,
+): boolean {
+  if (isOpenByDefault == null) {
+    return false;
+  }
+  return typeof isOpenByDefault === 'function'
+    ? isOpenByDefault(row)
+    : isOpenByDefault;
+}
+
 /**
  * Master / detail via display-kind plugin rows (AG Grid–inspired, Angular-native).
  *
@@ -69,6 +81,9 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   const detailColumns = options.detailColumns;
   const isOpenByDefault = options.isOpenByDefault;
 
+  const openDefaultFor = (row: T): boolean =>
+    resolveOpenByDefault(row, isOpenByDefault);
+
   const expandColumn = (
     columnOptions: MasterDetailExpandColumnOptions = {},
   ): ColumnDef<T> => ({
@@ -83,44 +98,37 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     cellRendererParams: {
       masterDetail: adapter,
       isRowMaster,
+      openByDefault: openDefaultFor,
     },
   });
 
   const plugin: MasterDetailPlugin<T, D> = {
     id: 'masterDetail',
     expandedIds: adapter.expandedIds,
+    collapsedIds: adapter.collapsedIds,
     active: adapter.active,
-    isExpanded: (id) => adapter.isExpanded(id),
-    toggle: (id) => adapter.toggle(id),
+    isExpanded: (id, openByDefault) => adapter.isExpanded(id, openByDefault),
+    toggle: (id, openByDefault) => adapter.toggle(id, openByDefault),
     expand: (id) => adapter.expand(id),
     collapse: (id) => adapter.collapse(id),
     expandAll: (ids) => adapter.expandAll(ids),
-    collapseAll: () => adapter.collapseAll(),
-    seedOpenByDefault: (opts) => adapter.seedOpenByDefault(opts),
+    collapseAll: (ids) => adapter.collapseAll(ids),
     expandColumn,
 
     setup(context: DataGridPluginContext<T>): () => void {
       const cleanDisplay = context.capabilities.registerDisplayBuilder({
         id: 'masterDetail',
-        build: (rows, ctx) => {
-          if (isOpenByDefault != null) {
-            adapter.seedOpenByDefault({
-              rows,
-              rowId: ctx.rowId,
-              isRowMaster,
-              isOpenByDefault,
-            });
-          }
-          return buildMasterDetailDisplayRows({
+        build: (rows, ctx) =>
+          buildMasterDetailDisplayRows({
             rows,
             rowId: ctx.rowId,
-            expandedIds: adapter.expandedIds(),
+            isExpanded: (rowId, row) =>
+              adapter.isExpanded(rowId, openDefaultFor(row)),
             getDetailRows,
             isRowMaster,
             detailRowHeight,
             detailColumns,
-          });
-        },
+          }),
       });
 
       const cleanView = context.capabilities.registerDisplayView({
