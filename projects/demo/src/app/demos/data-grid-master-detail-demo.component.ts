@@ -180,7 +180,7 @@ export class DataGridMasterDetailDemoComponent {
       },
     ],
     rowId: (row) => row.id,
-    plugins: [...defaultGridPlugins({ sideBar: false }), this.masterDetail],
+    plugins: [...defaultGridPlugins<Account>({ sideBar: false }), this.masterDetail],
     selection: 'single',
     viewport: { rowHeight: 40, virtual: true },
   });
