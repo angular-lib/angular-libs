@@ -8,6 +8,8 @@ import {
 } from '@angular/core';
 import {
   computeVirtualWindow,
+  rowHeightAt,
+  rowOffsetY,
   type VirtualWindow,
 } from '../controllers/virtual-window';
 import { formatCellValue } from '../utils/cell-value';
@@ -25,7 +27,10 @@ import type {
 } from '../api/grid-api';
 import { leafHeaderRowIndex, type FocusCell } from '../controllers/focus';
 import type { ResolvedColumn, SideBarConfig } from '../components/data-grid/data-grid.types';
-import type { DisplayRow } from '../utils/row-display';
+import {
+  resolveDisplayRowHeight,
+  type DisplayRow,
+} from '../utils/row-display';
 import {
   groupHeaderLeafIdsOf,
   isBodyRowFocusedOf,
@@ -177,10 +182,17 @@ export class ViewportHost<T> {
     () => this.s.virtual() && !this.s.pagination(),
   );
 
+  /** Per-display-row heights (uniform unless plugin rows set `height`). */
+  readonly displayRowHeights: Signal<readonly number[]> = computed(() => {
+    const defaultH = this.s.rowHeight();
+    return this.pagedDisplayRows().map((row) => resolveDisplayRowHeight(row, defaultH));
+  });
+
   readonly virtualWindow: Signal<VirtualWindow> = computed((): VirtualWindow =>
     computeVirtualWindow({
       rowCount: this.pagedDisplayRows().length,
       rowHeight: this.s.rowHeight(),
+      rowHeights: this.displayRowHeights(),
       scrollTop: this.scrollTop(),
       viewportHeight: this.viewportHeight(),
       overscan: this.s.overscan(),
@@ -228,7 +240,10 @@ export class ViewportHost<T> {
     if (!this.virtualEnabled()) {
       return;
     }
-    const top = rowIndex * this.s.rowHeight();
+    const heights = this.displayRowHeights();
+    const defaultH = this.s.rowHeight();
+    const top = rowOffsetY(rowIndex, defaultH, heights);
+    const height = rowHeightAt(rowIndex, defaultH, heights);
     const scroll = this.s.hostElement().querySelector(
       '.al-data-grid__scroll',
     ) as HTMLElement | null;
@@ -237,8 +252,8 @@ export class ViewportHost<T> {
     }
     if (top < scroll.scrollTop) {
       scroll.scrollTop = top;
-    } else if (top + this.s.rowHeight() > scroll.scrollTop + scroll.clientHeight) {
-      scroll.scrollTop = top - scroll.clientHeight + this.s.rowHeight();
+    } else if (top + height > scroll.scrollTop + scroll.clientHeight) {
+      scroll.scrollTop = top - scroll.clientHeight + height;
     }
   }
 

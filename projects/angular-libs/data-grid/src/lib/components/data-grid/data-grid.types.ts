@@ -45,6 +45,8 @@ export interface SortState {
 export interface CellRendererParams<T = unknown> {
   value: unknown;
   row: T;
+  /** Stable host row id from `createGrid({ rowId })`. */
+  rowId: string | number;
   rowIndex: number;
   column: ColumnDef<T>;
   columnId: string;
@@ -112,6 +114,11 @@ export interface ColumnDef<T = unknown> {
    * Templates (`alGridCell`) take precedence when both are set.
    */
   cellRenderer?: Type<unknown>;
+  /**
+   * Optional bag merged into custom cell renderer `params`
+   * (e.g. master-detail expand adapter).
+   */
+  cellRendererParams?: Record<string, unknown>;
   /**
    * Built-in editor id or a custom editor component (`params: CellEditorParams`).
    * Default inferred from `type` / boolean detection.

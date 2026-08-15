@@ -115,8 +115,8 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | Row class | **Done** | `[rowClass]` | |
 | Row events | **Better-path** | `(rowClick)`, `(selectionChange)`, `(rowReorder)` | No per-row listener API |
 | Row pinning (top/bottom data) | **Partial** | Aggregate footer via plugin | Full pinned-row model **Later** if needed |
-| Full-width rows | **Later** | Via display view / plugin kind | Keep out of binder |
-| Master/detail | **Later** | — | Prefer plugin + display kind if ever |
+| Full-width rows | **Partial** | Via `kind: 'plugin'` + optional `height` | Master-detail uses this |
+| Master/detail | **Done** | `masterDetailPlugin` + expand column | Plugin + display kind; not with row group/tree |
 | Mutable RowNode | **Never** | — | Host owns data |
 
 ### 4.3 Sorting, filtering, selection
@@ -717,7 +717,7 @@ Feature-heavy ops prefer **held adapters** (`rowGroupPlugin().setColumns`).
 
 | Default preset | Opt-in |
 | --- | --- |
-| find, clipboard, statusBar, sideBar | csvExport, autosize, rowDrag, aggregateRow, infiniteScroll, rowGroup, treeData, notes, flashCells, **cellRange** |
+| find, clipboard, statusBar, sideBar | csvExport, autosize, rowDrag, aggregateRow, infiniteScroll, rowGroup, treeData, **masterDetail**, notes, flashCells, **cellRange** |
 
 ---
 
@@ -746,7 +746,7 @@ Optional / lower:
 | Undo/redo host helper | 81 | Pure util over edit/paste/fill events |
 | Binder `[(data)]` model mode | 84 | Deferred — prefer §5a |
 | Enterprise package split | 83 | Only if bundle metrics demand |
-| Master/detail via display kind | 74 | Below threshold until needed |
+| Master/detail via display kind | — | ✅ `masterDetailPlugin` |
 
 ---
 
@@ -865,7 +865,7 @@ Defer coding range / full menu / edit bag until Waves 0–2 are in place.
 | SSR / hydration | **Review** | |
 | Print / density | **Review** | Theming vars only |
 | Filter extensibility | **Later** | Wave 5 |
-| Master/detail, pinned rows, undo | **Later** | Light mentions only |
+| Master/detail, pinned rows, undo | **Partial** | Master/detail ✅; pinned/undo later |
 
 **Never (unless revisited):** pivot, Excel export, charts, formulas, AI toolkit,
 column virtualization, canvas, ModuleRegistry, viewport row model, AG theme packs,

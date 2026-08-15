@@ -71,6 +71,18 @@
         }
       </a>
 
+      <a
+        routerLink="/data-grid-master-detail"
+        routerLinkActive="active"
+        class="nav-item"
+        title="Master / Detail"
+      >
+        <span class="nav-icon">▤</span>
+        @if (!isCollapsed()) {
+          <span class="nav-label">Master / Detail</span>
+        }
+      </a>
+
       <a routerLink="/form" routerLinkActive="active" class="nav-item" title="Form">
         <span class="nav-icon">☰</span>
         @if (!isCollapsed()) {

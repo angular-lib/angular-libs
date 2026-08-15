@@ -534,7 +534,7 @@
                             <ng-container
                               [ngComponentOutlet]="Renderer"
                               [ngComponentOutletInputs]="{
-                                params: cellRendererParams(row, rowIndex, col, value),
+                                params: cellRendererParams(row, id, rowIndex, col, value),
                               }"
                             />
                           } @else if (findHit && viewportHost.findHighlightParts(value, row, col, rowIndex); as parts) {
@@ -591,18 +591,21 @@
                       }
                       @case ('plugin') {
                         @let pluginFocused = viewportHost.isBodyRowFocused(displayIndex);
+                        @let pluginHeight = item.height ?? rowHeight();
                         @if (session.kernel.capabilities.getDisplayView(item.pluginKind); as view) {
                           <div
                             class="al-data-grid__row"
+                            [class.al-data-grid__row--detail]="item.pluginKind === 'masterDetail'"
                             role="row"
                             [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
                             [class.al-data-grid__row--focused]="pluginFocused"
-                            [style.height.px]="rowHeight()"
+                            [style.height.px]="pluginHeight"
                             (click)="viewportHost.focusBodyRow(displayIndex)"
                           >
                             <div
                               class="al-data-grid__td"
+                              [class.al-data-grid__td--detail]="item.pluginKind === 'masterDetail'"
                               role="gridcell"
                               [attr.tabindex]="pluginFocused ? 0 : -1"
                               [class.al-data-grid__td--focused]="pluginFocused"
@@ -621,7 +624,7 @@
                             [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
                             [class.al-data-grid__row--focused]="pluginFocused"
-                            [style.height.px]="rowHeight()"
+                            [style.height.px]="pluginHeight"
                             (click)="viewportHost.focusBodyRow(displayIndex)"
                           >
                             <div

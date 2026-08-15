@@ -623,11 +623,20 @@ export class DataGrid<T = unknown> {
 
   cellRendererParams(
     row: T,
+    rowId: string | number,
     rowIndex: number,
     column: ResolvedColumn<T>,
     value: unknown,
   ): CellRendererParams<T> {
-    return { value, row, rowIndex, column, columnId: column.id };
+    return {
+      ...(column.cellRendererParams ?? {}),
+      value,
+      row,
+      rowId,
+      rowIndex,
+      column,
+      columnId: column.id,
+    };
   }
 
   cellEditorParams(
@@ -638,7 +647,7 @@ export class DataGrid<T = unknown> {
     value: unknown,
   ): CellEditorParams<T> {
     return {
-      ...this.cellRendererParams(row, rowIndex, column, value),
+      ...this.cellRendererParams(row, rowId, rowIndex, column, value),
       draft: this.editSyncHost.editDraft(),
       setDraft: (next) => this.editSyncHost.editDraft.set(next),
       commit: () => this.editSyncHost.commitEdit(row, rowId, rowIndex, column),

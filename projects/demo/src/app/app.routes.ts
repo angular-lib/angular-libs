@@ -7,6 +7,7 @@ import { WebDemoComponent } from './demos/web-demo.component';
 import { ShortcutDemoComponent } from './demos/shortcut-demo.component';
 import { SocketDemoComponent } from './demos/socket-demo.component';
 import { DataGridDemoComponent } from './demos/data-grid-demo.component';
+import { DataGridMasterDetailDemoComponent } from './demos/data-grid-master-detail-demo.component';
 import { FormDemoComponent } from './demos/form-demo.component';
 
 export const routes: Routes = [
@@ -19,5 +20,6 @@ export const routes: Routes = [
   { path: 'shortcut', component: ShortcutDemoComponent },
   { path: 'socket', component: SocketDemoComponent },
   { path: 'data-grid', component: DataGridDemoComponent },
+  { path: 'data-grid-master-detail', component: DataGridMasterDetailDemoComponent },
   { path: 'form', component: FormDemoComponent },
 ];

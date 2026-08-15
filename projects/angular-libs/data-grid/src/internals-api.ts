@@ -36,6 +36,8 @@ export {
   collectTreeGroupIds,
   isDataDisplayRow,
   isGroupDisplayRow,
+  isPluginDisplayRow,
+  resolveDisplayRowHeight,
 } from './lib/utils/row-display';
 export type {
   CustomDisplayRow,
@@ -46,7 +48,13 @@ export type {
   TreeDataConfig,
 } from './lib/utils/row-display';
 
-export { computeVirtualWindow } from './lib/controllers/virtual-window';
+export {
+  computeVirtualWindow,
+  cumulativeOffsets,
+  findRowAtOffset,
+  rowHeightAt,
+  rowOffsetY,
+} from './lib/controllers/virtual-window';
 export type { VirtualWindow, VirtualWindowInput } from './lib/controllers/virtual-window';
 
 export { FindController } from './lib/controllers/find';

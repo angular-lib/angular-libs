@@ -165,6 +165,34 @@ context.capabilities.registerDisplayView({
 return [{ kind: 'plugin', pluginKind: 'summary', id: 's1', payload: { total } }];
 ```
 
+### Master / detail
+
+AG-inspired expand rows without a `RowNode` hierarchy. Hold
+`masterDetailPlugin`, prepend `md.expandColumn()`, and supply detail rows:
+
+```ts
+const md = masterDetailPlugin({
+  getDetailRows: (row) => row.orders,
+  detailColumns: [
+    { field: 'sku', header: 'SKU' },
+    { field: 'qty', header: 'Qty', type: 'number' },
+  ],
+  detailRowHeight: 180,
+  isRowMaster: (row) => row.orders.length > 0,
+});
+
+createGrid({
+  columns: [md.expandColumn(), { field: 'name' }],
+  plugins: [...defaultGridPlugins(), md],
+  rowId: (r) => r.id,
+});
+```
+
+Expanded masters insert a full-width `plugin` display row
+(`pluginKind: 'masterDetail'`). Override with `detailComponent` for forms or a
+nested `<al-data-grid>`. Mutually exclusive with `rowGroupPlugin` /
+`treeDataPlugin` (one display builder).
+
 ## Locale
 
 Plugins should call `context.api.getLocale()` for chrome strings (status bar,
@@ -369,6 +397,7 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 | `clipboardPlugin` | `registerInteraction` paste/copy + owns paste matrix → `api.emitPaste` |
 | `rowGroupPlugin` | `registerDisplayBuilder` + `RowGroupAdapter` |
 | `treeDataPlugin` | `registerDisplayBuilder` + `TreeDataAdapter` |
+| `masterDetailPlugin` | `registerDisplayBuilder` + detail display view + expand column |
 | `aggregateRowPlugin` | `registerAggregate` |
 | `infiniteScrollPlugin` | `registerInteraction` → `api.notifyNearEnd` (scroll + ResizeObserver) |
 | `findPlugin` | `enableFind` + key interaction |

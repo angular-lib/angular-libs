@@ -67,6 +67,21 @@ export {
 export type { RowGroupAdapter } from './lib/row-group.adapter';
 export { treeDataPlugin, createTreeDataAdapter } from './lib/tree-data.plugin';
 export type { TreeDataPluginOptions, TreeDataPlugin, TreeDataAdapter } from './lib/tree-data.plugin';
+export {
+  masterDetailPlugin,
+  createMasterDetailAdapter,
+  buildMasterDetailDisplayRows,
+  MasterDetailDefaultView,
+  MasterDetailExpandCell,
+  MASTER_DETAIL_PLUGIN_KIND,
+} from './lib/master-detail.plugin';
+export type {
+  MasterDetailPlugin,
+  MasterDetailAdapter,
+  MasterDetailPluginOptions,
+  MasterDetailPayload,
+  MasterDetailExpandColumnOptions,
+} from './lib/master-detail.plugin';
 export { defaultGridPlugins } from './lib/default-plugins';
 export type { DefaultGridPluginsOptions } from './lib/default-plugins';
 

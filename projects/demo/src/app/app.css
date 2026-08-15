@@ -192,7 +192,8 @@
 }
 
 /* Data grid needs a bounded flex height so virtualization can scroll internally. */
-.content-body > app-data-grid-demo {
+.content-body > app-data-grid-demo,
+.content-body > app-data-grid-master-detail-demo {
   flex: 1 1 0;
   min-height: 0;
   width: 100%;

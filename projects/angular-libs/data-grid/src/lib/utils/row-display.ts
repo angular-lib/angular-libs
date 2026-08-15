@@ -36,6 +36,11 @@ export interface CustomDisplayRow {
   pluginKind: string;
   id: string;
   payload?: unknown;
+  /**
+   * Optional row height in px (e.g. master-detail panels).
+   * Falls back to the grid `rowHeight` when omitted.
+   */
+  height?: number;
 }
 
 export type DisplayRow<T> = DataDisplayRow<T> | GroupDisplayRow | CustomDisplayRow;
@@ -268,4 +273,19 @@ export function isGroupDisplayRow<T>(row: DisplayRow<T>): row is GroupDisplayRow
 
 export function isDataDisplayRow<T>(row: DisplayRow<T>): row is DataDisplayRow<T> {
   return row.kind === 'data';
+}
+
+export function isPluginDisplayRow<T>(row: DisplayRow<T>): row is CustomDisplayRow {
+  return row.kind === 'plugin';
+}
+
+/** Resolve paint/virtual height for a display row. */
+export function resolveDisplayRowHeight<T>(
+  row: DisplayRow<T>,
+  defaultHeight: number,
+): number {
+  if (row.kind === 'plugin' && row.height != null && row.height > 0) {
+    return row.height;
+  }
+  return defaultHeight;
 }

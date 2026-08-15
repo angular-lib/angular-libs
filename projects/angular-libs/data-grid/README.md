@@ -120,6 +120,7 @@ aggregates) and/or **chrome** (toolbar / status / sidebar). See [PLUGINS.md](./P
 | `infiniteScrollPlugin()` | Scroll + resize near-end → `(nearEnd)` |
 | `rowGroupPlugin({ columns })` | Display builder + `RowGroupAdapter` |
 | `treeDataPlugin({ getDataPath })` | Tree display builder + `TreeDataAdapter` |
+| `masterDetailPlugin({ getDetailRows, detailColumns })` | Expand + detail panel (display-kind); `expandColumn()` |
 
 Also available **only** from `@angular-libs/data-grid/plugins` (preferred).
 
@@ -167,10 +168,21 @@ plugins = [tree];
 tree.expandAll();
 ```
 
+```ts
+const md = masterDetailPlugin({
+  getDetailRows: (r) => r.orders,
+  detailColumns: [{ field: 'sku' }, { field: 'qty', type: 'number' }],
+  isRowMaster: (r) => r.orders.length > 0,
+});
+plugins = [...defaultGridPlugins({ sideBar: false }), md];
+columns = [md.expandColumn(), { field: 'name' }];
+```
+
 - **Groups** sidebar tab: check columns to group, reorder levels, **Ungroup**
 - Toolbar: Expand / Collapse / Ungroup (localized via `[locale]`)
 - API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
 - Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`)
+- Master/detail: held adapter + `expandColumn()`; detail via display-kind panel
 
 ## Row drag
 
