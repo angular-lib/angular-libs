@@ -1,6 +1,7 @@
 import { signal, Signal, DestroyRef, inject } from '@angular/core';
 import { ALStorePlugin } from '../interfaces/al-store-plugin';
 import { IALStore } from '../interfaces/ial-store';
+import { beginStoreHydration, endStoreHydration } from '../store-hydration';
 
 /**
  * Configuration options for the robust IndexedDB state persistence plugin.
@@ -191,7 +192,8 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
               try {
                 if (value === undefined) {
                   store.reset(matchingKey);
-                } else if (JSON.stringify(store.get(matchingKey)) !== JSON.stringify(value)) {
+                } else {
+                  // Structured clones (Map/Set/Date) are not comparable via JSON.stringify.
                   store.set(matchingKey, value);
                 }
               } finally {
@@ -205,13 +207,15 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
       }
 
       // Async Hydration with Race Safety
+      beginStoreHydration(store);
       try {
         for (const key of resolvedKeys) {
           try {
             const savedValue = await getVal(String(key));
             
             // Only write if the application has not modified this key during the hydration window
-            if (savedValue !== undefined && savedValue !== null && !dirtyKeysDuringHydration.has(key)) {
+            // Missing key is `undefined`; persisted `null` must still hydrate.
+            if (savedValue !== undefined && !dirtyKeysDuringHydration.has(key)) {
               isWritingHydrationValue = true;
               try {
                 store.set(key, savedValue);
@@ -224,6 +228,7 @@ export function indexedDBPlugin<StoreState extends Record<string, any>>(
           }
         }
       } finally {
+        endStoreHydration(store);
         _isReady.set(true);
         dirtyKeysDuringHydration.clear();
       }

@@ -1,6 +1,7 @@
 import { inject, DestroyRef } from '@angular/core';
 import { ALStorePlugin } from '../interfaces/al-store-plugin';
 import { IALStore } from '../interfaces/ial-store';
+import { beginStoreHydration, endStoreHydration } from '../store-hydration';
 
 /**
  * Configuration options for the state persistence plugin.
@@ -84,19 +85,23 @@ export function persistPlugin<StoreState extends Record<string, any>>(
         ? (Object.keys(store.snapshot()) as (keyof StoreState)[])
         : keys;
 
-      // Hydrate tracked keys from storage before view initialization
-      for (const key of resolvedKeys) {
-        const fullKey = getFullKey(key);
-        const savedItem = storageEngine.getItem(fullKey);
+      beginStoreHydration(store);
+      try {
+        for (const key of resolvedKeys) {
+          const fullKey = getFullKey(key);
+          const savedItem = storageEngine.getItem(fullKey);
 
-        if (savedItem !== null && savedItem !== undefined) {
-          try {
-            const parsedVal = JSON.parse(savedItem);
-            store.set(key, parsedVal);
-          } catch (e) {
-            console.warn(`[PersistPlugin] Failed to parse hydrated key "${String(key)}" from storage:`, e);
+          if (savedItem !== null && savedItem !== undefined) {
+            try {
+              const parsedVal = JSON.parse(savedItem);
+              store.set(key, parsedVal);
+            } catch (e) {
+              console.warn(`[PersistPlugin] Failed to parse hydrated key "${String(key)}" from storage:`, e);
+            }
           }
         }
+      } finally {
+        endStoreHydration(store);
       }
 
       const isBrowser = typeof window !== 'undefined';

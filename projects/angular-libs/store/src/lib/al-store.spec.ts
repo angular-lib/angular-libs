@@ -118,6 +118,19 @@ describe('ALStore Basic Functionality', () => {
     store.set('counter', 5);
     expect(doubleCounter()).toBe(10);
   });
+
+  it('should recompute select() when using Object.keys or in', () => {
+    const keys = TestBed.runInInjectionContext(() =>
+      store.select((state) => Object.keys(state).sort().join(',')),
+    );
+    const hasTheme = TestBed.runInInjectionContext(() => store.select((state) => 'theme' in state));
+
+    expect(keys()).toContain('counter');
+    expect(hasTheme()).toBe(true);
+    store.set('counter', 3);
+    expect(keys()).toContain('counter');
+    expect(hasTheme()).toBe(true);
+  });
 });
 
 describe('ALStore Plugin Hook Error Isolation', () => {
@@ -346,6 +359,38 @@ describe('ALStore Persist Plugin', () => {
 
     expect(newStoreInstance.get('theme')).toBe('dark');
   });
+
+  it('should not record persist hydration as a history undo step', () => {
+    mockStorage.setItem('hist-store:document', JSON.stringify('saved'));
+
+    @Injectable()
+    class HydratedHistoryStore extends ALStore<TestState> {
+      docHistory = this.registerPlugin(historyPlugin('document', { limit: 5 }));
+
+      constructor() {
+        super(initialTestState);
+        this.registerPlugin(
+          persistPlugin(['document'], {
+            storage: mockStorage,
+            keyPrefix: 'hist-store:',
+            broadcast: false,
+          }),
+        );
+      }
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [HydratedHistoryStore] });
+    const store = TestBed.inject(HydratedHistoryStore);
+
+    expect(store.get('document')).toBe('saved');
+    expect(store.docHistory.canUndo()).toBe(false);
+
+    store.set('document', 'edited');
+    expect(store.docHistory.canUndo()).toBe(true);
+    store.docHistory.undo();
+    expect(store.get('document')).toBe('saved');
+  });
 });
 
 describe('ALStore IndexedDB Plugin', () => {
@@ -472,6 +517,77 @@ describe('ALStore IndexedDB Plugin', () => {
 
     expect(storeInstance.idb.isReady()).toBe(true);
     expect(storeInstance.get('theme')).toBe('dark');
+  });
+
+  it('should hydrate persisted null instead of leaving the initial value', async () => {
+    mockObjectStore.get = vi.fn().mockImplementation((key: string) => {
+      const req = {
+        onsuccess: null as any,
+        onerror: null as any,
+        result: key === 'user' ? null : undefined,
+      };
+      setTimeout(() => {
+        if (req.onsuccess) req.onsuccess();
+      }, 0);
+      return req;
+    });
+
+    interface NullableState {
+      user: { name: string } | null;
+    }
+
+    @Injectable()
+    class NullableStore extends ALStore<NullableState> {
+      idb = this.registerPlugin(
+        indexedDBPlugin(['user'], { dbName: 'null-db', storeName: 'null-store', broadcast: false }),
+      );
+      constructor() {
+        super({ user: { name: 'guest' } });
+      }
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [NullableStore] });
+    const store = TestBed.inject(NullableStore);
+    await store.idb.onInit!(store);
+
+    expect(store.get('user')).toBeNull();
+  });
+
+  it('should apply remote Map values from BroadcastChannel', async () => {
+    const channels: Array<{ onmessage: ((event: { data: any }) => void) | null }> = [];
+    class MockBroadcastChannel {
+      onmessage: ((event: { data: any }) => void) | null = null;
+      constructor(_name: string) {
+        channels.push(this);
+      }
+      postMessage(_data: any) {}
+      close() {}
+    }
+    vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
+
+    interface MapState {
+      tags: Map<string, number>;
+    }
+
+    @Injectable()
+    class MapStore extends ALStore<MapState> {
+      idb = this.registerPlugin(
+        indexedDBPlugin(['tags'], { dbName: 'map-db', storeName: 'map-store', broadcast: true }),
+      );
+      constructor() {
+        super({ tags: new Map([['a', 1]]) });
+      }
+    }
+
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [MapStore] });
+    const store = TestBed.inject(MapStore);
+    await store.idb.onInit!(store);
+
+    const incoming = new Map([['b', 2]]);
+    channels[0].onmessage?.({ data: { key: 'tags', value: incoming } });
+    expect(store.get('tags')).toBe(incoming);
   });
 });
 

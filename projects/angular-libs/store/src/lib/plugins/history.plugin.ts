@@ -2,6 +2,7 @@ import { computed, isDevMode, signal, Signal, untracked } from '@angular/core';
 import { HistoryAdapter, HistoryAdapterOptions } from '../interfaces/history.plugin';
 import { IALStore } from '../interfaces/ial-store';
 import { ALStorePlugin } from '../interfaces/al-store-plugin';
+import { isStoreHydrating } from '../store-hydration';
 
 /**
  * Attempts a deep clone via `structuredClone`, falling back to the original reference if the
@@ -79,6 +80,11 @@ export function historyPlugin<
       if (k !== key) return;
 
       const currentValue = newVal;
+
+      if (isStoreHydrating(storeRef)) {
+        previousValue = safeClone(currentValue);
+        return;
+      }
 
       // Determine if the store state is considered hydrated or ready
       let hydrated = true;

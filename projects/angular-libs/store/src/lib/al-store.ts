@@ -73,7 +73,7 @@ import { IALStore } from './interfaces/ial-store';
  *
  *   // Accessing composed adapter functionality cleanly:
  *   addUser(user: User) {
- *     this.store.usersAdapter.add(user);
+ *     this.store.usersAdapter.addOne(user);
  *   }
  *
  *   undoTyping() {
@@ -215,27 +215,41 @@ export abstract class ALStore<T extends Record<string, any> = {}> implements IAL
 
   select<R>(projector: (state: T) => R): Signal<R> {
     const self = this;
-    const stateProxy = new Proxy({} as T, {
-      get: (_, prop: string | symbol) => {
-        return self.getSignal(prop as keyof T)();
-      },
-      has: (_, prop: string | symbol) => {
-        return prop in self.state || prop in self.initialState;
-      },
-      ownKeys: () => Reflect.ownKeys({ ...self.initialState, ...self.state }),
-      getOwnPropertyDescriptor: (_, prop: string | symbol) => {
-        if (typeof prop === 'symbol') return undefined;
-        if (prop in self.state || prop in self.initialState) {
-          return {
-            enumerable: true,
-            configurable: true,
-            get: () => self.getSignal(prop as keyof T)(),
-          };
-        }
-        return undefined;
-      },
+    return computed(() => {
+      // Subscribe to every known key so `in`, `Object.keys`, and spread stay reactive.
+      const known = new Set<string | symbol>([
+        ...Object.keys(self.initialState || {}),
+        ...Object.keys(self.state),
+      ]);
+      for (const k of known) {
+        self.getSignal(k as keyof T)();
+      }
+
+      const stateProxy = new Proxy({} as T, {
+        get: (_, prop: string | symbol) => {
+          return self.getSignal(prop as keyof T)();
+        },
+        has: (_, prop: string | symbol) => {
+          if (typeof prop === 'string') {
+            self.getSignal(prop as keyof T)();
+          }
+          return prop in self.state || prop in self.initialState;
+        },
+        ownKeys: () => Reflect.ownKeys({ ...self.initialState, ...self.state }),
+        getOwnPropertyDescriptor: (_, prop: string | symbol) => {
+          if (typeof prop === 'symbol') return undefined;
+          if (prop in self.state || prop in self.initialState) {
+            return {
+              enumerable: true,
+              configurable: true,
+              get: () => self.getSignal(prop as keyof T)(),
+            };
+          }
+          return undefined;
+        },
+      });
+      return projector(stateProxy);
     });
-    return computed(() => projector(stateProxy));
   }
 
   private safePostMessage(data: SyncMessage<T>): void {

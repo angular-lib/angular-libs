@@ -144,9 +144,9 @@ import {
   ALStore,
   entityPlugin,
   historyPlugin,
+  indexedDBPlugin,
   resourcePlugin,
 } from '@angular-libs/store';
-import { rxResourcePlugin } from '@angular-libs/store/rxjs-interop';
 
 interface Todo {
   id: number;
@@ -220,11 +220,8 @@ export class TodoStore extends ALStore<AppState> {
 ```
 ````
 
-```
-
 </details>
 
 ## License
 
 MIT
-```
