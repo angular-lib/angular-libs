@@ -63,10 +63,19 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
         const data = event.data;
 
         if (data?.type === 'reset') {
+          if (data.key !== undefined && keys && !keys.includes(String(data.key))) {
+            return;
+          }
           isApplyingRemoteReset = true;
           try {
             if (data.key === undefined) {
-              busInstance.resetAllEvents();
+              if (keys) {
+                for (const key of keys) {
+                  busInstance.resetEvent(key);
+                }
+              } else {
+                busInstance.resetAllEvents();
+              }
             } else {
               busInstance.resetEvent(data.key);
             }
@@ -77,6 +86,9 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
         }
 
         const { key, payload, headers } = data;
+        if (keys && !keys.includes(String(key))) {
+          return;
+        }
         isApplyingRemoteEmit = true;
         try {
           busInstance.emit(key, payload, headers ? { headers } : undefined);

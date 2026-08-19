@@ -5,14 +5,25 @@ import {
   Tree,
 } from '@angular-devkit/schematics';
 
-export function ngAdd(): Rule {
+export interface NgAddSchema {
+  project?: string;
+}
+
+interface WorkspaceProject {
+  projectType?: string;
+  sourceRoot?: string;
+  root?: string;
+}
+
+export function ngAdd(options: NgAddSchema = {}): Rule {
   return (tree: Tree, context: SchematicContext) => {
     context.logger.info('Running ng-add for @angular-libs/event-bus');
 
-    const project = getProject(tree);
+    const { name, project } = resolveProject(tree, options.project);
+    context.logger.info(`Using project "${name}"`);
+
     const projectPath = project.sourceRoot || 'src';
 
-    // Create app-event-bus.service.ts
     const serviceContent = `import { Injectable } from '@angular/core';
 import { ALEventBus } from '@angular-libs/event-bus';
 import { AppEventMap } from './event-bus.models';
@@ -21,56 +32,81 @@ import { AppEventMap } from './event-bus.models';
 export class AppEventBus extends ALEventBus<AppEventMap> {}
 `;
     const servicePath = `${projectPath}/app/event-bus/app-event-bus.service.ts`;
-    if (!tree.exists(servicePath)) {
-      tree.create(servicePath, serviceContent);
-    } else {
-      context.logger.warn(`File ${servicePath} already exists, skipping creation.`);
-    }
+    writeIfMissing(tree, context, servicePath, serviceContent);
 
-    // Create event-bus.models.ts
     const modelsContent = `export interface AppEventMap {
   'user:login': { userId: number, userName: string };
 }
 `;
     const modelsPath = `${projectPath}/app/event-bus/event-bus.models.ts`;
-    if (!tree.exists(modelsPath)) {
-      tree.create(modelsPath, modelsContent);
-    } else {
-      context.logger.warn(`File ${modelsPath} already exists, skipping creation.`);
-    }
+    writeIfMissing(tree, context, modelsPath, modelsContent);
 
     return tree;
   };
 }
 
-function getProject(tree: Tree) {
+function writeIfMissing(
+  tree: Tree,
+  context: SchematicContext,
+  path: string,
+  content: string,
+): void {
+  if (tree.exists(path)) {
+    context.logger.warn(`File ${path} already exists, skipping creation.`);
+    return;
+  }
+  tree.create(path, content);
+}
+
+function resolveProject(
+  tree: Tree,
+  requestedName?: string,
+): { name: string; project: WorkspaceProject } {
   const angularJson = tree.read('angular.json');
   if (!angularJson) {
     throw new SchematicsException(
-      'Could not find angular.json in the workspace.'
+      'Could not find angular.json in the workspace.',
     );
   }
 
   const workspace = JSON.parse(angularJson.toString());
-  const projects = workspace.projects || {};
+  const projects = (workspace.projects || {}) as Record<string, WorkspaceProject>;
+  const projectNames = Object.keys(projects);
+
+  if (requestedName) {
+    const project = projects[requestedName];
+    if (!project) {
+      throw new SchematicsException(
+        `Project "${requestedName}" was not found in angular.json.`,
+      );
+    }
+    return { name: requestedName, project };
+  }
+
   const defaultProject =
     workspace.defaultProject ||
     (workspace.extensions && workspace.extensions.defaultProject);
+  if (typeof defaultProject === 'string' && projects[defaultProject]) {
+    return { name: defaultProject, project: projects[defaultProject] };
+  }
 
-  // pick provided default or fall back to the first project key
-  const projectName = defaultProject || Object.keys(projects)[0];
-  if (!projectName) {
+  const applications = projectNames.filter(
+    (name) => projects[name]?.projectType === 'application',
+  );
+  if (applications.length === 1) {
+    return { name: applications[0], project: projects[applications[0]] };
+  }
+  if (applications.length > 1) {
     throw new SchematicsException(
-      'Could not determine an Angular project. Add a defaultProject to angular.json or pass --project.'
+      `Multiple application projects found (${applications.join(', ')}). Pass --project=<name>.`,
     );
   }
 
-  const project = projects[projectName] || projects[Object.keys(projects)[0]];
-  if (!project) {
-    throw new SchematicsException(
-      `Project "${projectName}" not found in angular.json.`
-    );
+  if (projectNames.length === 1) {
+    return { name: projectNames[0], project: projects[projectNames[0]] };
   }
 
-  return project;
+  throw new SchematicsException(
+    'Could not determine an Angular application project. Pass --project=<name>.',
+  );
 }

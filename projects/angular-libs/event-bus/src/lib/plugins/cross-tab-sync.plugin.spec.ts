@@ -105,6 +105,29 @@ describe('crossTabSyncPlugin', () => {
     expect(channelB.postMessage).not.toHaveBeenCalled();
   });
 
+  it('should ignore inbound emits and resets for keys outside the `keys` filter', () => {
+    @Injectable()
+    class FilteredSyncBus extends ALEventBus<TestEventMap> {
+      sync = this.registerPlugin(crossTabSyncPlugin({ keys: ['user:login'] }));
+    }
+    const bus = TestBed.runInInjectionContext(() => new FilteredSyncBus());
+
+    bus.emit('user:login', { userId: 'keep' });
+    bus.emit('theme:changed', 'light');
+
+    const channel = MockBroadcastChannel.instances[0];
+    channel.onmessage?.({
+      data: { type: 'emit', key: 'theme:changed', payload: 'dark' },
+    });
+    expect(bus.latest('theme:changed')?.payload).toBe('light');
+
+    channel.onmessage?.({
+      data: { type: 'reset', key: undefined },
+    });
+    expect(bus.latest('user:login')).toBeUndefined();
+    expect(bus.latest('theme:changed')?.payload).toBe('light');
+  });
+
   it('should not broadcast for keys excluded by the `keys` filter option', () => {
     @Injectable()
     class FilteredSyncBus extends ALEventBus<TestEventMap> {

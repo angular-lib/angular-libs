@@ -1,7 +1,7 @@
 {
   "name": "@angular-libs/event-bus",
   "version": "0.2.8",
-  "description": "A modern, strongly-typed, signal-based event bus service for Angular 19+ applications.",
+  "description": "A modern, strongly-typed, signal-based event bus service for Angular 20+ applications.",
   "keywords": [
     "angular",
     "event-bus",
@@ -17,16 +17,17 @@
   "homepage": "https://angular-lib.github.io/angular-libs/event-bus",
   "repository": {
     "type": "git",
-    "url": "https://github.com/angular-lib/event-bus.git"
+    "url": "git+https://github.com/angular-lib/angular-libs.git",
+    "directory": "projects/angular-libs/event-bus"
   },
   "bugs": {
-    "url": "https://github.com/angular-lib/event-bus/issues"
+    "url": "https://github.com/angular-lib/angular-libs/issues"
   },
   "publishConfig": {
     "access": "public"
   },
   "peerDependencies": {
-    "@angular/core": ">=19.0.0"
+    "@angular/core": ">=20.0.0"
   },
   "dependencies": {
     "tslib": "^2.3.0"

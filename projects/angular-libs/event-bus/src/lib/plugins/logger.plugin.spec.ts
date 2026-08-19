@@ -47,6 +47,22 @@ describe('loggerPlugin', () => {
     vi.restoreAllMocks();
   });
 
+  it('should log by default in development (isDevMode)', () => {
+    @Injectable()
+    class DefaultLoggerBus extends ALEventBus<TestEventMap> {
+      logger = this.registerPlugin(loggerPlugin());
+    }
+    TestBed.configureTestingModule({ providers: [DefaultLoggerBus] });
+    const bus = TestBed.inject(DefaultLoggerBus);
+
+    const groupSpy = vi.spyOn(console, 'groupCollapsed').mockImplementation(() => {});
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'groupEnd').mockImplementation(() => {});
+    bus.emit('theme:changed', 'dark');
+    expect(groupSpy).toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
   it('should not log anything when disabled', () => {
     @Injectable()
     class DisabledLoggerBus extends ALEventBus<TestEventMap> {

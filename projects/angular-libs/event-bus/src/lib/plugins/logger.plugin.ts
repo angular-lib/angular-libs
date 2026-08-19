@@ -1,12 +1,13 @@
+import { isDevMode } from '@angular/core';
 import { ALEventBusPlugin } from '../event-bus.models';
 
 /**
  * Configuration options for the Logger Plugin.
  */
 export interface LoggerPluginOptions {
-  /** 
-   * Enables logging purely in development environments. 
-   * @default true
+  /**
+   * When omitted, logs only in development (`isDevMode()`).
+   * Pass `true` / `false` to force logging on or off.
    */
   enabled?: boolean;
   /** Custom console styling configuration. */
@@ -39,13 +40,13 @@ export interface LoggerPluginOptions {
  * export class AppEventBus extends ALEventBus<AppEventMap> {
  *   constructor() {
  *     super();
- *     this.registerPlugin(loggerPlugin({ enabled: !environment.production }));
+ *     this.registerPlugin(loggerPlugin()); // dev-only by default
  *   }
  * }
  * ```
  */
 export function loggerPlugin(options: LoggerPluginOptions = {}): ALEventBusPlugin {
-  const enabled = options.enabled ?? true;
+  const enabled = options.enabled ?? isDevMode();
   const headerColor = options.theme?.headerColor ?? '#0284c7';
   const payloadColor = options.theme?.payloadColor ?? '#10b981';
 

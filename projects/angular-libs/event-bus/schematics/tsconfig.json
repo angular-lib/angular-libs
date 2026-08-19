@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "lib": ["es2020", "dom"],
     "module": "commonjs",
@@ -16,7 +17,7 @@
     "sourceMap": true,
     "strictNullChecks": true,
     "target": "es2020",
-    "types": ["jasmine", "node"]
+    "types": []
   },
   "include": ["**/*.ts"],
   "exclude": ["files"]
