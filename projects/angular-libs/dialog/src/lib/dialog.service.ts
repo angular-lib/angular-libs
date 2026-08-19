@@ -10,7 +10,7 @@ import {
   DestroyRef,
   type WritableSignal,
 } from '@angular/core';
-import { Router, NavigationStart } from '@angular/router';
+import { Location } from '@angular/common';
 import { DialogRef } from './dialog-ref';
 import { setPosition, bringToFront } from './actions';
 import {
@@ -56,13 +56,14 @@ export class DialogService {
   private envInjector = inject(EnvironmentInjector);
   private destroyRef = inject(DestroyRef);
   private bootstrapConfig = inject(DIALOG_CONFIG, { optional: true }) as ProvideDialogConfig | null;
-  private router = inject(Router, { optional: true });
+  private location = inject(Location, { optional: true });
 
   public config: WritableSignal<GlobalDialogConfig> = signal<GlobalDialogConfig>({
     ...(this.bootstrapConfig ?? {}),
   });
 
   public openDialogs: DialogRef<any, any>[] = [];
+  private lastFullscreenHost: HTMLElement | null = null;
 
   constructor() {
     if (typeof document !== 'undefined') {
@@ -78,11 +79,18 @@ export class DialogService {
   }
 
   private handleGlobalFullscreenChange = (): void => {
-    if (document.fullscreenElement) return;
+    if (document.fullscreenElement) {
+      this.lastFullscreenHost = document.fullscreenElement as HTMLElement;
+      return;
+    }
+
+    const host = this.lastFullscreenHost;
+    this.lastFullscreenHost = null;
+    if (!host) return;
 
     for (const ref of this.openDialogs) {
       const el = ref.dialogEl;
-      if (el && el.parentElement && el.parentElement !== document.body) {
+      if (el && el.parentElement === host) {
         const activeElement = document.activeElement as HTMLElement | null;
         document.body.appendChild(el);
         if (activeElement && el.contains(activeElement)) {
@@ -404,6 +412,11 @@ export class DialogService {
 
     const dialogEl = document.createElement('dialog');
     dialogEl.classList.add('al-dialog');
+    if (meta.intent === 'window') {
+      dialogEl.classList.add('al-dialog-window');
+    } else if (meta.intent === 'popover') {
+      dialogEl.classList.add('al-dialog-popover');
+    }
 
     applyClasses(dialogEl, mergedOptions.panelClass);
 
@@ -535,12 +548,10 @@ export class DialogService {
     };
     dialogEl.addEventListener('cancel', handleDismiss);
 
-    let navSub: { unsubscribe: () => void } | undefined;
-    if (mergedOptions.closeOnNavigation && this.router) {
-      navSub = this.router.events.subscribe((event) => {
-        if (event instanceof NavigationStart) {
-          dialogRef.close(undefined, 'navigation');
-        }
+    let unlistenNav: VoidFunction | undefined;
+    if (mergedOptions.closeOnNavigation && this.location) {
+      unlistenNav = this.location.onUrlChange(() => {
+        dialogRef.close(undefined, 'navigation');
       });
     }
 
@@ -552,7 +563,7 @@ export class DialogService {
           this.openDialogs.splice(index, 1);
         }
 
-        navSub?.unsubscribe();
+        unlistenNav?.();
 
         this.appRef.detachView(compRef.hostView);
         compRef.destroy();

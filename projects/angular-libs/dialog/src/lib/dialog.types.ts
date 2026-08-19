@@ -20,24 +20,24 @@ export type ComponentInputs<T> = {
         : never;
 };
 
+/** Implement on the component class to brand `open()` / `window()` result without a public `dialogRef`. */
+export interface DialogResultBrand<TResult> {
+  ɵdialogResult?: TResult;
+}
+
 /**
  * Infers the dialog result type from a component.
  *
- * Looks for a public `dialogRef: DialogRef<R>` property first, then an optional
- * static `ɵdialogResult` brand on the component class.
+ * Looks for a public `dialogRef: DialogRef<R>` property first, then
+ * {@link DialogResultBrand} (`ɵdialogResult` on the instance type).
  */
 export type InferDialogResult<TComponent> = TComponent extends {
   dialogRef: DialogRef<infer R, any>;
 }
   ? R
-  : TComponent extends { constructor: { ɵdialogResult?: infer R } }
+  : TComponent extends DialogResultBrand<infer R>
     ? R
     : unknown;
-
-/** Optional brand for result inference without a public `dialogRef` field. */
-export interface DialogResultBrand<TResult> {
-  ɵdialogResult?: TResult;
-}
 
 export interface DialogPluginContext<TComponent = any> {
   element: HTMLDialogElement;

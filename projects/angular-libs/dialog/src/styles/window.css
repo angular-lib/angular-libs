@@ -1,6 +1,6 @@
 /* Window features — drag, dock/taskbar, tile snapping. Import with core.css for dialog.window(). */
 
-.al-dialog-taskbar {
+:root {
   --al-dock-bg: rgba(255, 255, 255, 0.4);
   --al-dock-backdrop-filter: blur(12px);
   --al-dock-border: 1px solid rgba(15, 23, 42, 0.08);
@@ -8,7 +8,9 @@
   --al-dock-border-radius: 18px;
   --al-dock-box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
   --al-dock-gap: 16px;
+}
 
+.al-dialog-taskbar {
   position: fixed;
   bottom: 16px;
   left: 50%;

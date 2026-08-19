@@ -30,13 +30,7 @@
   ],
   "peerDependencies": {
     "@angular/common": ">=19",
-    "@angular/core": ">=19",
-    "@angular/router": ">=19"
-  },
-  "peerDependenciesMeta": {
-    "@angular/router": {
-      "optional": true
-    }
+    "@angular/core": ">=19"
   },
   "dependencies": {
     "tslib": "^2.3.0"

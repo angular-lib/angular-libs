@@ -197,7 +197,11 @@ export function tileSnappingPlugin(options: TileSnappingOptions = {}): DialogPlu
         // Find if this dialog is currently the visually foremost/top-most non-modal dialog on the screen.
         // This is extremely robust: it bypasses browser focus/blur inconsistencies that shift focus to document.body
         // when clicking non-focusable dialog headers or points.
-        const openDialogs = Array.from(document.querySelectorAll('.al-dialog:not(.al-dialog-minimized)')) as HTMLElement[];
+        const openDialogs = Array.from(
+          document.querySelectorAll(
+            '.al-dialog:not(.al-dialog-minimized):not(.al-dialog-toast):not(.al-dialog-popover)',
+          ),
+        ) as HTMLElement[];
         const isForemostDialog = openDialogs.length > 0 && openDialogs[openDialogs.length - 1] === element;
         if (!isForemostDialog) return;
 

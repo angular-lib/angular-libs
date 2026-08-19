@@ -23,7 +23,7 @@ npm install @angular-libs/dialog
 
 ### Public theme tokens
 
-Override these on `dialog.al-dialog` (or a parent):
+Override dialog tokens on `dialog.al-dialog` (or a parent). Dock tokens live on `:root` / `.al-dialog-taskbar` — the taskbar is appended to `document.body`, so setting them on the `<dialog>` has no effect.
 
 | Token | Role |
 |-------|------|
@@ -35,7 +35,7 @@ Override these on `dialog.al-dialog` (or a parent):
 | `--al-dialog-backdrop` | Backdrop |
 | `--al-dialog-accent` | Primary actions |
 | `--al-dialog-font-family` | Font |
-| `--al-dock-bg` | Dock surface (window.css) |
+| `--al-dock-bg` | Dock surface (`:root` / `.al-dialog-taskbar`, window.css) |
 
 Light defaults ship out of the box; `prefers-color-scheme: dark` adjusts the same tokens. Additional vars exist for header/footer/buttons; treat those as advanced.
 
