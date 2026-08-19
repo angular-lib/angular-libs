@@ -1,4 +1,5 @@
 import { ALShortcutPlugin } from '../shortcut.types';
+import { normaliseShortcut } from '../shortcut.utils';
 
 export interface ALShortcutContextGuardPlugin extends ALShortcutPlugin {
   /**
@@ -49,8 +50,7 @@ export function contextGuardPlugin(): ALShortcutContextGuardPlugin {
         return; // No active contexts, proceed normally
       }
 
-      // We normalize the incoming shortcut to match any registered rules reliably
-      const normalizedShortcut = shortcut.toLowerCase().trim();
+      const normalizedShortcut = normaliseShortcut(shortcut);
 
       // Check all rules for active contexts
       for (const rule of rules) {
@@ -59,7 +59,7 @@ export function contextGuardPlugin(): ALShortcutContextGuardPlugin {
         }
 
         const isMatch =
-          rule.shortcuts?.some(s => s.toLowerCase().trim() === normalizedShortcut) ||
+          rule.shortcuts?.some((s) => normaliseShortcut(s) === normalizedShortcut) ||
           rule.pattern?.test(normalizedShortcut);
 
         if (isMatch) {
@@ -77,7 +77,7 @@ export function contextGuardPlugin(): ALShortcutContextGuardPlugin {
                 return false;
               }
               return (
-                r.shortcuts?.some(s => s.toLowerCase().trim() === normalizedShortcut) ||
+                r.shortcuts?.some((s) => normaliseShortcut(s) === normalizedShortcut) ||
                 r.pattern?.test(normalizedShortcut)
               );
             });

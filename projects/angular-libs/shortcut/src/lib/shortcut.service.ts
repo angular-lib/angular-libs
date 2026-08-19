@@ -261,13 +261,12 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
       }
     }
 
-    const matchedKey = typeof target === 'object' ? (target.shortcut || keyString) : keyString;
     const event = customEvent || new KeyboardEvent('keydown', {
-      key: matchedKey.split('+').pop() || '',
-      ctrlKey: matchedKey.includes('ctrl'),
-      metaKey: matchedKey.includes('meta'),
-      altKey: matchedKey.includes('alt'),
-      shiftKey: matchedKey.includes('shift'),
+      key: normalised.split('+').find((p) => !['ctrl', 'meta', 'alt', 'shift'].includes(p)) || '',
+      ctrlKey: normalised.split('+').includes('ctrl'),
+      metaKey: normalised.split('+').includes('meta'),
+      altKey: normalised.split('+').includes('alt'),
+      shiftKey: normalised.split('+').includes('shift'),
       bubbles: true,
       cancelable: true,
     });

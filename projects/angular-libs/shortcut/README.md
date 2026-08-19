@@ -8,7 +8,7 @@ Zoneless, SSR-safe keyboard shortcut manager for Angular. Capture-phase document
 npm install @angular-libs/shortcut
 ```
 
-Peer dependencies: `@angular/core` and `@angular/common` ^22.
+Peer dependencies: `@angular/core` and `@angular/common` ≥22.
 
 ## Bootstrap
 
