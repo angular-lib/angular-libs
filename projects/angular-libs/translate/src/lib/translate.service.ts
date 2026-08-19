@@ -96,25 +96,26 @@ export function provideALTranslate<TSchema extends TranslationSchema = any>(conf
         translate.setDictionary(config.staticData);
       }
 
-      // Fire lang-change after dictionary/fallback are applied so plugins can safely call get().
-      (translate as any).triggerLangChange(config.defaultLang);
-
       if (config.loader) {
         translate.setLoader((lang: string) =>
           runInInjectionContext(injector, () => config.loader!(lang)),
         );
 
         if (!config.staticData) {
+          // loadLanguage sets the dictionary then fires onLangChange once.
           const loadPromise = translate.loadLanguage(config.defaultLang).catch(() => {
             // Failure is logged inside loadLanguage; do not fatally block boot.
           });
 
-          // Optionally block bootstrap until the primary language is loaded
           if (config.blockBootstrap !== false) {
             return loadPromise;
           }
+          return;
         }
       }
+
+      // staticData and/or no loader — plugins can safely call get() now.
+      (translate as any).triggerLangChange(config.defaultLang);
 
       return;
     }),

@@ -115,11 +115,20 @@ export class MyComponent {
 
 ### Option B: The Pipe Way (Classic Angular)
 
-For quick template-driven development, you can use the standalone `TranslatePipe`.
+For quick template-driven development, import the standalone `TranslatePipe`.
 
-```html
-<h2>{{ 'home.title' | translate }}</h2>
-<p>{{ 'greeting' | translate: { name: 'Alice' } }}</p>
+```typescript
+import { Component } from '@angular/core';
+import { TranslatePipe } from '@angular-libs/translate';
+
+@Component({
+  imports: [TranslatePipe],
+  template: `
+    <h2>{{ 'home.title' | translate }}</h2>
+    <p>{{ 'greeting' | translate: { name: 'Alice' } }}</p>
+  `,
+})
+export class MyComponent {}
 ```
 
 ### Option C: The Synchronous Way (For TS Logic)

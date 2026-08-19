@@ -18,11 +18,11 @@
   "license": "MIT",
   "homepage": "https://angular-lib.github.io/angular-libs/translate",
   "bugs": {
-    "url": "https://github.com/angular-lib/translate/issues"
+    "url": "https://github.com/angular-lib/angular-libs/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/angular-lib/translate.git",
+    "url": "git+https://github.com/angular-lib/angular-libs.git",
     "directory": "projects/angular-libs/translate"
   },
   "peerDependencies": {
