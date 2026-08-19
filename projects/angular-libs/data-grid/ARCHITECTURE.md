@@ -261,7 +261,8 @@ Optional later: `…/plugins/enterprise` **only** if bundle size demands it (I /
 ## Consumer DX (canonical)
 
 ```ts
-import { applyCellEdit, createGrid, form } from '@angular-libs/data-grid'; // form from @angular/forms/signals
+import { applyCellEdit, createGrid } from '@angular-libs/data-grid';
+import { form } from '@angular/forms/signals';
 import {
   defaultGridPlugins,
   rowDragPlugin,

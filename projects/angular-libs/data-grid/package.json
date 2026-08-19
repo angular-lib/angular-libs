@@ -1,11 +1,35 @@
 {
   "name": "@angular-libs/data-grid",
   "version": "0.0.1",
+  "description": "Lightweight signal-first Angular data grid: createGrid, plugins, Signal Forms editing, virtualization.",
+  "author": "angular-lib",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/angular-lib/angular-libs.git",
+    "directory": "projects/angular-libs/data-grid"
+  },
+  "bugs": {
+    "url": "https://github.com/angular-lib/angular-libs/issues"
+  },
   "homepage": "https://angular-lib.github.io/angular-libs/data-grid",
+  "keywords": [
+    "angular",
+    "signals",
+    "data-grid",
+    "datagrid",
+    "table",
+    "virtualization",
+    "signal-forms",
+    "angular-libs"
+  ],
   "peerDependencies": {
-    "@angular/common": "^22.0.0",
-    "@angular/core": "^22.0.0",
-    "@angular/forms": "^22.0.0"
+    "@angular/common": ">=22.0.0",
+    "@angular/core": ">=22.0.0",
+    "@angular/forms": ">=22.0.0"
   },
   "dependencies": {
     "tslib": "^2.3.0"

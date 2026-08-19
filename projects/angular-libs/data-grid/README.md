@@ -14,7 +14,7 @@ modularization spec, [ROADMAP.md](./ROADMAP.md) for phased delivery, and
 
 ## Install
 
-Peer deps: `@angular/core` / `@angular/common` / `@angular/forms` ^22.
+Peer deps: `@angular/core` / `@angular/common` / `@angular/forms` ≥22.
 
 ## Quick start (held objects + `createGrid`)
 
@@ -182,7 +182,7 @@ columns = [md.expandColumn(), { field: 'name' }];
 ```
 
 - **Groups** sidebar tab: check columns to group, reorder levels, **Ungroup**
-- Toolbar: Expand / Collapse / Ungroup (localized via `[locale]`)
+- Expand / Collapse / Ungroup live on the held adapter (`groups.expandAll()`, `groups.collapseAll()`, `groups.clear()`) and `DataGridApi` — no default toolbar buttons
 - API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
 - Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`)
 - Master/detail: nested detail grid via `detailGrid` / `detailColumns`; `expandColumn()`
