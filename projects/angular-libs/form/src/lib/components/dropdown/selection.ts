@@ -57,6 +57,25 @@ export function mergeDisplayRows(
   return hasToggled ? [...without, toggled] : without;
 }
 
+/** Closed-UI rows: object mode reads the field; id mode uses seeded selectionDisplay. */
+export function resolveDisplayRows(
+  valueMode: 'id' | 'object',
+  fieldValue: unknown,
+  multiple: boolean,
+  seeded: readonly unknown[] | undefined,
+): DropdownItem[] {
+  if (valueMode === 'object') {
+    if (multiple) {
+      return Array.isArray(fieldValue) ? (fieldValue as DropdownItem[]) : [];
+    }
+    if (fieldValue != null && typeof fieldValue === 'object') {
+      return [fieldValue as DropdownItem];
+    }
+    return [];
+  }
+  return Array.isArray(seeded) ? ([...seeded] as DropdownItem[]) : [];
+}
+
 export function resolveEmptyValue(
   emptyValue: unknown | undefined,
   current: unknown,

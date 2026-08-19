@@ -108,7 +108,7 @@ provideFormFields({ select: MyFormSelect })
 | Controller | `createForm`, `FormController`, `seedSelection`, `clearSelection` |
 | Factories | `formText`…, `formElementGroup`, `formRow`, `formFactories`, `FORM_WIDTHS` |
 | Root UI | `AlSignalForm` |
-| Standalone controls | `AlTextInput`, `AlNumberInput`, `AlTextarea`, `AlCheckbox`, `AlPasswordInput`, `AlSearchInput`, `AlDatePicker`, `AlTimePicker`, `AlDateTimePicker`, `AlRadioGroup`, `AlSwitch`, `AlSlider`, `AlFileInput`, `AlColorInput`, `AlTagInput`, `AlDuration`, `AlDropdown` |
+| Standalone controls | `AlTextInput`, `AlNumberInput`, `AlTextarea`, `AlCheckbox`, `AlPasswordInput`, `AlSearchInput`, `AlDatePicker`, `AlTimePicker`, `AlDateTimePicker`, `AlRadioGroup`, `AlSwitch`, `AlSlider`, `AlFileInput`, `AlColorInput`, `AlTagInput`, `AlDuration`, `AlDropdown`, `DropdownItem` |
 | Form adapters | `AlFormText` … `AlFormDuration`, `AlFormSelect`, … — registry + `provideFormFields` |
 | Form chrome | `AlField`, `AlFieldShell`, `AlControlChrome`, `formCustom` |
 | Grid bridge | `toColumnDefs` |

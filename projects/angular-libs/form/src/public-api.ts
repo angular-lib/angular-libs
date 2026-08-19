@@ -126,6 +126,7 @@ export { AlDuration } from './lib/components/controls/duration';
 export { AlDropdown } from './lib/components/dropdown/al-dropdown';
 export type { AlDropdownValueChange } from './lib/components/dropdown/al-dropdown';
 export type { AlDropdownApi } from './lib/components/dropdown/dropdown-api';
+export type { DropdownItem } from './lib/components/dropdown/dropdown-utils';
 
 /** Form adapters — export for `provideFormFields` overrides / custom composition. */
 export { AlFormText } from './lib/components/form/form-text';

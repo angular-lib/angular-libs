@@ -15,7 +15,7 @@ import {
   type AlDropdownValueChange,
 } from '../dropdown/al-dropdown';
 import type { AlDropdownApi } from '../dropdown/dropdown-api';
-import { resolveEmptyValue } from '../dropdown/selection';
+import { resolveDisplayRows, resolveEmptyValue } from '../dropdown/selection';
 import type { DropdownItem } from '../dropdown/dropdown-utils';
 
 let nextSelectAnchor = 0;
@@ -102,12 +102,14 @@ export class AlFormSelect {
   protected readonly displayRows = computed(() => {
     const path = this.element().path as string | undefined;
     const ctrl = this.controller();
-    if (!path || !ctrl) {
-      return [] as DropdownItem[];
-    }
-    const map = ctrl.selectionDisplay();
-    const sig = map[path];
-    return (sig ? sig() : []) as DropdownItem[];
+    const seeded =
+      path && ctrl ? (ctrl.selectionDisplay()[path]?.() as unknown[] | undefined) : undefined;
+    return resolveDisplayRows(
+      this.valueMode(),
+      this.field()?.()?.value(),
+      !!this.props().multiple,
+      seeded,
+    );
   });
 
   protected readonly hasValue = computed(() => {

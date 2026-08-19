@@ -19,6 +19,7 @@ import {
   isItemSelected,
   mergeDisplayRows,
   normalizeIds,
+  resolveDisplayRows,
   resolveEmptyValue,
 } from './selection';
 import {
@@ -91,6 +92,14 @@ describe('selection', () => {
     expect(resolveEmptyValue(undefined, 5)).toBe(0);
     expect(resolveEmptyValue(undefined, 'x')).toBe('');
     expect(resolveEmptyValue(-1, 5)).toBe(-1);
+  });
+
+  it('reads object-mode display rows from the field, not seeded labels', () => {
+    const role = { id: 1, name: 'Admin' };
+    expect(resolveDisplayRows('object', role, false, [])).toEqual([role]);
+    expect(resolveDisplayRows('object', [role], true, [])).toEqual([role]);
+    expect(resolveDisplayRows('object', null, false, [role])).toEqual([]);
+    expect(resolveDisplayRows('id', 1, false, [role])).toEqual([role]);
   });
 });
 
