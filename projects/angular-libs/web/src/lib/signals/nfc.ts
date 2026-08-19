@@ -83,6 +83,7 @@ export function nfcSignal(): NfcSignal {
   });
 
   let readerInstance: any = null;
+  let listenersBound = false;
 
   const handleReading = (event: any) => {
     const rawMessage = event.message;
@@ -149,8 +150,11 @@ export function nfcSignal(): NfcSignal {
         message: null,
       });
 
-      readerInstance.addEventListener('reading', handleReading);
-      readerInstance.addEventListener('readingerror', handleReadingError);
+      if (!listenersBound) {
+        readerInstance.addEventListener('reading', handleReading);
+        readerInstance.addEventListener('readingerror', handleReadingError);
+        listenersBound = true;
+      }
     } catch (err: any) {
       if (err.name === 'AbortError') {
         return;
@@ -212,6 +216,7 @@ export function nfcSignal(): NfcSignal {
       if (readerInstance) {
         readerInstance.removeEventListener('reading', handleReading);
         readerInstance.removeEventListener('readingerror', handleReadingError);
+        listenersBound = false;
       }
     });
   }

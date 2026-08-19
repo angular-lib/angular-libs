@@ -7,11 +7,11 @@
   "homepage": "https://angular-lib.github.io/angular-libs/web",
   "repository": {
     "type": "git",
-    "url": "https://github.com/angular-lib/web.git",
+    "url": "git+https://github.com/angular-lib/angular-libs.git",
     "directory": "projects/angular-libs/web"
   },
   "bugs": {
-    "url": "https://github.com/angular-lib/web/issues"
+    "url": "https://github.com/angular-lib/angular-libs/issues"
   },
   "publishConfig": {
     "access": "public"

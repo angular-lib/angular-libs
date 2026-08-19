@@ -208,8 +208,8 @@ export class BatteryIndicatorComponent {
 | 📂 **File System Access** | `fileSystemSignal()` | Native local file picking, reading, editing, and saving. |
 | 📍 **Geolocation** | `geolocationSignal()` | GPS coordinates, heading, altitude, and speed tracking. |
 | 🔄 **Gyroscope** | `gyroscopeSignal()` | Angular velocity along x, y, and z axes. |
-| 💤 **Idle Detection** | `idleSignal()` | Detect user inactivity and screen lock states. |
-| ⌨️ **Keyboard State** | `keyboardStateSignal()` | Track active keyboard physical layout and press status. |
+| 💤 **Idle** | `idleSignal()` | Inactivity timer on DOM events (mousemove, keydown, …). Not the Idle Detection API / screen lock. |
+| ⌨️ **Keyboard State** | `keyboardStateSignal()` | Currently pressed keys and modifier flags (`ctrl` / `shift` / `alt` / `meta`). |
 | 🎥 **Media Devices** | `mediaDevicesSignal()` | Enumerate connected cameras, microphones, and audio output devices. |
 | 📶 **Network Status** | `networkSignal()` | Connection status (`online`/`offline`), effective connection type, and bandwidth estimates. |
 | 📡 **NFC** | `nfcSignal()` | Read and write NDEF payloads to nearby NFC tags. |
