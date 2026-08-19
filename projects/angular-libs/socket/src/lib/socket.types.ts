@@ -108,7 +108,7 @@ export interface CreateWebSocketOptions<TSend = unknown, TReceive = unknown>
   /** New clients default to no heartbeat. Configure it explicitly for the server protocol. */
   heartbeat?: WebSocketHeartbeatOptions;
   reconnect?: WebSocketReconnectOptions;
-  outbox?: WebSocketOutboxOptions;
+  outbox?: WebSocketOutboxOptions<TSend>;
 }
 
 export interface SocketClient<TSend = unknown, TReceive = unknown> {

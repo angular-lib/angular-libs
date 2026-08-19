@@ -231,7 +231,23 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
         if (epochAtLoad !== outboxEpoch) return;
         if (!Array.isArray(loadedItems) || loadedItems.length === 0) return;
         updateQueue((currentQueued) => {
-          const merged = [...loadedItems, ...currentQueued];
+          const liveKeys = new Set(
+            currentQueued.map((item) => {
+              try {
+                return JSON.stringify(item);
+              } catch {
+                return null;
+              }
+            }),
+          );
+          const prefix = loadedItems.filter((item) => {
+            try {
+              return !liveKeys.has(JSON.stringify(item));
+            } catch {
+              return true;
+            }
+          });
+          const merged = [...prefix, ...currentQueued];
           if (merged.length > outbox.maxSize) {
             return outbox.overflow === 'drop-oldest'
               ? merged.slice(merged.length - outbox.maxSize)
@@ -415,7 +431,7 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
     });
   }
 
-  effect((onCleanup) => {
+  const bindUrl = (onCleanup?: (fn: () => void) => void) => {
     const nextUrl = url();
     if (!nextUrl) {
       untracked(() => {
@@ -425,8 +441,24 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
       return;
     }
     untracked(() => void connect(nextUrl));
-    onCleanup(() => untracked(() => shutdown(undefined, undefined, false)));
-  }, effectInjector ? { injector: effectInjector } : undefined);
+    onCleanup?.(() => untracked(() => shutdown(undefined, undefined, false)));
+  };
+
+  if (effectInjector) {
+    effect((onCleanup) => bindUrl(onCleanup), { injector: effectInjector });
+  } else {
+    try {
+      effect((onCleanup) => bindUrl(onCleanup));
+    } catch {
+      if (isDevMode()) {
+        console.warn(
+          `[createWebSocket] effect() requires an injection context. Connecting once to the current URL.\n` +
+            `Pass { injector } or call createWebSocket() from a constructor / field initializer for reactive URL updates.`,
+        );
+      }
+      bindUrl();
+    }
+  }
 
   destroyRef?.onDestroy(() => shutdown());
 

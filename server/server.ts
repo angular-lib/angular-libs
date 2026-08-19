@@ -3,7 +3,7 @@
 /**
  * High-performance, zero-dependency Bun WebSocket server.
  * Supports real-time room subscribes, message broadcasts, and periodic heartbeats.
- * Run with: `bun run server/server.ts` or `npm run server`
+ * Run with: `bun run socket` or `bun run server/server.ts`
  */
 
 console.log("Starting WebStream Live Test Server via Bun... 📡");
