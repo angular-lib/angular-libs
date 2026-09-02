@@ -24,14 +24,24 @@ import type {
  * Replacing `detailGrid.columns` (even on the same options object) must recreate
  * the nested controller — `createGrid` stores `columns` as a plain field.
  */
-export function detailGridConfigKey(cfg: MasterDetailGridOptions): string {
+export function detailGridConfigKey(cfg: {
+  columns: readonly {
+    id?: string;
+    field?: string;
+    header?: string;
+    children?: unknown;
+  }[];
+  selection?: string;
+  plugins?: readonly unknown[];
+  viewport?: { virtual?: boolean; rowHeight?: number };
+  chrome?: { showToolbar?: boolean; floatingFilters?: boolean };
+}): string {
   const cols = cfg.columns
     .map((c) => {
-      if ('children' in c) {
-        return `g:${String((c as { header?: string }).header ?? '')}`;
+      if ('children' in c && c.children) {
+        return `g:${String(c.header ?? '')}`;
       }
-      const col = c as { id?: string; field?: string };
-      return String(col.id ?? col.field ?? '');
+      return String(c.id ?? c.field ?? '');
     })
     .join(',');
   return [
