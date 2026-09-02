@@ -270,7 +270,8 @@
         "test": {
           "builder": "@angular/build:unit-test",
           "options": {
-            "tsConfig": "projects/angular-libs/data-grid/tsconfig.spec.json"
+            "tsConfig": "projects/angular-libs/data-grid/tsconfig.spec.json",
+            "include": ["**/*.spec.ts", "../plugins/src/**/*.spec.ts"]
           }
         }
       }
