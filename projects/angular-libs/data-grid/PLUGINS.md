@@ -99,7 +99,7 @@ export function myPlugin<T>(): DataGridPlugin<T> {
 Maps processed `T[]` → `DisplayRow[]` (group / tree / custom).
 
 **Exclusive:** only one display builder may be active. Registering another
-replaces the previous (row group and tree cannot run together).
+replaces the previous (row group, tree, and master-detail cannot run together).
 
 ```ts
 context.capabilities.registerDisplayBuilder({

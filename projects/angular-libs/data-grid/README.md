@@ -154,8 +154,9 @@ inputs on `DataGrid` (see architecture Phase 1).
 
 ## Row grouping & tree
 
-**Mutually exclusive:** only one display builder is active (row group **or** tree).
-Registering both replaces the previous builder with a console warning.
+**Mutually exclusive:** only one display builder is active (row group, tree, **or**
+master-detail). Registering another replaces the previous builder with a console
+warning.
 
 ```ts
 const groups = rowGroupPlugin({ columns: ['department'] });
