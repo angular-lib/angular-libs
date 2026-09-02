@@ -20,6 +20,31 @@ import type {
 } from './master-detail.types';
 
 /**
+ * Stable key for nested `createGrid` identity.
+ * Replacing `detailGrid.columns` (even on the same options object) must recreate
+ * the nested controller — `createGrid` stores `columns` as a plain field.
+ */
+export function detailGridConfigKey(cfg: MasterDetailGridOptions): string {
+  const cols = cfg.columns
+    .map((c) => {
+      if ('children' in c) {
+        return `g:${String((c as { header?: string }).header ?? '')}`;
+      }
+      const col = c as { id?: string; field?: string };
+      return String(col.id ?? col.field ?? '');
+    })
+    .join(',');
+  return [
+    cols,
+    `sel:${cfg.selection ?? ''}`,
+    `plug:${cfg.plugins?.length ?? 0}`,
+    `virt:${cfg.viewport?.virtual ?? ''}`,
+    `rh:${cfg.viewport?.rowHeight ?? ''}`,
+    `chrome:${cfg.chrome?.showToolbar ?? ''}:${cfg.chrome?.floatingFilters ?? ''}`,
+  ].join('|');
+}
+
+/**
  * Default detail panel — nested `<al-data-grid>` (AG detail grid spirit).
  * Override with `detailComponent` for forms / custom chrome.
  */
@@ -77,7 +102,9 @@ import type {
       (keydown)="$event.stopPropagation()"
     >
       @if (detailGrid(); as cfg) {
-        @if (detailController(); as ctrl) {
+        @if (detailRows().length === 0) {
+          <p class="al-dg-master-detail__empty">No detail rows.</p>
+        } @else if (detailController(); as ctrl) {
           <al-data-grid
             class="al-dg-master-detail__grid"
             [controller]="ctrl"
@@ -126,17 +153,30 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
   /** One controller per expanded detail instance (own sort/filter/selection). */
   readonly detailController = signal<GridController<D> | null>(null);
 
+  private readonly controllerKey = signal<string | null>(null);
+
   constructor() {
     effect(() => {
+      // Payload is a new object each display pass — read it so column swaps on
+      // the same `detailGrid` options object still recreate the nested grid.
+      const payload = this.payload();
       const cfg = this.detailGrid();
+      void payload;
+
       if (!cfg?.columns?.length) {
-        this.detailController.set(null);
+        untracked(() => {
+          this.detailController.set(null);
+          this.controllerKey.set(null);
+        });
         return;
       }
+
+      const key = detailGridConfigKey(cfg);
       untracked(() => {
-        if (this.detailController()) {
+        if (this.controllerKey() === key && this.detailController()) {
           return;
         }
+        this.controllerKey.set(key);
         this.detailController.set(
           createGrid<D>({
             columns: cfg.columns,

@@ -48,7 +48,11 @@ export interface MasterDetailPluginOptions<T = unknown, D = unknown> {
    * Prefer host-owned data on the master row (AG `getDetailRowData` spirit).
    */
   getDetailRows: (row: T) => readonly D[];
-  /** When false, the row has no expand affordance / detail. Default: all rows. */
+  /**
+   * When false, the row has no expand affordance / detail.
+   * Default: rows with `getDetailRows(row).length > 0`, or every row when
+   * `detailComponent` is set (custom panels often have no child-row list).
+   */
   isRowMaster?: (row: T) => boolean;
   /** Fixed height for the inserted detail display row. Default `200`. */
   detailRowHeight?: number;
@@ -67,7 +71,11 @@ export interface MasterDetailPluginOptions<T = unknown, D = unknown> {
    * {@link MasterDetailPayload} payload) and `api`.
    */
   detailComponent?: Type<unknown>;
-  /** Seed expanded masters on first encounter. Default collapsed. */
+  /**
+   * When there is no explicit expand/collapse override for a row, this value
+   * (or predicate) is read on **every display pass**. User toggles persist on
+   * the adapter. Default collapsed.
+   */
   isOpenByDefault?: boolean | ((row: T) => boolean);
 }
 

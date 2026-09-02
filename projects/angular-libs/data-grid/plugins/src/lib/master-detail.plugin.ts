@@ -4,7 +4,10 @@ import {
   createMasterDetailAdapter,
   type MasterDetailAdapter,
 } from './master-detail.adapter';
-import { buildMasterDetailDisplayRows } from './master-detail.builder';
+import {
+  buildMasterDetailDisplayRows,
+  EMPTY_DETAIL_ROW_HEIGHT,
+} from './master-detail.builder';
 import { MasterDetailDefaultView } from './master-detail-default.view';
 import { MasterDetailExpandCell } from './master-detail-expand.cell';
 import {
@@ -23,7 +26,7 @@ export type {
 export { MASTER_DETAIL_PLUGIN_KIND } from './master-detail.types';
 export type { MasterDetailAdapter } from './master-detail.adapter';
 export { createMasterDetailAdapter } from './master-detail.adapter';
-export { buildMasterDetailDisplayRows } from './master-detail.builder';
+export { buildMasterDetailDisplayRows, EMPTY_DETAIL_ROW_HEIGHT } from './master-detail.builder';
 export { MasterDetailDefaultView } from './master-detail-default.view';
 export { MasterDetailExpandCell } from './master-detail-expand.cell';
 
@@ -55,6 +58,20 @@ function resolveDetailGrid<T, D>(
     return { columns: options.detailColumns };
   }
   return undefined;
+}
+
+function resolveIsRowMaster<T, D>(
+  options: MasterDetailPluginOptions<T, D>,
+): ((row: T) => boolean) | undefined {
+  if (options.isRowMaster) {
+    return options.isRowMaster;
+  }
+  if (options.detailComponent) {
+    // Custom panels often have no child-row list — every row is a master.
+    return undefined;
+  }
+  const getDetailRows = options.getDetailRows;
+  return (row: T) => getDetailRows(row).length > 0;
 }
 
 /**
@@ -95,32 +112,15 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   const detailRowHeight = options.detailRowHeight ?? 200;
   const detailView = options.detailComponent ?? MasterDetailDefaultView;
   const getDetailRows = options.getDetailRows;
-  const isRowMaster = options.isRowMaster;
-  const detailGrid = resolveDetailGrid(options);
+  const isRowMaster = resolveIsRowMaster(options);
   const isOpenByDefault = options.isOpenByDefault;
+  const hasCustomDetail = !!options.detailComponent;
 
   const openDefaultFor = (row: T): boolean =>
     resolveOpenByDefault(row, isOpenByDefault);
 
-  const expandColumn = (
-    columnOptions: MasterDetailExpandColumnOptions = {},
-  ): ColumnDef<T> => ({
-    id: columnOptions.id ?? '__masterDetailExpand',
-    header: columnOptions.header ?? '',
-    width: columnOptions.width ?? 44,
-    minWidth: 36,
-    sortable: false,
-    filter: false,
-    editable: false,
-    cellRenderer: MasterDetailExpandCell,
-    cellRendererParams: {
-      masterDetail: adapter,
-      isRowMaster,
-      openByDefault: openDefaultFor,
-    },
-  });
-
-  const plugin: MasterDetailPlugin<T, D> = {
+  let plugin!: MasterDetailPlugin<T, D>;
+  plugin = {
     id: 'masterDetail',
     expandedIds: adapter.expandedIds,
     collapsedIds: adapter.collapsedIds,
@@ -131,7 +131,24 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     collapse: (id) => adapter.collapse(id),
     expandAll: (ids) => adapter.expandAll(ids),
     collapseAll: (ids) => adapter.collapseAll(ids),
-    expandColumn,
+
+    expandColumn(columnOptions: MasterDetailExpandColumnOptions = {}): ColumnDef<T> {
+      return {
+        id: columnOptions.id ?? '__masterDetailExpand',
+        header: columnOptions.header ?? '',
+        width: columnOptions.width ?? 44,
+        minWidth: 36,
+        sortable: false,
+        filter: false,
+        editable: false,
+        cellRenderer: MasterDetailExpandCell,
+        cellRendererParams: {
+          masterDetail: plugin,
+          isRowMaster,
+          openByDefault: openDefaultFor,
+        },
+      };
+    },
 
     setup(context: DataGridPluginContext<T>): () => void {
       const cleanDisplay = context.capabilities.registerDisplayBuilder({
@@ -145,7 +162,9 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             getDetailRows,
             isRowMaster,
             detailRowHeight,
-            detailGrid,
+            // Re-read options each display pass so in-place `detailGrid` updates flow.
+            detailGrid: resolveDetailGrid(options),
+            emptyDetailRowHeight: hasCustomDetail ? undefined : EMPTY_DETAIL_ROW_HEIGHT,
           }),
       });
 

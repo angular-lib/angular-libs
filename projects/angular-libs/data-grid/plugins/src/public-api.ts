@@ -71,6 +71,7 @@ export {
   masterDetailPlugin,
   createMasterDetailAdapter,
   buildMasterDetailDisplayRows,
+  EMPTY_DETAIL_ROW_HEIGHT,
   MasterDetailDefaultView,
   MasterDetailExpandCell,
   MASTER_DETAIL_PLUGIN_KIND,
