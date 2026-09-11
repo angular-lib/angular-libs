@@ -119,6 +119,10 @@ export interface WebSocketResourceOptions<TSend = any, TReceive = any> {
 
   /** List of middleware plugins to extend connection behavior. */
   plugins?: WebSocketPlugin<TSend, TReceive>[];
+
+  heartbeat?: WebSocketHeartbeatOptions;
+  reconnect?: WebSocketReconnectOptions;
+  outbox?: WebSocketOutboxOptions<TSend>;
 }
 
 export interface CreateWebSocketOptions<TSend = unknown, TReceive = unknown>

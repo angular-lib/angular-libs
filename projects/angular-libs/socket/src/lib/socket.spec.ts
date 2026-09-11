@@ -4,7 +4,16 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createWebSocket, websocketResource } from './socket';
 import { createWebSocketLoggerPlugin } from './plugins/logger.plugin';
 import { createWebSocketMultiplexPlugin } from './plugins/multiplex.plugin';
-import { WebSocketStatus, WebSocketPlugin, WebSocketOutboxStorage } from './socket.types';
+import { CreateWebSocketOptions, WebSocketStatus, WebSocketPlugin, WebSocketOutboxStorage } from './socket.types';
+
+function createTestSocket<TSend = unknown, TReceive = unknown>(
+  url: () => string | null | undefined,
+  options: CreateWebSocketOptions<TSend, TReceive> = {},
+) {
+  const client = TestBed.runInInjectionContext(() => createWebSocket<TSend, TReceive>(url, options));
+  TestBed.flushEffects();
+  return client;
+}
 
 // Mock Web Socket Implementation
 class MockWebSocket {
@@ -145,12 +154,7 @@ describe('websocketResource', () => {
     const socketRes = TestBed.runInInjectionContext(() =>
       websocketResource(urlSignal, {
         heartbeatInterval: 5000,
-        heartbeatPayload: 'ping-test',
-        heartbeat: {
-          intervalMs: 5000,
-          payload: 'ping-test',
-          timeoutMs: 0,
-        },
+        heartbeatPayload: 'ping-test'
       })
     );
 
@@ -165,9 +169,10 @@ describe('websocketResource', () => {
     const mockSocket = MockWebSocket.instances[0];
     mockSocket.triggerOpen();
 
-    // Fast-forward timers
+    // Fast-forward timers. Echo the ping so the inbound watchdog stays satisfied.
     vi.advanceTimersByTime(5000);
     expect(mockSocket.sentPayloads).toContain(JSON.stringify('ping-test'));
+    mockSocket.triggerMessage(JSON.stringify('ping-test'));
 
     vi.advanceTimersByTime(5000);
     expect(mockSocket.sentPayloads.length).toBe(2);
@@ -297,6 +302,7 @@ describe('websocketResource', () => {
 
   it('should try reconnecting automatically with exponential backoff', async () => {
     vi.useFakeTimers();
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
 
     const urlSignal = signal('ws://test.com/reconnect');
     const socketRes = TestBed.runInInjectionContext(() =>
@@ -304,8 +310,7 @@ describe('websocketResource', () => {
         heartbeatInterval: 0,
         maxReconnectAttempts: 3,
         initialReconnectDelay: 1000,
-        backoffFactor: 2,
-        reconnect: { jitter: 0 },
+        backoffFactor: 2
       })
     );
 
@@ -351,6 +356,7 @@ describe('websocketResource', () => {
     expect(client.status()).toBe('disconnected');
     expect(client.error()?.message).toContain('Max reconnection attempts reached');
 
+    randomSpy.mockRestore();
     vi.useRealTimers();
   });
 
@@ -718,25 +724,19 @@ describe('websocketResource', () => {
     client.close();
   });
 
-  it('should abort a hung CONNECTING handshake and retry after connectionTimeoutMs', async () => {
+  it('should abort a hung CONNECTING handshake and retry after connectionTimeoutMs', () => {
     vi.useFakeTimers();
 
-    const urlSignal = signal('ws://test.com/connect-timeout');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        reconnect: {
-          connectionTimeoutMs: 4_000,
-          initialDelayMs: 1_000,
-          jitter: 0,
-          maxAttempts: 5,
-        },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/connect-timeout'), {
+      reconnect: {
+        connectionTimeoutMs: 4_000,
+        initialDelayMs: 1_000,
+        jitter: 0,
+        maxAttempts: 5,
+      },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     const hung = MockWebSocket.instances[0];
     expect(client.status()).toBe('connecting');
 
@@ -762,20 +762,14 @@ describe('websocketResource', () => {
     vi.useRealTimers();
   });
 
-  it('should not abort CONNECTING when connectionTimeoutMs is 0', async () => {
+  it('should not abort CONNECTING when connectionTimeoutMs is 0', () => {
     vi.useFakeTimers();
 
-    const urlSignal = signal('ws://test.com/connect-timeout-disabled');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        reconnect: { connectionTimeoutMs: 0, jitter: 0 },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/connect-timeout-disabled'), {
+      reconnect: { connectionTimeoutMs: 0, jitter: 0 },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     vi.advanceTimersByTime(30_000);
     expect(MockWebSocket.instances[0].closed).toBe(false);
     expect(client.status()).toBe('connecting');
@@ -785,20 +779,14 @@ describe('websocketResource', () => {
     vi.useRealTimers();
   });
 
-  it('should cancel the connect-attempt timeout once onopen fires', async () => {
+  it('should cancel the connect-attempt timeout once onopen fires', () => {
     vi.useFakeTimers();
 
-    const urlSignal = signal('ws://test.com/connect-timeout-open');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        reconnect: { connectionTimeoutMs: 4_000, jitter: 0 },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/connect-timeout-open'), {
+      reconnect: { connectionTimeoutMs: 4_000, jitter: 0 },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     MockWebSocket.instances[0].triggerOpen();
     expect(client.status()).toBe('connected');
 
@@ -811,25 +799,19 @@ describe('websocketResource', () => {
     vi.useRealTimers();
   });
 
-  it('should mark a silent connection dead when the inbound liveness watchdog expires', async () => {
+  it('should mark a silent connection dead when the inbound liveness watchdog expires', () => {
     vi.useFakeTimers();
 
-    const urlSignal = signal('ws://test.com/liveness-timeout');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        heartbeat: {
-          intervalMs: 1_000,
-          payload: 'ping',
-          timeoutMs: 2_000,
-        },
-        reconnect: { connectionTimeoutMs: 0, jitter: 0, initialDelayMs: 500 },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/liveness-timeout'), {
+      heartbeat: {
+        intervalMs: 1_000,
+        payload: 'ping',
+        timeoutMs: 2_000,
+      },
+      reconnect: { connectionTimeoutMs: 0, jitter: 0, initialDelayMs: 500 },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     const live = MockWebSocket.instances[0];
     live.triggerOpen();
     expect(client.status()).toBe('connected');
@@ -850,26 +832,20 @@ describe('websocketResource', () => {
     vi.useRealTimers();
   });
 
-  it('should treat any inbound message, including filtered heartbeats, as liveness', async () => {
+  it('should treat any inbound message, including filtered heartbeats, as liveness', () => {
     vi.useFakeTimers();
 
-    const urlSignal = signal('ws://test.com/liveness-reset');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        heartbeat: {
-          intervalMs: 5_000,
-          payload: 'ping',
-          timeoutMs: 2_000,
-          isHeartbeat: (event) => event.data === JSON.stringify('ping'),
-        },
-        reconnect: { connectionTimeoutMs: 0, jitter: 0 },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/liveness-reset'), {
+      heartbeat: {
+        intervalMs: 5_000,
+        payload: 'ping',
+        timeoutMs: 2_000,
+        isHeartbeat: (event) => event.data === JSON.stringify('ping'),
+      },
+      reconnect: { connectionTimeoutMs: 0, jitter: 0 },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     const live = MockWebSocket.instances[0];
     live.triggerOpen();
 
@@ -893,25 +869,19 @@ describe('websocketResource', () => {
     vi.useRealTimers();
   });
 
-  it('should skip the inbound watchdog when heartbeat.timeoutMs is 0', async () => {
+  it('should skip the inbound watchdog when heartbeat.timeoutMs is 0', () => {
     vi.useFakeTimers();
 
-    const urlSignal = signal('ws://test.com/liveness-disabled');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        heartbeat: {
-          intervalMs: 1_000,
-          payload: 'ping',
-          timeoutMs: 0,
-        },
-        reconnect: { connectionTimeoutMs: 0, jitter: 0 },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/liveness-disabled'), {
+      heartbeat: {
+        intervalMs: 1_000,
+        payload: 'ping',
+        timeoutMs: 0,
+      },
+      reconnect: { connectionTimeoutMs: 0, jitter: 0 },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     MockWebSocket.instances[0].triggerOpen();
     vi.advanceTimersByTime(30_000);
     expect(MockWebSocket.instances[0].closed).toBe(false);
@@ -922,28 +892,22 @@ describe('websocketResource', () => {
     vi.useRealTimers();
   });
 
-  it('should apply Socket.IO-style jitter to reconnect backoff', async () => {
+  it('should apply Socket.IO-style jitter to reconnect backoff', () => {
     vi.useFakeTimers();
     const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
 
-    const urlSignal = signal('ws://test.com/jitter');
-    const client = TestBed.runInInjectionContext(() =>
-      createWebSocket(urlSignal, {
-        reconnect: {
-          initialDelayMs: 1_000,
-          backoffFactor: 2,
-          maxDelayMs: 15_000,
-          jitter: 0.5,
-          connectionTimeoutMs: 0,
-          maxAttempts: 3,
-        },
-      })
-    );
-
-    await vi.waitFor(() => {
-      expect(MockWebSocket.instances.length).toBe(1);
+    const client = createTestSocket(signal('ws://test.com/jitter'), {
+      reconnect: {
+        initialDelayMs: 1_000,
+        backoffFactor: 2,
+        maxDelayMs: 15_000,
+        jitter: 0.5,
+        connectionTimeoutMs: 0,
+        maxAttempts: 3,
+      },
     });
 
+    expect(MockWebSocket.instances.length).toBe(1);
     MockWebSocket.instances[0].triggerOpen();
     MockWebSocket.instances[0].triggerClose();
     expect(client.nextReconnectDelay()).toBe(500);
