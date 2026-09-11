@@ -632,9 +632,10 @@ export class ALEventBus<
         if (latest === this.NOT_EMITTED) {
           return options?.defaultValue as any;
         }
+        const latestEvent = latest as BusEvent<any, THeaders>;
         return (options?.transform
-          ? options.transform(latest.payload)
-          : latest.payload) as any;
+          ? options.transform(latestEvent.payload)
+          : latestEvent.payload) as any;
       });
     }
 
@@ -904,7 +905,7 @@ export class ALEventBus<
     options: SubscriptionOptions<any, any, THeaders>,
   ): () => void {
     let unsubscribe: () => void;
-    const oneTimeCallback = async (event: BusEvent<TTransformed, THeaders>) => {
+    const oneTimeCallback = async (event: BusEvent<any, THeaders>) => {
       if (unsubscribe) {
         unsubscribe();
       }
