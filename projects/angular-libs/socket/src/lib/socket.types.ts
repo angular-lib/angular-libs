@@ -30,6 +30,17 @@ export interface WebSocketReconnectOptions {
   initialDelayMs?: number;
   maxDelayMs?: number;
   backoffFactor?: number;
+  /**
+   * Abort a CONNECTING handshake if `onopen` does not fire within this window.
+   * Defaults to 5000. Set `0` to disable.
+   */
+  connectionTimeoutMs?: number;
+  /**
+   * Socket.IO-style delay randomization in `[0, 1]`.
+   * Multiplies the backoff delay by `1 - jitter + random * jitter * 2`.
+   * Defaults to `0.5`. Set `0` for deterministic backoff.
+   */
+  jitter?: number;
 }
 
 export interface WebSocketOutboxStorage<TSend = unknown> {
@@ -47,6 +58,13 @@ export interface WebSocketOutboxOptions<TSend = unknown> {
 export interface WebSocketHeartbeatOptions {
   intervalMs: number;
   payload: unknown;
+  /**
+   * Inbound liveness window while connected. Any received frame — including
+   * messages filtered by `isHeartbeat` — resets the watchdog. If nothing
+   * arrives in time, the socket is closed and reconnect runs.
+   * Defaults to `intervalMs * 2`. Set `0` to keep outbound-only heartbeats.
+   */
+  timeoutMs?: number;
   isHeartbeat?: (event: MessageEvent) => boolean;
 }
 

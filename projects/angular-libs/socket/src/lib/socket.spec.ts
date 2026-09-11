@@ -145,7 +145,12 @@ describe('websocketResource', () => {
     const socketRes = TestBed.runInInjectionContext(() =>
       websocketResource(urlSignal, {
         heartbeatInterval: 5000,
-        heartbeatPayload: 'ping-test'
+        heartbeatPayload: 'ping-test',
+        heartbeat: {
+          intervalMs: 5000,
+          payload: 'ping-test',
+          timeoutMs: 0,
+        },
       })
     );
 
@@ -299,7 +304,8 @@ describe('websocketResource', () => {
         heartbeatInterval: 0,
         maxReconnectAttempts: 3,
         initialReconnectDelay: 1000,
-        backoffFactor: 2
+        backoffFactor: 2,
+        reconnect: { jitter: 0 },
       })
     );
 
@@ -710,6 +716,251 @@ describe('websocketResource', () => {
     expect(multiplexPlugin.getActiveTopics()).toEqual([]);
 
     client.close();
+  });
+
+  it('should abort a hung CONNECTING handshake and retry after connectionTimeoutMs', async () => {
+    vi.useFakeTimers();
+
+    const urlSignal = signal('ws://test.com/connect-timeout');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        reconnect: {
+          connectionTimeoutMs: 4_000,
+          initialDelayMs: 1_000,
+          jitter: 0,
+          maxAttempts: 5,
+        },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const hung = MockWebSocket.instances[0];
+    expect(client.status()).toBe('connecting');
+
+    vi.advanceTimersByTime(3_999);
+    expect(hung.closed).toBe(false);
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    vi.advanceTimersByTime(1);
+    expect(hung.closed).toBe(true);
+    expect(client.status()).toBe('reconnecting');
+    expect(client.error()?.message).toContain('handshake did not complete');
+    expect(client.nextReconnectDelay()).toBe(1_000);
+
+    vi.advanceTimersByTime(1_000);
+    expect(MockWebSocket.instances.length).toBe(2);
+    expect(client.status()).toBe('reconnecting');
+
+    MockWebSocket.instances[1].triggerOpen();
+    expect(client.status()).toBe('connected');
+    expect(client.error()).toBeNull();
+
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('should not abort CONNECTING when connectionTimeoutMs is 0', async () => {
+    vi.useFakeTimers();
+
+    const urlSignal = signal('ws://test.com/connect-timeout-disabled');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        reconnect: { connectionTimeoutMs: 0, jitter: 0 },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    vi.advanceTimersByTime(30_000);
+    expect(MockWebSocket.instances[0].closed).toBe(false);
+    expect(client.status()).toBe('connecting');
+    expect(MockWebSocket.instances.length).toBe(1);
+
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('should cancel the connect-attempt timeout once onopen fires', async () => {
+    vi.useFakeTimers();
+
+    const urlSignal = signal('ws://test.com/connect-timeout-open');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        reconnect: { connectionTimeoutMs: 4_000, jitter: 0 },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    MockWebSocket.instances[0].triggerOpen();
+    expect(client.status()).toBe('connected');
+
+    vi.advanceTimersByTime(10_000);
+    expect(MockWebSocket.instances.length).toBe(1);
+    expect(MockWebSocket.instances[0].closed).toBe(false);
+    expect(client.status()).toBe('connected');
+
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('should mark a silent connection dead when the inbound liveness watchdog expires', async () => {
+    vi.useFakeTimers();
+
+    const urlSignal = signal('ws://test.com/liveness-timeout');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        heartbeat: {
+          intervalMs: 1_000,
+          payload: 'ping',
+          timeoutMs: 2_000,
+        },
+        reconnect: { connectionTimeoutMs: 0, jitter: 0, initialDelayMs: 500 },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const live = MockWebSocket.instances[0];
+    live.triggerOpen();
+    expect(client.status()).toBe('connected');
+
+    vi.advanceTimersByTime(1_999);
+    expect(live.closed).toBe(false);
+    expect(client.status()).toBe('connected');
+
+    vi.advanceTimersByTime(1);
+    expect(live.closed).toBe(true);
+    expect(client.status()).toBe('reconnecting');
+    expect(client.error()?.message).toContain('no inbound traffic');
+
+    vi.advanceTimersByTime(500);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('should treat any inbound message, including filtered heartbeats, as liveness', async () => {
+    vi.useFakeTimers();
+
+    const urlSignal = signal('ws://test.com/liveness-reset');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        heartbeat: {
+          intervalMs: 5_000,
+          payload: 'ping',
+          timeoutMs: 2_000,
+          isHeartbeat: (event) => event.data === JSON.stringify('ping'),
+        },
+        reconnect: { connectionTimeoutMs: 0, jitter: 0 },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    const live = MockWebSocket.instances[0];
+    live.triggerOpen();
+
+    vi.advanceTimersByTime(1_500);
+    live.triggerMessage(JSON.stringify('ping'));
+    expect(client.message()).toBeNull();
+
+    vi.advanceTimersByTime(1_500);
+    live.triggerMessage(JSON.stringify({ ok: true }));
+    expect(client.message()).toEqual({ ok: true });
+
+    vi.advanceTimersByTime(1_999);
+    expect(live.closed).toBe(false);
+    expect(client.status()).toBe('connected');
+
+    vi.advanceTimersByTime(1);
+    expect(live.closed).toBe(true);
+    expect(client.status()).toBe('reconnecting');
+
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('should skip the inbound watchdog when heartbeat.timeoutMs is 0', async () => {
+    vi.useFakeTimers();
+
+    const urlSignal = signal('ws://test.com/liveness-disabled');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        heartbeat: {
+          intervalMs: 1_000,
+          payload: 'ping',
+          timeoutMs: 0,
+        },
+        reconnect: { connectionTimeoutMs: 0, jitter: 0 },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    MockWebSocket.instances[0].triggerOpen();
+    vi.advanceTimersByTime(30_000);
+    expect(MockWebSocket.instances[0].closed).toBe(false);
+    expect(client.status()).toBe('connected');
+    expect(MockWebSocket.instances[0].sentPayloads.length).toBeGreaterThan(0);
+
+    client.close();
+    vi.useRealTimers();
+  });
+
+  it('should apply Socket.IO-style jitter to reconnect backoff', async () => {
+    vi.useFakeTimers();
+    const randomSpy = vi.spyOn(Math, 'random').mockReturnValue(0);
+
+    const urlSignal = signal('ws://test.com/jitter');
+    const client = TestBed.runInInjectionContext(() =>
+      createWebSocket(urlSignal, {
+        reconnect: {
+          initialDelayMs: 1_000,
+          backoffFactor: 2,
+          maxDelayMs: 15_000,
+          jitter: 0.5,
+          connectionTimeoutMs: 0,
+          maxAttempts: 3,
+        },
+      })
+    );
+
+    await vi.waitFor(() => {
+      expect(MockWebSocket.instances.length).toBe(1);
+    });
+
+    MockWebSocket.instances[0].triggerOpen();
+    MockWebSocket.instances[0].triggerClose();
+    expect(client.nextReconnectDelay()).toBe(500);
+    expect(client.status()).toBe('reconnecting');
+
+    vi.advanceTimersByTime(499);
+    expect(MockWebSocket.instances.length).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(MockWebSocket.instances.length).toBe(2);
+
+    randomSpy.mockReturnValue(1);
+    MockWebSocket.instances[1].triggerClose();
+    expect(client.nextReconnectDelay()).toBe(3_000);
+
+    randomSpy.mockRestore();
+    client.close();
+    vi.useRealTimers();
   });
 });
 
