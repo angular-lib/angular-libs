@@ -38,6 +38,11 @@ export function commandPalettePlugin(
   let query = '';
   let selectedIndex = 0;
   let filteredShortcuts: ALShortcutDescriptor[] = [];
+  /**
+   * Element focused when the palette opened. Passed to `trigger()` so
+   * `inputSuppressorPlugin` evaluates the app focus context, not the search input.
+   */
+  let invokeTarget: Element | null = null;
 
   const triggerKeys = config.triggerShortcut || 'ctrl+shift+p';
   const placeholderText = config.placeholder || 'Type a command or search shortcuts...';
@@ -71,7 +76,7 @@ export function commandPalettePlugin(
   function handleCommandTrigger(item: ALShortcutDescriptor): void {
     if (!hostRef) return;
     try {
-      hostRef.trigger(item);
+      hostRef.trigger(item, { target: invokeTarget });
     } catch (e) {
       console.error('Failed to trigger action:', e);
     }
@@ -341,11 +346,16 @@ export function commandPalettePlugin(
 
   function setVisible(v: boolean): void {
     if (visible() === v) return;
-    visible.set(v);
-    if (!v) {
+    if (v) {
+      const doc = hostRef?.document || (typeof document !== 'undefined' ? document : null);
+      const active = doc?.activeElement;
+      invokeTarget = active instanceof Element ? active : null;
+    } else {
+      invokeTarget = null;
       query = '';
       selectedIndex = 0;
     }
+    visible.set(v);
     renderDOM();
   }
 

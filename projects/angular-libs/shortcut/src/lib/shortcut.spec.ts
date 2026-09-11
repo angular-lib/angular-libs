@@ -45,6 +45,14 @@ class TestGlobalHostComponent {
   }
 }
 
+function clickPaletteCommand(description: string): void {
+  const match = Array.from(document.querySelectorAll('.al-pal-item')).find((el) =>
+    el.textContent?.includes(description)
+  );
+  expect(match).toBeTruthy();
+  (match as HTMLElement).click();
+}
+
 describe('ALShortcutService & ALShortcutDirective', () => {
   let service: ALShortcutService;
 
@@ -559,6 +567,178 @@ describe('ALShortcutService & ALShortcutDirective', () => {
     expect(saveCount).toBe(2);
 
     unsub();
+  });
+
+  it('should honour onBeforeExecute cancellation and when() on trigger()', () => {
+    let actionCount = 0;
+    let afterCount = 0;
+    let enabled = true;
+
+    service.registerPlugin({
+      id: 'cancel-save',
+      onBeforeExecute(shortcut) {
+        if (shortcut === 'ctrl+s') {
+          return false;
+        }
+      },
+      onAfterExecute() {
+        afterCount++;
+      },
+    });
+
+    const unsub = service.register({
+      shortcut: 'ctrl+s',
+      when: () => enabled,
+      action: () => { actionCount++; },
+      preventDefault: false,
+    });
+
+    expect(service.trigger('ctrl+s')).toBe(false);
+    expect(actionCount).toBe(0);
+    expect(afterCount).toBe(0);
+
+    service.unregisterPlugin('cancel-save');
+    expect(service.trigger('ctrl+s')).toBe(true);
+    expect(actionCount).toBe(1);
+    expect(afterCount).toBe(0);
+
+    enabled = false;
+    expect(service.trigger('ctrl+s')).toBe(true);
+    expect(actionCount).toBe(1);
+
+    unsub();
+  });
+
+  it('should apply element scope when triggering programmatically', () => {
+    const host = document.createElement('div');
+    const outside = document.createElement('button');
+    document.body.appendChild(host);
+    document.body.appendChild(outside);
+
+    let count = 0;
+    const unsub = service.register({
+      shortcut: 'ctrl+f',
+      element: host,
+      action: () => { count++; },
+      preventDefault: false,
+    });
+
+    outside.focus();
+    expect(service.trigger('ctrl+f')).toBe(true);
+    expect(count).toBe(0);
+
+    expect(service.trigger('ctrl+f', { target: host })).toBe(true);
+    expect(count).toBe(1);
+
+    host.remove();
+    outside.remove();
+    unsub();
+  });
+
+  it('should apply contextGuardPlugin to trigger() and palette execute', () => {
+    const guard = service.registerPlugin(contextGuardPlugin());
+    const palette = service.registerPlugin(commandPalettePlugin({ triggerShortcut: 'ctrl+shift+p' }));
+    let actionCount = 0;
+
+    const unsub = service.register({
+      shortcut: 'ctrl+s',
+      action: () => { actionCount++; },
+      description: 'Save Workspace File',
+      preventDefault: false,
+    });
+
+    guard.addRule('modal-active', { type: 'block', shortcuts: ['ctrl+s'] });
+
+    expect(service.trigger('ctrl+s')).toBe(true);
+    expect(actionCount).toBe(1);
+
+    guard.setContext('modal-active', true);
+    expect(service.trigger('ctrl+s')).toBe(false);
+    expect(actionCount).toBe(1);
+
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    palette.open();
+    expect(palette.visible()).toBe(true);
+
+    const saveItem = palette.getShortcuts().find((item) => item.description === 'Save Workspace File');
+    expect(saveItem).toBeDefined();
+    expect(service.trigger(saveItem!)).toBe(false);
+    expect(actionCount).toBe(1);
+
+    clickPaletteCommand('Save Workspace File');
+    expect(actionCount).toBe(1);
+    expect(palette.visible()).toBe(false);
+
+    guard.setContext('modal-active', false);
+    opener.focus();
+    palette.open();
+    clickPaletteCommand('Save Workspace File');
+    expect(actionCount).toBe(2);
+    expect(palette.visible()).toBe(false);
+
+    opener.remove();
+    unsub();
+  });
+
+  it('should apply inputSuppressorPlugin to trigger() and palette execute', () => {
+    service.registerPlugin(inputSuppressorPlugin(['escape']));
+    const palette = service.registerPlugin(commandPalettePlugin({ triggerShortcut: 'ctrl+shift+p' }));
+    let saveCount = 0;
+    let escapeCount = 0;
+
+    const unsubSave = service.register({
+      shortcut: 'ctrl+s',
+      action: () => { saveCount++; },
+      description: 'Save Workspace File',
+      preventDefault: false,
+    });
+    const unsubEsc = service.register({
+      shortcut: 'escape',
+      action: () => { escapeCount++; },
+      description: 'Close Overlay',
+      preventDefault: false,
+    });
+
+    const input = document.createElement('input');
+    const button = document.createElement('button');
+    document.body.appendChild(input);
+    document.body.appendChild(button);
+
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    expect(service.trigger('ctrl+s')).toBe(false);
+    expect(saveCount).toBe(0);
+    expect(service.trigger('escape')).toBe(true);
+    expect(escapeCount).toBe(1);
+
+    button.focus();
+    expect(service.trigger('ctrl+s')).toBe(true);
+    expect(saveCount).toBe(1);
+
+    expect(service.trigger('ctrl+s', { target: input })).toBe(false);
+    expect(saveCount).toBe(1);
+    expect(service.trigger('ctrl+s', { target: button })).toBe(true);
+    expect(saveCount).toBe(2);
+
+    input.focus();
+    palette.open();
+    clickPaletteCommand('Save Workspace File');
+    expect(saveCount).toBe(2);
+    expect(palette.visible()).toBe(false);
+
+    button.focus();
+    palette.open();
+    clickPaletteCommand('Save Workspace File');
+    expect(saveCount).toBe(3);
+    expect(palette.visible()).toBe(false);
+
+    input.remove();
+    button.remove();
+    unsubSave();
+    unsubEsc();
   });
 
   it('should support chordPlugin for multi-key sequences', () => {

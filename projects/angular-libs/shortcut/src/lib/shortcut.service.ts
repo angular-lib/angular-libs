@@ -6,11 +6,12 @@ import {
   ALShortcutConflict,
   ALShortcutDescriptor,
   ALShortcutHost,
+  ALShortcutTriggerOptions,
   SHORTCUT_CONFIG,
 } from './shortcut.types';
 import { formatShortcut, normaliseShortcut, resolveShortcutFromEvent } from './shortcut.utils';
 
-export type { ALShortcutDescriptor, ALShortcutConflict, ALShortcutHost };
+export type { ALShortcutDescriptor, ALShortcutConflict, ALShortcutHost, ALShortcutTriggerOptions };
 
 /**
  * A highly simplified, zoneless, signal/action-based shortcut manager.
@@ -208,9 +209,19 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
     return this.layoutMap;
   }
 
+  /**
+   * Invoke a registered shortcut through the same execute/guard pipeline as
+   * {@link handleKeyEvent}: `onBeforeExecute` (false cancels), `when()`,
+   * type/element filters, then action + `onAfterExecute`.
+   *
+   * Target defaults to `document.activeElement` so `inputSuppressorPlugin`
+   * applies the same as a keypress. Override with `{ target }`.
+   *
+   * @returns `false` if no match is found or a plugin cancelled execution.
+   */
   trigger(
     target: string | Partial<ALShortcutDescriptor>,
-    customEvent?: KeyboardEvent
+    eventOrOptions?: KeyboardEvent | ALShortcutTriggerOptions
   ): boolean {
     const keyString = typeof target === 'string'
       ? target
@@ -261,7 +272,12 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
       }
     }
 
-    const event = customEvent || new KeyboardEvent('keydown', {
+    const options: ALShortcutTriggerOptions =
+      eventOrOptions instanceof KeyboardEvent
+        ? { event: eventOrOptions }
+        : (eventOrOptions ?? {});
+
+    const event = options.event ?? new KeyboardEvent('keydown', {
       key: normalised.split('+').find((p) => !['ctrl', 'meta', 'alt', 'shift'].includes(p)) || '',
       ctrlKey: normalised.split('+').includes('ctrl'),
       metaKey: normalised.split('+').includes('meta'),
@@ -271,18 +287,12 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
       cancelable: true,
     });
 
-    for (const item of matchedItems) {
-      if (item.when && !item.when()) {
-        continue;
-      }
-      this.latestTriggerDetail.set({ shortcut: normalised, event, target: null });
-      item.action(event);
-      for (const plugin of this.plugins) {
-        plugin.onAfterExecute?.(normalised, event, null);
-      }
-    }
-
-    return true;
+    return this.dispatchShortcut(
+      normalised,
+      event,
+      this.resolveTriggerTarget(options, event),
+      matchedItems,
+    );
   }
 
   private handleKeyEvent(event: KeyboardEvent): void {
@@ -308,17 +318,26 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
     const list = this.registeredShortcuts.get(activeShortcut);
     if (!list || list.length === 0) return;
 
-    const target = event.target as Element | null;
+    this.dispatchShortcut(activeShortcut, event, event.target as Element | null, list);
+  }
 
+  /**
+   * Shared execute pipeline for keyboard dispatch and {@link trigger}.
+   * @returns `false` when a plugin cancels via `onBeforeExecute`.
+   */
+  private dispatchShortcut(
+    shortcut: string,
+    event: KeyboardEvent,
+    target: Element | null,
+    items: ALShortcutConfig[],
+  ): boolean {
     for (const plugin of this.plugins) {
-      if (plugin.onBeforeExecute) {
-        if (plugin.onBeforeExecute(activeShortcut, event, target) === false) {
-          return;
-        }
+      if (plugin.onBeforeExecute?.(shortcut, event, target) === false) {
+        return false;
       }
     }
 
-    for (const item of list) {
+    for (const item of items) {
       if (item.type !== event.type) {
         continue;
       }
@@ -331,20 +350,8 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
         continue;
       }
 
-      if (item.element) {
-        const boundEl = item.element;
-        const eventTarget = event.target as Element | null;
-
-        let isInside = false;
-        if (boundEl === eventTarget) {
-          isInside = true;
-        } else if (boundEl && 'contains' in boundEl && eventTarget) {
-          isInside = (boundEl as Node).contains(eventTarget);
-        }
-
-        if (!isInside) {
-          continue;
-        }
+      if (item.element && !this.isInsideBoundElement(item.element, target)) {
+        continue;
       }
 
       if (item.preventDefault) {
@@ -356,18 +363,54 @@ export class ALShortcutService implements OnDestroy, ALShortcutHost {
         event.stopPropagation();
       }
 
-      this.latestTriggerDetail.set({ shortcut: activeShortcut, event, target });
+      this.latestTriggerDetail.set({ shortcut, event, target });
 
       item.action(event);
 
       for (const plugin of this.plugins) {
-        plugin.onAfterExecute?.(activeShortcut, event, target);
+        plugin.onAfterExecute?.(shortcut, event, target);
       }
 
       if (item.element) {
         break;
       }
     }
+
+    return true;
+  }
+
+  /**
+   * Programmatic target: explicit `options.target` (including `null`), else
+   * `event.target` when it is an Element, else `document.activeElement`.
+   */
+  private resolveTriggerTarget(
+    options: ALShortcutTriggerOptions,
+    event: KeyboardEvent,
+  ): Element | null {
+    if (Object.prototype.hasOwnProperty.call(options, 'target')) {
+      return options.target ?? null;
+    }
+    if (event.target instanceof Element) {
+      return event.target;
+    }
+    const active = this.document?.activeElement;
+    return active instanceof Element ? active : null;
+  }
+
+  private isInsideBoundElement(
+    boundEl: HTMLElement | Document | Window,
+    target: Element | null,
+  ): boolean {
+    if (!target) {
+      return false;
+    }
+    if (boundEl === target) {
+      return true;
+    }
+    if ('contains' in boundEl) {
+      return (boundEl as Node).contains(target);
+    }
+    return false;
   }
 
   normaliseShortcut(shortcut: string): string {

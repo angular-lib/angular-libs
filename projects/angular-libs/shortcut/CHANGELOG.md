@@ -13,6 +13,7 @@ Initial release.
 - `getPlugin(id)` / `unregisterPlugin(id)` (idempotent register by id)
 - `getLayoutMap()`, `getConflicts()`
 - Config: `when`, `stopPropagation`, `stopImmediatePropagation`, `id`, `group`
+- `trigger()` shares the keyboard execute pipeline (`onBeforeExecute` / `when` / type / element); target is `document.activeElement` or `{ target }`
 - Directive: `alShortcutType`, optional id/group/stopPropagation; empty default description
 - Headless plugins: input suppressor, chord, twice, context guard, rebind
 
