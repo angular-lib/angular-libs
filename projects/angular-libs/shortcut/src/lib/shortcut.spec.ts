@@ -580,6 +580,7 @@ describe('ALShortcutService & ALShortcutDirective', () => {
         if (shortcut === 'ctrl+s') {
           return false;
         }
+        return;
       },
       onAfterExecute() {
         afterCount++;
