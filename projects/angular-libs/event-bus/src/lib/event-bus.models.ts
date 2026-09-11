@@ -1,5 +1,6 @@
 import { DestroyRef } from '@angular/core';
 import { TransformedEvents } from './event-bus.internal';
+import { type PatternPayload, type WildcardPattern } from './event-bus.patterns';
 
 /**
  * Base configuration for transforming an event's payload.
@@ -95,6 +96,10 @@ export interface IALEventBus<TEventMap extends {}, THeaders extends Record<strin
   on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
     options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>
+  ): () => void;
+  on<P extends string, TTransformed = PatternPayload<TEventMap, P>>(
+    key: WildcardPattern<P>,
+    options: SubscriptionOptions<PatternPayload<TEventMap, P>, TTransformed, THeaders>
   ): () => void;
 }
 

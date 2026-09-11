@@ -14,3 +14,9 @@ export type {
   IALEventBus,
   ALEventBusPlugin,
 } from './lib/event-bus.models';
+export type {
+  IsEventPattern,
+  WildcardPattern,
+  MatchingEventKeys,
+  PatternPayload,
+} from './lib/event-bus.patterns';

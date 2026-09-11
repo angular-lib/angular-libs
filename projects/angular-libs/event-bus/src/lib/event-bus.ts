@@ -23,6 +23,12 @@ import {
   type EmitOptions,
 } from './event-bus.models';
 import { type TransformedPayloads } from './event-bus.internal';
+import {
+  isWildcardPattern,
+  matchesEventPattern,
+  type PatternPayload,
+  type WildcardPattern,
+} from './event-bus.patterns';
 
 type ValueWithDefault<TValue, TDefault> = TDefault extends TValue ? TValue : TValue | TDefault;
 
@@ -35,6 +41,7 @@ type ValueWithDefault<TValue, TDefault> = TDefault extends TValue ? TValue : TVa
  * - For connecting events to component state or templates, prefer `onToSignal` which returns a reactive `Signal`.
  * - For side-effects in component initialization contexts, call `on` directly. It automatically detects and binds to the surrounding `DestroyRef` to auto-unsubscribe.
  * - For executing side effects reacting to events outside an injection context (e.g. inside an async method), use `on` or `once` with a callback. If you don't want them to leak, remember to capture the returned unsubscribe function or pass `{ unsubscribeOn: 'manual' }`.
+ * - Wildcard patterns (`*`, `user:*`, `**`) are supported on `on`, `once`, and `onToSignal`. Exact keys stay strictly typed; pattern payloads are a union of matching map entries (or the full map union when nothing matches statically).
  *
  * @example
  * ```typescript
@@ -89,6 +96,19 @@ export class ALEventBus<
     string,
     Map<string, { dispatch: (event: BusEvent<any, THeaders>) => void; unsubscribe: () => void }>
   >();
+  /**
+   * Pattern subscriptions (`user:*`, `**`, …) live in a separate map so emit
+   * only scans wildcard listeners, not every exact-key subscriber.
+   */
+  private patternSubscriptions = new Map<
+    string,
+    Map<string, { dispatch: (event: BusEvent<any, THeaders>) => void; unsubscribe: () => void }>
+  >();
+  /**
+   * Bumped when a new event key is first created so pattern `onToSignal`
+   * computeds discover matching keys that did not exist at subscribe time.
+   */
+  private readonly eventsRevision = signal(0);
   private plugins: ALEventBusPlugin<TEventMap, THeaders>[] = [];
 
   ngOnDestroy(): void {
@@ -271,8 +291,12 @@ export class ALEventBus<
     this.subscriptions.forEach((subs) => {
       subs.forEach((sub) => allTeardowns.push(sub.unsubscribe));
     });
+    this.patternSubscriptions.forEach((subs) => {
+      subs.forEach((sub) => allTeardowns.push(sub.unsubscribe));
+    });
     allTeardowns.forEach((unsub) => unsub());
     this.subscriptions.clear();
+    this.patternSubscriptions.clear();
   }
 
   /**
@@ -290,9 +314,12 @@ export class ALEventBus<
    * 
    * @param key The event key/type.
    */
-  unsubscribe<K extends keyof TEventMap>(key: K): void {
+  unsubscribe<K extends keyof TEventMap>(key: K): void;
+  unsubscribe<P extends string>(key: WildcardPattern<P>): void;
+  unsubscribe(key: string): void {
     const keyStr = String(key);
-    const subs = this.subscriptions.get(keyStr);
+    const bucket = isWildcardPattern(keyStr) ? this.patternSubscriptions : this.subscriptions;
+    const subs = bucket.get(keyStr);
     if (subs) {
       const unsubscribers = Array.from(subs.values()).map((sub) => sub.unsubscribe);
       unsubscribers.forEach((unsub) => unsub());
@@ -367,10 +394,17 @@ export class ALEventBus<
    * **AI Hint:** This is a private utility wrapping `Symbol('NOT_EMITTED')` logic. Do NOT call externally.
    */
   private getSignal<TData = any>(key: string): WritableSignal<TData | symbol> {
+    return this.getOrCreateSignal<TData>(key).sig;
+  }
+
+  private getOrCreateSignal<TData = any>(
+    key: string,
+  ): { sig: WritableSignal<TData | symbol>; created: boolean } {
     if (!this.events.has(key)) {
       this.events.set(key, signal(this.NOT_EMITTED));
+      return { sig: this.events.get(key)! as WritableSignal<TData | symbol>, created: true };
     }
-    return this.events.get(key)! as WritableSignal<TData | symbol>;
+    return { sig: this.events.get(key)! as WritableSignal<TData | symbol>, created: false };
   }
 
   /**
@@ -455,15 +489,31 @@ export class ALEventBus<
       timestamp: Date.now(),
       headers: (options as EmitOptions<THeaders> | undefined)?.headers,
     };
-    this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string).set(event);
+    const keyStr = key as string;
+    const { sig, created } = this.getOrCreateSignal<BusEvent<TEventMap[K], THeaders>>(keyStr);
+    sig.set(event);
+    if (created) {
+      this.eventsRevision.update((n) => n + 1);
+    }
 
-    // Call subscribers synchronously
-    const subs = this.subscriptions.get(key as string);
-    if (subs) {
-      const receivers = Array.from(subs.values());
+    // Exact-key subscribers first, then any wildcard patterns that match this key.
+    const exactSubs = this.subscriptions.get(keyStr);
+    if (exactSubs) {
+      const receivers = Array.from(exactSubs.values());
       receivers.forEach((sub) => {
         sub.dispatch(event);
       });
+    }
+    if (this.patternSubscriptions.size > 0) {
+      for (const [pattern, subs] of this.patternSubscriptions) {
+        if (!matchesEventPattern(pattern, keyStr)) {
+          continue;
+        }
+        const receivers = Array.from(subs.values());
+        receivers.forEach((sub) => {
+          sub.dispatch(event);
+        });
+      }
     }
 
     this.runOnAfterEmit(key, finalPayload, options as EmitOptions<THeaders>);
@@ -524,7 +574,7 @@ export class ALEventBus<
    * });
    * ```
    *
-   * @param key The event key to listen to.
+   * @param key The event key or wildcard pattern (`user:*`, `**`) to listen to.
    * @param options Configuration for mapping/transforming the payload and/or defining a fallback default value.
    * @returns A reactive Signal yielding the latest event payload or transformed value.
    */
@@ -538,13 +588,62 @@ export class ALEventBus<
       transform?: (payload: TEventMap[K]) => TTransformed;
       defaultValue?: TDefault;
     },
-  ): Signal<ValueWithDefault<TTransformed, TDefault>> {
+  ): Signal<ValueWithDefault<TTransformed, TDefault>>;
+  onToSignal<
+    P extends string,
+    TTransformed = PatternPayload<TEventMap, P>,
+    TDefault = undefined
+  >(
+    key: WildcardPattern<P>,
+    options?: {
+      transform?: (payload: PatternPayload<TEventMap, P>) => TTransformed;
+      defaultValue?: TDefault;
+    },
+  ): Signal<ValueWithDefault<TTransformed, TDefault>>;
+  onToSignal(
+    key: string,
+    options?: {
+      transform?: (payload: any) => any;
+      defaultValue?: any;
+    },
+  ): Signal<any> {
+    const keyStr = String(key);
+    if (isWildcardPattern(keyStr)) {
+      return computed(() => {
+        // Track newly created keys so later matching emits appear in this signal.
+        this.eventsRevision();
+        let latest: BusEvent<any, THeaders> | typeof this.NOT_EMITTED = this.NOT_EMITTED;
+        for (const [eventKey, sig] of this.events) {
+          if (!matchesEventPattern(keyStr, eventKey)) {
+            continue;
+          }
+          const value = sig();
+          if (value === this.NOT_EMITTED) {
+            continue;
+          }
+          const hubEvent = value as BusEvent<any, THeaders>;
+          if (
+            latest === this.NOT_EMITTED ||
+            hubEvent.timestamp >= (latest as BusEvent<any, THeaders>).timestamp
+          ) {
+            latest = hubEvent;
+          }
+        }
+        if (latest === this.NOT_EMITTED) {
+          return options?.defaultValue as any;
+        }
+        return (options?.transform
+          ? options.transform(latest.payload)
+          : latest.payload) as any;
+      });
+    }
+
     return computed(() => {
-      const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
+      const value = this.getSignal<BusEvent<any, THeaders>>(keyStr)();
       if (value === this.NOT_EMITTED) {
         return options?.defaultValue as any;
       }
-      const hubEvent = value as BusEvent<TEventMap[K], THeaders>;
+      const hubEvent = value as BusEvent<any, THeaders>;
       return (options?.transform
         ? options.transform(hubEvent.payload)
         : (hubEvent.payload as any)) as any;
@@ -651,35 +750,51 @@ export class ALEventBus<
    *   callback: (event) => console.log('Transformed email payload:', event.payload)
    * });
    * 
-   * // 3. Late/dynamic manual cleanup setup
-   * const unsubscribe = this.eventBus.on('theme:changed', {
-   *   unsubscribeOn: 'manual', // Silences potential leak warnings in dev mode
-   *   callback: (evt) => applyNewTheme(evt.payload)
-   * });
-   * // Call unsubscribe() manually when done!
-   * ```
+ * // 3. Late/dynamic manual cleanup setup
+ * const unsubscribe = this.eventBus.on('theme:changed', {
+ *   unsubscribeOn: 'manual', // Silences potential leak warnings in dev mode
+ *   callback: (evt) => applyNewTheme(evt.payload)
+ * });
+ * // Call unsubscribe() manually when done!
+ *
+ * // 4. Wildcard / prefix subscribe — payload is a union of matching map entries
+ * this.eventBus.on('user:*', {
+ *   callback: (event) => console.log(event.key, event.payload)
+ * });
+ * ```
    *
-   * @param key The event key.
+   * @param key The event key or wildcard pattern (`*`, `user:*`, `**`).
+   * Pattern payloads are a union of matching map entries — narrower exact-key
+   * typing is preserved for normal keys such as `on('user:login')`.
    * @param options Subscription configuration including the callback, optional payload transform, and/or unsubscription strategies.
    * @returns A cleanup function to manually unsubscribe.
    */
   on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
     options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
+  ): () => void;
+  on<P extends string, TTransformed = PatternPayload<TEventMap, P>>(
+    key: WildcardPattern<P>,
+    options: SubscriptionOptions<PatternPayload<TEventMap, P>, TTransformed, THeaders>,
+  ): () => void;
+  on(
+    key: string,
+    options: SubscriptionOptions<any, any, THeaders>,
   ): () => void {
     const { callback, transform, unsubscribeOn } = options;
     const keyStr = String(key);
     const subscriptionId = `sub:${keyStr}:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`;
+    const bucket = isWildcardPattern(keyStr) ? this.patternSubscriptions : this.subscriptions;
 
     this.runOnSubscribe(keyStr, subscriptionId);
 
-    const dispatch = (busEvent: BusEvent<TEventMap[K], THeaders>) => {
-      const { key, timestamp, payload, headers } = busEvent;
+    const dispatch = (busEvent: BusEvent<any, THeaders>) => {
+      const { key: eventKey, timestamp, payload, headers } = busEvent;
       const transformed = transform
-        ? transform(payload as TEventMap[K])
-        : (payload as unknown as TTransformed);
+        ? transform(payload)
+        : payload;
 
-      const evt = { key, timestamp, payload: transformed, headers };
+      const evt = { key: eventKey, timestamp, payload: transformed, headers };
 
       try {
         const res = callback(evt);
@@ -696,11 +811,11 @@ export class ALEventBus<
     let cleanupTracker: (() => void) | null = null;
 
     const unsubscribe = () => {
-      const subs = this.subscriptions.get(keyStr);
+      const subs = bucket.get(keyStr);
       if (subs && subs.has(subscriptionId)) {
         subs.delete(subscriptionId);
         if (subs.size === 0) {
-          this.subscriptions.delete(keyStr);
+          bucket.delete(keyStr);
         }
         this.runOnUnsubscribe(keyStr, subscriptionId);
       }
@@ -710,10 +825,10 @@ export class ALEventBus<
       }
     };
 
-    if (!this.subscriptions.has(keyStr)) {
-      this.subscriptions.set(keyStr, new Map());
+    if (!bucket.has(keyStr)) {
+      bucket.set(keyStr, new Map());
     }
-    this.subscriptions.get(keyStr)!.set(subscriptionId, { dispatch, unsubscribe });
+    bucket.get(keyStr)!.set(subscriptionId, { dispatch, unsubscribe });
 
     // Context-guided automatic DestroyRef resolution
     let contextDestroyRef: DestroyRef | null = null;
@@ -772,13 +887,21 @@ export class ALEventBus<
    * });
    * ```
    * 
-   * @param key The event key.
+   * @param key The event key or wildcard pattern (`*`, `user:*`, `**`).
    * @param options Subscription configuration including the callback, payload transform, and optional unsubscription strategies.
    * @returns A manual cleanup function if the listener needs to be terminated before the event fires.
    */
   once<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
     key: K,
     options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
+  ): () => void;
+  once<P extends string, TTransformed = PatternPayload<TEventMap, P>>(
+    key: WildcardPattern<P>,
+    options: SubscriptionOptions<PatternPayload<TEventMap, P>, TTransformed, THeaders>,
+  ): () => void;
+  once(
+    key: string,
+    options: SubscriptionOptions<any, any, THeaders>,
   ): () => void {
     let unsubscribe: () => void;
     const oneTimeCallback = async (event: BusEvent<TTransformed, THeaders>) => {
@@ -794,7 +917,7 @@ export class ALEventBus<
         );
       }
     };
-    unsubscribe = this.on(key, {
+    unsubscribe = this.on(key as any, {
       callback: oneTimeCallback,
       transform: options.transform,
       unsubscribeOn: options.unsubscribeOn,
@@ -958,22 +1081,22 @@ export function createEventBusHooks<
   eventBusToken: Type<ALEventBus<TEventMap, THeaders>> | InjectionToken<ALEventBus<TEventMap, THeaders>>
 ) {
   return {
-    onEvent: <K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-      key: K,
+    onEvent: <K extends keyof TEventMap | (string & {}), TTransformed = K extends keyof TEventMap ? TEventMap[K] : PatternPayload<TEventMap, K & string>>(
+      key: K extends keyof TEventMap ? K : WildcardPattern<K & string>,
       callback: (event: BusEvent<TTransformed, THeaders>) => void,
-      options?: Omit<SubscriptionOptions<TEventMap[K], TTransformed, THeaders>, 'callback'>
+      options?: Omit<SubscriptionOptions<K extends keyof TEventMap ? TEventMap[K] : PatternPayload<TEventMap, K & string>, TTransformed, THeaders>, 'callback'>
     ): () => void => {
       const bus = inject(eventBusToken);
-      return bus.on(key, { ...(options || {}), callback } as any);
+      return bus.on(key as any, { ...(options || {}), callback } as any);
     },
 
-    onceEvent: <K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-      key: K,
+    onceEvent: <K extends keyof TEventMap | (string & {}), TTransformed = K extends keyof TEventMap ? TEventMap[K] : PatternPayload<TEventMap, K & string>>(
+      key: K extends keyof TEventMap ? K : WildcardPattern<K & string>,
       callback: (event: BusEvent<TTransformed, THeaders>) => void,
-      options?: Omit<SubscriptionOptions<TEventMap[K], TTransformed, THeaders>, 'callback'>
+      options?: Omit<SubscriptionOptions<K extends keyof TEventMap ? TEventMap[K] : PatternPayload<TEventMap, K & string>, TTransformed, THeaders>, 'callback'>
     ): () => void => {
       const bus = inject(eventBusToken);
-      return bus.once(key, { ...(options || {}), callback } as any);
+      return bus.once(key as any, { ...(options || {}), callback } as any);
     },
 
     emitEvent: <K extends keyof TEventMap>(
@@ -985,15 +1108,15 @@ export function createEventBusHooks<
       (bus.emit as any)(...args);
     },
 
-    useEventSignal: <K extends keyof TEventMap, TTransformed = TEventMap[K], TDefault = undefined>(
-      key: K,
+    useEventSignal: <K extends keyof TEventMap | (string & {}), TTransformed = K extends keyof TEventMap ? TEventMap[K] : PatternPayload<TEventMap, K & string>, TDefault = undefined>(
+      key: K extends keyof TEventMap ? K : WildcardPattern<K & string>,
       options?: {
-        transform?: (payload: TEventMap[K]) => TTransformed;
+        transform?: (payload: K extends keyof TEventMap ? TEventMap[K] : PatternPayload<TEventMap, K & string>) => TTransformed;
         defaultValue?: TDefault;
       }
     ): Signal<ValueWithDefault<TTransformed, TDefault>> => {
       const bus = inject(eventBusToken);
-      return bus.onToSignal(key, options);
+      return bus.onToSignal(key as any, options);
     },
 
     combineEvents: <const TSources extends readonly CombineLatestSource[]>(

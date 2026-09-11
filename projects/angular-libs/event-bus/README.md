@@ -8,10 +8,10 @@ A type-safe, RxJS-free event bus powered entirely by Angular Signals
 
 - ✅ **Strongly Typed**: Full type-safety for event payloads out of the box.
 - 🚀 **Signal-Based**: Built on Angular Signals for a modern, reactive architecture. Angular 20+
-- 📡 **Flexible Subscriptions**: Listen via callbacks (`on`) or reactive signals (`onToSignal`).
+- 📡 **Flexible Subscriptions**: Listen via callbacks (`on`) or reactive signals (`onToSignal`). Exact keys stay strictly typed; colon-separated wildcards (`*`, `user:*`, `**`) match prefixes and namespaces.
 - 🌀 **Async Resource Mapping**: Reactively map events to async operations with `onToResource()`. Integrates directly with Angular's modern Resource API, providing native loading status, error signals, and auto-abort cancellation.
 - 🔄 **Event Transformation**: Map payloads directly within subscription options.
-- 🧹 **Smart Cleanup**: Automatic memory management via `DestroyRef`, custom signals, or termination events.
+- 🧹 **Smart Cleanup**: Automatic memory management via `DestroyRef` or termination events (`unsubscribeOn: 'user:logout'`).
 
 ## Installation
 
@@ -61,17 +61,46 @@ export class ExampleComponent {
 ## API
 
 - `emit(key, payload, options?)`: Emits an event with a given key, payload, and optional metadata `options` (e.g. `headers`). Argument positions are always fixed - the payload is never confused with `options`, even if it happens to look like `{ headers: ... }`. For `void`-typed events, `payload` can be omitted entirely (`emit(key)`), or pass `undefined` explicitly if you also need to supply `options` (`emit(key, undefined, options)`).
-- `on(key, options)`: Subscribes to an event with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). It automatically context-resolves `DestroyRef` and unsubscribes when the enclosing component/service injection context is destroyed (to bypass this and keep a manual registration, set `unsubscribeOn` to `'manual'`). Returns an unsubscribe function.
-- `once(key, options)`: Subscribes for a single emission; the subscription is removed after the first call.
-- `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload). If the event has never emitted, it returns `options.defaultValue` (or `undefined` if not specified).
+- `on(key, options)`: Subscribes to an event (or wildcard pattern) with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). It automatically context-resolves `DestroyRef` and unsubscribes when the enclosing component/service injection context is destroyed (to bypass this and keep a manual registration, set `unsubscribeOn` to `'manual'`). Returns an unsubscribe function.
+- `once(key, options)`: Subscribes for a single emission (exact key or pattern); the subscription is removed after the first matching call.
+- `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload). If the event has never emitted, it returns `options.defaultValue` (or `undefined` if not specified). Pattern keys yield the latest matching payload.
 - `onToResource(key, options)`: Returns an Angular `ResourceRef` that triggers an asynchronous loader whenever the event is emitted. Under the hood, it hooks into Angular's modern Resource API, providing native `.value()`, `.isLoading()`, `.error()`, and automatic `options.defaultValue` support.
 - `latest(key)`: Returns the latest BusEvent for a given key (includes payload and timestamp) or `undefined`.
 - `combineLatestToSignal(sources)`: Returns a Signal of the latest transformed payloads. `sources` is `{ key, transform? }[]` (not a string array).
 - `combineLatest({ sources, callback })`: Subscribes to combined latest values and calls the callback with an array of BusEvent objects (one per source). Returns an unsubscribe function.
-- `unsubscribe(key)`: Unsubscribe/destroy all subscriptions for a specific event key.
+- `unsubscribe(key)`: Unsubscribe/destroy all subscriptions for a specific event key or pattern string.
 - `unsubscribeAll()`: Unsubscribe/destroy all subscriptions registered with the event bus (tears down all internal effects).
 - `resetEvent(key)`: Resets the stored payload for a single event so it behaves as if it has never emitted. This does NOT remove subscriptions — it only clears the latest cached value.
 - `resetAllEvents()`: Resets the stored payloads for all events so they behave as if they have never emitted. This does NOT remove subscriptions.
+
+## Wildcard / pattern subscriptions
+
+Keys are colon-separated (`user:login`). `on`, `once`, and `onToSignal` accept the same patterns as [ng-event-bus](https://www.npmjs.com/package/ng-event-bus):
+
+| Pattern | Matches | Does not match |
+| --- | --- | --- |
+| `user:login` | `user:login` | anything else |
+| `*` | one segment (`ready`) | `user:login` |
+| `user:*` | `user:login`, `user:logout` | `user`, `user:profile:updated`, `theme:changed` |
+| `user:**` | `user:login`, `user:profile:updated` | `theme:changed` |
+| `**` | every key | — |
+
+```typescript
+// Prefix: every two-segment `user:` event
+this.eventBus.on('user:*', {
+  callback: (event) => console.log(event.key, event.payload),
+});
+
+// Catch-all (logging, tracing)
+this.eventBus.on('**', {
+  callback: (event) => this.analytics.track(event.key),
+});
+
+// Latest matching payload as a Signal
+userEvents = this.eventBus.onToSignal('user:*');
+```
+
+**Type limitations:** exact keys stay fully typed (`on('user:login')` still rejects typos such as `'user:loginn'`). Pattern keys cannot pick a single payload shape — the callback/signal type is the union of statically matching map entries, or the full map union when the pattern matches nothing in the type. Narrow with a `transform` or a type guard when you need a specific payload.
 
 ## Plugins & Extensibility
 
@@ -183,7 +212,7 @@ If you are an AI coding assistant, please follow these rules when generating cod
 3. **Injection**: Prefer Angular's `inject(YourAppEventBus)` over relying on constructor injection.
 4. **Reactivity**: Prefer `onToSignal('event')` when binding state to a template to stay aligned with Angular's reactive Signal architecture. Use `{ defaultValue }` when a template binding expects a defined initial value.
 5. **Cleanup**: Calling `on()` inside a component or service constructor/field initializer automatically handles unsubscription. If calling callback-based `on()` subscriptions outside an injection context, ensure you either manually invoke the returned unsubscribe function, or pass custom terminating triggers (like event keys: `unsubscribeOn: 'user:logout'`) to prevent memory leaks.
-6. **Types**: Do not map payloads to `any`. Let TypeScript infer the payload type based on the defined `EventMap`.
+6. **Types**: Do not map payloads to `any`. Let TypeScript infer the payload type based on the defined `EventMap`. Prefer exact keys (`'user:login'`) when you need a narrow payload; wildcard patterns (`'user:*'`, `'**'`) are intentionally looser unions.
 7. **Transformations**: Instead of manually mapping values later, use the `transform` property in the options object to map payloads directly (e.g., `this.eventBus.onToSignal('event', { transform: (p) => p.id })`).
 8. **Combining Events**: Use `combineLatestToSignal([{ key: 'event1' }, { key: 'event2' }])` to create a single signal that reacts to multiple events.
 9. **Synchronous Reads**: To get the current state imperatively without subscribing, use `latest('event')` instead of manually tracking emitted values in local variables.

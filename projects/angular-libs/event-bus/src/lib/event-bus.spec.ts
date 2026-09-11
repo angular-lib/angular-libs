@@ -4,6 +4,17 @@ import { ALEventBus, createEventBusHooks } from './event-bus';
 import { ALEventBusPlugin, BusEvent } from './event-bus.models';
 import { MockComponent, TestEventMap, TestEventBus, createTestPlugin } from './testing/event-bus-test-helpers';
 
+interface WildcardEventMap {
+  'user:login': { userId: string; username: string };
+  'user:logout': void;
+  'user:profile:updated': { name: string };
+  'theme:changed': 'light' | 'dark';
+  ready: boolean;
+}
+
+@Injectable()
+class WildcardEventBus extends ALEventBus<WildcardEventMap> {}
+
 describe('ALEventBus Basic/Core Functionality', () => {
   let eventBus: TestEventBus;
 
@@ -499,5 +510,138 @@ describe('createEventBusHooks() DX Functional Hooks', () => {
     });
 
     expect(received).toEqual([{ theme: 'dark', user: 'David' }]);
+  });
+});
+
+describe('ALEventBus wildcard / pattern subscribe', () => {
+  let eventBus: WildcardEventBus;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [WildcardEventBus],
+    });
+    eventBus = TestBed.inject(WildcardEventBus);
+  });
+
+  afterEach(() => {
+    eventBus.resetAllEvents();
+    eventBus.unsubscribeAll();
+  });
+
+  it('still delivers exact-key subscriptions with narrow payloads', () => {
+    const received: { userId: string; username: string }[] = [];
+    eventBus.on('user:login', {
+      callback: (event) => {
+        received.push(event.payload);
+      },
+    });
+
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+    eventBus.emit('user:logout');
+    eventBus.emit('theme:changed', 'dark');
+
+    expect(received).toEqual([{ userId: '1', username: 'ana' }]);
+  });
+
+  it('lets user:* receive matching user emits and ignore other namespaces', () => {
+    const keys: string[] = [];
+    const payloads: unknown[] = [];
+    eventBus.on('user:*', {
+      callback: (event) => {
+        keys.push(event.key);
+        payloads.push(event.payload);
+      },
+    });
+
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+    eventBus.emit('user:logout');
+    eventBus.emit('user:profile:updated', { name: 'Ana' });
+    eventBus.emit('theme:changed', 'dark');
+    eventBus.emit('ready', true);
+
+    expect(keys).toEqual(['user:login', 'user:logout']);
+    expect(payloads).toEqual([{ userId: '1', username: 'ana' }, undefined]);
+  });
+
+  it('lets ** receive every emit and * receive only one-segment keys', () => {
+    const starKeys: string[] = [];
+    const allKeys: string[] = [];
+    eventBus.on('*', { callback: (event) => { starKeys.push(event.key); } });
+    eventBus.on('**', { callback: (event) => { allKeys.push(event.key); } });
+
+    eventBus.emit('ready', true);
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+    eventBus.emit('theme:changed', 'dark');
+
+    expect(starKeys).toEqual(['ready']);
+    expect(allKeys).toEqual(['ready', 'user:login', 'theme:changed']);
+  });
+
+  it('fires once() on the first matching pattern emit only', () => {
+    const keys: string[] = [];
+    eventBus.once('user:*', {
+      callback: (event) => { keys.push(event.key); },
+    });
+
+    eventBus.emit('theme:changed', 'dark');
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+    eventBus.emit('user:logout');
+
+    expect(keys).toEqual(['user:login']);
+  });
+
+  it('updates onToSignal for the latest matching pattern payload', () => {
+    const userEvents = eventBus.onToSignal('user:*');
+    const withDefault = eventBus.onToSignal('user:*', { defaultValue: null });
+
+    expect(userEvents()).toBeUndefined();
+    expect(withDefault()).toBeNull();
+
+    eventBus.emit('theme:changed', 'dark');
+    expect(userEvents()).toBeUndefined();
+
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+    expect(userEvents()).toEqual({ userId: '1', username: 'ana' });
+
+    eventBus.emit('user:logout');
+    expect(userEvents()).toBeUndefined();
+  });
+
+  it('lets unsubscribe(pattern) remove only that pattern listener', () => {
+    const patternKeys: string[] = [];
+    const exactKeys: string[] = [];
+    eventBus.on('user:*', { callback: (e) => { patternKeys.push(e.key); } });
+    eventBus.on('user:login', { callback: (e) => { exactKeys.push(e.key); } });
+
+    eventBus.unsubscribe('user:*');
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+
+    expect(patternKeys).toEqual([]);
+    expect(exactKeys).toEqual(['user:login']);
+  });
+
+  it('still type-checks exact keys so typos do not compile', () => {
+    // Narrow exact-key payload still type-checks.
+    eventBus.on('user:login', {
+      callback: (event) => {
+        const userId: string = event.payload.userId;
+        expect(userId).toBeDefined();
+      },
+    });
+
+    // @ts-expect-error typo in an exact key must not type-check (pattern overloads must not swallow it)
+    eventBus.on('user:loginn', {
+      callback: () => {},
+    });
+
+    // @ts-expect-error same for once()
+    eventBus.once('user:loginn', {
+      callback: () => {},
+    });
+
+    // @ts-expect-error same for onToSignal()
+    eventBus.onToSignal('user:loginn');
+
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
   });
 });
