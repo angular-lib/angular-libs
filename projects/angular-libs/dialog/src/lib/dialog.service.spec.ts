@@ -1,6 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { DialogService } from './dialog.service';
+import { resolveDismissFlags } from './dialog.types';
 
 @Component({
   selector: 'test-cmp',
@@ -150,6 +151,145 @@ describe('DialogService Global Configuration', () => {
     TestBed.resetTestingModule();
 
     expect(removeSpy).toHaveBeenCalledWith('fullscreenchange', registeredHandler);
+  });
+});
+
+describe('resolveDismissFlags', () => {
+  it('defaults both on when nothing is set', () => {
+    expect(resolveDismissFlags({})).toEqual({ closeOnEscape: true, closeOnBackdrop: true });
+  });
+
+  it('turns both off when disableClose is true', () => {
+    expect(resolveDismissFlags({ disableClose: true })).toEqual({
+      closeOnEscape: false,
+      closeOnBackdrop: false,
+    });
+  });
+
+  it('lets explicit flags override disableClose', () => {
+    expect(resolveDismissFlags({ disableClose: true, closeOnEscape: true })).toEqual({
+      closeOnEscape: true,
+      closeOnBackdrop: false,
+    });
+    expect(resolveDismissFlags({ disableClose: true, closeOnBackdrop: true })).toEqual({
+      closeOnEscape: false,
+      closeOnBackdrop: true,
+    });
+  });
+
+  it('honors independent Esc-only and backdrop-only settings', () => {
+    expect(resolveDismissFlags({ closeOnEscape: true, closeOnBackdrop: false })).toEqual({
+      closeOnEscape: true,
+      closeOnBackdrop: false,
+    });
+    expect(resolveDismissFlags({ closeOnEscape: false, closeOnBackdrop: true })).toEqual({
+      closeOnEscape: false,
+      closeOnBackdrop: true,
+    });
+  });
+});
+
+describe('DialogService dismiss listeners', () => {
+  beforeAll(() => {
+    HTMLDialogElement.prototype.show = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = true;
+    });
+    HTMLDialogElement.prototype.showModal = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = true;
+    });
+    HTMLDialogElement.prototype.close = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+      this.open = false;
+      this.dispatchEvent(new Event('close'));
+    });
+  });
+
+  afterEach(() => {
+    document.querySelectorAll('dialog.al-dialog').forEach((el) => el.remove());
+  });
+
+  function dispatchBackdropClick(el: HTMLDialogElement): void {
+    const opts: MouseEventInit = { clientX: 200, clientY: 200, bubbles: true };
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+  }
+
+  function dispatchEscape(el: HTMLDialogElement): void {
+    el.dispatchEvent(new Event('cancel', { cancelable: true }));
+  }
+
+  async function flush(): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it('both-on: Escape and backdrop each close the dialog', async () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+
+    const escRef = service.open(TestComponent);
+    dispatchEscape(escRef.dialogEl);
+    await expect(escRef.closed).resolves.toEqual({ result: undefined, source: 'escape' });
+
+    const backdropRef = service.open(TestComponent);
+    dispatchBackdropClick(backdropRef.dialogEl);
+    await expect(backdropRef.closed).resolves.toEqual({ result: undefined, source: 'backdrop' });
+  });
+
+  it('Esc-only: Escape closes, backdrop does not', async () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+    const ref = service.open(TestComponent, { closeOnEscape: true, closeOnBackdrop: false });
+
+    dispatchBackdropClick(ref.dialogEl);
+    await flush();
+    expect(ref.dialogEl.open).toBe(true);
+
+    dispatchEscape(ref.dialogEl);
+    await expect(ref.closed).resolves.toEqual({ result: undefined, source: 'escape' });
+  });
+
+  it('backdrop-only: backdrop closes, Escape does not', async () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+    const ref = service.open(TestComponent, { closeOnEscape: false, closeOnBackdrop: true });
+
+    dispatchEscape(ref.dialogEl);
+    await flush();
+    expect(ref.dialogEl.open).toBe(true);
+
+    dispatchBackdropClick(ref.dialogEl);
+    await expect(ref.closed).resolves.toEqual({ result: undefined, source: 'backdrop' });
+  });
+
+  it('both-off via disableClose: neither Escape nor backdrop closes', async () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+    const ref = service.open(TestComponent, { disableClose: true });
+
+    dispatchEscape(ref.dialogEl);
+    dispatchBackdropClick(ref.dialogEl);
+    await flush();
+    expect(ref.dialogEl.open).toBe(true);
+
+    await ref.close();
+  });
+
+  it('applies hasBackdrop, backdropClass, and fullscreenBelow classes', () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+    const ref = service.open(TestComponent, {
+      hasBackdrop: false,
+      backdropClass: 'my-dim',
+      fullscreenBelow: 'md',
+    });
+
+    try {
+      expect(ref.dialogEl.classList.contains('al-dialog-no-backdrop')).toBe(true);
+      expect(ref.dialogEl.classList.contains('my-dim')).toBe(true);
+      expect(ref.dialogEl.classList.contains('al-dialog-fullscreen-below-md')).toBe(true);
+    } finally {
+      void ref.close();
+    }
   });
 });
 

@@ -78,6 +78,48 @@ export const DIALOG_SIZE_PRESETS: Record<DialogSizePreset, string> = {
   full: '90vw',
 };
 
+/** Viewport breakpoint for {@link DialogConfigBase.fullscreenBelow}. */
+export type DialogBreakpoint = 'sm' | 'md' | 'lg' | 'xl';
+
+/** Max viewport widths (px) that match {@link DialogBreakpoint}. */
+export const DIALOG_FULLSCREEN_BREAKPOINTS: Record<DialogBreakpoint, number> = {
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+};
+
+/** ARIA role applied to the native `<dialog>` (implicit `dialog` when omitted). */
+export type DialogRole = 'dialog' | 'alertdialog';
+
+export type PopoverPlacement =
+  | 'bottom-left'
+  | 'bottom'
+  | 'bottom-right'
+  | 'top-left'
+  | 'top'
+  | 'top-right'
+  | 'left'
+  | 'right';
+
+/**
+ * Resolves Escape / backdrop dismiss independently.
+ *
+ * `disableClose: true` is a shorthand that turns both off. Explicit
+ * `closeOnEscape` / `closeOnBackdrop` always win.
+ */
+export function resolveDismissFlags(options: {
+  disableClose?: boolean;
+  closeOnEscape?: boolean;
+  closeOnBackdrop?: boolean;
+}): { closeOnEscape: boolean; closeOnBackdrop: boolean } {
+  const bothOff = options.disableClose === true;
+  return {
+    closeOnEscape: options.closeOnEscape ?? !bothOff,
+    closeOnBackdrop: options.closeOnBackdrop ?? !bothOff,
+  };
+}
+
 export type AutoFocusTarget = 'first-tabbable' | 'dialog' | false | HTMLElement | string;
 
 export type DialogAnimation =
@@ -156,7 +198,29 @@ export interface WindowBehaviorOptions {
 
 export interface DialogConfigBase {
   id?: string;
+  /**
+   * Shorthand that turns off both Escape and backdrop dismiss.
+   * Explicit {@link closeOnEscape} / {@link closeOnBackdrop} override this.
+   */
   disableClose?: boolean;
+  /** Close when the user presses Escape. Defaults to `true` unless {@link disableClose}. */
+  closeOnEscape?: boolean;
+  /** Close when the user clicks the backdrop. Defaults to `true` unless {@link disableClose}. */
+  closeOnBackdrop?: boolean;
+  /**
+   * When `false`, the native `::backdrop` is made transparent.
+   * Modal dialogs still use `showModal()` (focus trap). Defaults to `true`.
+   */
+  hasBackdrop?: boolean;
+  /** Extra class(es) on `<dialog>` for styling `::backdrop`. */
+  backdropClass?: string | string[];
+  /**
+   * Stretch the modal to the viewport below this breakpoint
+   * (`sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px).
+   */
+  fullscreenBelow?: DialogBreakpoint;
+  /** Explicit ARIA role. {@link DialogService.confirm} / {@link DialogService.alert} default to `alertdialog`. */
+  role?: DialogRole;
   panelClass?: string | string[];
   contentClass?: string | string[];
   size?: DialogSizePreset | (string & {});
@@ -216,6 +280,13 @@ export interface ConfirmOptions {
   width?: string;
   size?: DialogSizePreset | (string & {});
   disableClose?: boolean;
+  closeOnEscape?: boolean;
+  closeOnBackdrop?: boolean;
+  hasBackdrop?: boolean;
+  backdropClass?: string | string[];
+  fullscreenBelow?: DialogBreakpoint;
+  /** Defaults to `alertdialog` for confirm / alert. */
+  role?: DialogRole;
   panelClass?: string | string[];
   contentClass?: string | string[];
   ariaLabel?: string;
@@ -228,18 +299,12 @@ export interface ConfirmOptions {
 export interface PopoverDialogOptions<TComponent = unknown>
   extends Omit<WindowOptions<TComponent>, 'drag' | 'snap' | 'dock' | 'persist'> {
   anchor: HTMLElement | string;
-  placement?:
-    | 'bottom-left'
-    | 'bottom'
-    | 'bottom-right'
-    | 'top-left'
-    | 'top'
-    | 'top-right'
-    | 'left'
-    | 'right';
+  placement?: PopoverPlacement;
   offset?: number;
   showArrow?: boolean;
   arrowColor?: string;
+  /** Flip to the opposite side when the preferred placement overflows. Defaults to `true`. */
+  flip?: boolean;
 }
 
 export interface ToastOptions {

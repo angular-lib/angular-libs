@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Independent `closeOnEscape` / `closeOnBackdrop` ( `disableClose` remains a both-off shorthand )
+- Optional `hasBackdrop` and `backdropClass`
+- `role?: 'dialog' | 'alertdialog'` — `confirm()` / `alert()` default to `alertdialog`
+- `fullscreenBelow?: 'sm' | 'md' | 'lg' | 'xl'` for mobile-fullscreen modals
+- Popover flip (and shift/clamp fallback) near viewport edges; `flip: false` keeps clamp-only
+
 ## 0.1.0
 
 ### Added

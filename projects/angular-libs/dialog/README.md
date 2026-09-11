@@ -72,6 +72,9 @@ const ref = dialog.open(EditUserComponent, {
   inputs: { userId },
   size: 'md',
   contentClass: 'my-chrome',
+  fullscreenBelow: 'md', // fullscreen under 768px
+  // closeOnEscape: true, closeOnBackdrop: false, // independent dismiss
+  // disableClose: true, // shorthand: both off
 });
 const { result, source } = await ref.closed;
 
@@ -95,7 +98,7 @@ const ok = await dialog.confirm({
 
 await dialog.alert({ title: 'Done', message: 'Saved.' });
 
-// Popover / toast
+// Popover / toast — popover flips / shifts at viewport edges
 dialog.popover(MenuComponent, { anchor: event.currentTarget, placement: 'bottom' });
 dialog.toast('Saved', { duration: 3000, position: 'bottom-right' });
 ```
@@ -109,12 +112,23 @@ dialog.toast('Saved', { duration: 3000, position: 'bottom-right' });
 | Intent | Modal | Return focus | Notes |
 |--------|-------|--------------|-------|
 | `open` | yes | yes | `aria-modal=true`, labelledby from title when present |
-| `confirm` / `alert` | yes | yes | Footer actions close with results |
+| `confirm` / `alert` | yes | yes | `role="alertdialog"`; footer actions close with results |
 | `window` | no | no (default) | `aria-modal=false` |
-| `popover` | no | yes | Restore to trigger |
+| `popover` | no | yes | Restore to trigger; flips / shifts at viewport edges |
 | `toast` | no | no | `role="status"`, `aria-live="polite"`; stacked in a corner |
 
-Options: `autoFocus`, `restoreFocus`, `ariaLabel` / `ariaLabelledBy` / `ariaDescribedBy`, `closeOnNavigation` (default on for modals).
+Options: `autoFocus`, `restoreFocus`, `ariaLabel` / `ariaLabelledBy` / `ariaDescribedBy`, `role` (`dialog` \| `alertdialog`), `closeOnNavigation` (default on for modals).
+
+### Dismiss
+
+- `closeOnEscape` / `closeOnBackdrop` — independent. Both default to `true`.
+- `disableClose: true` — shorthand that turns both off. Explicit flags override it.
+- `hasBackdrop: false` — transparent native `::backdrop` (still modal).
+- `backdropClass` — extra class on `<dialog>` for `::backdrop` styling.
+
+### Mobile fullscreen
+
+`fullscreenBelow: 'sm' | 'md' | 'lg' | 'xl'` on `open()` (or confirm / alert) stretches the modal to the viewport under 640 / 768 / 1024 / 1280px.
 
 ## DefaultDialogComponent
 

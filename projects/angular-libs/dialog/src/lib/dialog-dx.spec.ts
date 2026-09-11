@@ -215,6 +215,36 @@ describe('Dialog DX redesign', () => {
     expect(event.source).toBe('primary');
   });
 
+  it('confirm() and alert() set role="alertdialog"', async () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+
+    const confirmPending = service.confirm({ title: 'Sure?', message: 'Go?' });
+    await Promise.resolve();
+    const confirmRef = service.openDialogs[0];
+    expect(confirmRef.dialogEl.getAttribute('role')).toBe('alertdialog');
+    (confirmRef.component as DefaultDialogComponent).onPrimary();
+    await confirmPending;
+
+    const alertPending = service.alert({ title: 'Heads up', message: 'Done' });
+    await Promise.resolve();
+    const alertRef = service.openDialogs[0];
+    expect(alertRef.dialogEl.getAttribute('role')).toBe('alertdialog');
+    (alertRef.component as DefaultDialogComponent).onPrimary();
+    await alertPending;
+  });
+
+  it('open() applies an explicit role option', () => {
+    TestBed.configureTestingModule({ providers: [DialogService] });
+    const service = TestBed.inject(DialogService);
+    const ref = service.open(DxTestComponent, { role: 'alertdialog' });
+    try {
+      expect(ref.dialogEl.getAttribute('role')).toBe('alertdialog');
+    } finally {
+      void ref.close();
+    }
+  });
+
   it('confirm() resolves boolean from DefaultDialog', async () => {
     TestBed.configureTestingModule({ providers: [DialogService] });
     const service = TestBed.inject(DialogService);
