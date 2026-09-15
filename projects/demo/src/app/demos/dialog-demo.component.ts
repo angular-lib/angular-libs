@@ -1,6 +1,7 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
+  AlDialog,
   DialogService,
   DefaultDialogComponent,
   definePlugin,
@@ -9,7 +10,7 @@ import {
 @Component({
   selector: 'app-dialog-demo',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, AlDialog],
   template: `
     <div class="demo-container">
       <div class="header-section">
@@ -17,6 +18,38 @@ import {
         <p class="description">Intent-based API on native HTML5 <code>&lt;dialog&gt;</code>.</p>
         <button class="btn btn-danger" (click)="closeAll()">Close All</button>
       </div>
+
+      <section class="section">
+        <h3 class="section-title">Design system (Aria-style)</h3>
+        <div class="grid">
+          <div class="card">
+            <h4>alDialog</h4>
+            <p>Headless directive on <em>your</em> <code>&lt;dialog&gt;</code>. Your CSS only.</p>
+            <button class="btn btn-primary" type="button" (click)="kitOpen.set(true)">Open kit dialog</button>
+          </div>
+        </div>
+        <dialog
+          alDialog
+          class="kit-sheet"
+          [open]="kitOpen()"
+          labelledBy="kit-title"
+          describedBy="kit-desc"
+          (closed)="kitOpen.set(false)"
+        >
+          <h2 id="kit-title">Edit user</h2>
+          <p id="kit-desc">Your chrome. The lib only handles focus, Escape, and backdrop.</p>
+          <form (submit)="$event.preventDefault(); kitOpen.set(false)">
+            <label>
+              Name
+              <input type="text" name="name" value="Ada" />
+            </label>
+            <div class="kit-actions">
+              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" class="btn btn-secondary" (click)="kitOpen.set(false)">Lukk</button>
+            </div>
+          </form>
+        </dialog>
+      </section>
 
       <section class="section">
         <h3 class="section-title">Intents</h3>
@@ -77,14 +110,33 @@ import {
     .btn-purple { background: #8b5cf6; color: white; }
     .btn-blue { background: #2563eb; color: white; }
     .btn-danger { background: #ef4444; color: white; }
+    .btn-secondary { background: #e2e8f0; color: #0f172a; }
+    .kit-sheet {
+      border: 0;
+      padding: 1.5rem;
+      width: min(420px, 100%);
+      border-radius: 12px;
+      font-family: Georgia, 'Times New Roman', serif;
+      background: #fff8ef;
+      color: #3b2f1a;
+      box-shadow: 0 16px 40px rgb(59 47 26 / 18%);
+    }
+    .kit-sheet::backdrop { background: rgb(59 47 26 / 35%); }
+    .kit-sheet h2 { margin: 0 0 0.35rem; font-size: 1.35rem; }
+    .kit-sheet p { margin: 0 0 1rem; color: #6b5a3e; }
+    .kit-sheet label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.9rem; }
+    .kit-sheet input { padding: 0.45rem 0.6rem; border: 1px solid #d4c4a8; border-radius: 6px; font: inherit; }
+    .kit-actions { display: flex; gap: 0.5rem; margin-top: 1rem; justify-content: flex-end; }
   `],
 })
 export class DialogDemoComponent {
   private dialog = inject(DialogService);
   lastConfirm: boolean | null = null;
+  kitOpen = signal(false);
 
   closeAll(): void {
     this.dialog.closeAll();
+    this.kitOpen.set(false);
   }
 
   openStandardModal(): void {
