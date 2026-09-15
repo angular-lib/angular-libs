@@ -39,6 +39,28 @@ function defaultDeserializer<TReceive>(event: MessageEvent): TReceive {
   return JSON.parse(event.data) as TReceive;
 }
 
+const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
+const DEFAULT_RECONNECT_JITTER = 0.5;
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+/** Socket.IO-style backoff: `base * (1 - jitter + random * jitter * 2)`, capped to max. */
+function computeReconnectDelay(
+  initialDelayMs: number,
+  backoffFactor: number,
+  maxDelayMs: number,
+  attempts: number,
+  jitter: number,
+): number {
+  const base = Math.min(initialDelayMs * Math.pow(backoffFactor, attempts), maxDelayMs);
+  if (jitter <= 0) return base;
+  const randomized = base * (1 - jitter + Math.random() * jitter * 2);
+  return Math.min(Math.max(0, randomized), maxDelayMs);
+}
+
 /**
  * Creates a stable, signal-first WebSocket client. The client is automatically
  * closed when its owning Angular injection context is destroyed.
@@ -74,25 +96,35 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
     initialDelayMs: options.reconnect?.initialDelayMs ?? options.initialReconnectDelay ?? 1_000,
     maxDelayMs: options.reconnect?.maxDelayMs ?? options.maxReconnectDelay ?? 15_000,
     backoffFactor: options.reconnect?.backoffFactor ?? options.backoffFactor ?? 2,
+    connectionTimeoutMs: options.reconnect?.connectionTimeoutMs ?? DEFAULT_CONNECTION_TIMEOUT_MS,
+    jitter: clamp01(options.reconnect?.jitter ?? DEFAULT_RECONNECT_JITTER),
   };
   const outbox = {
     maxSize: options.outbox?.maxSize ?? Number.POSITIVE_INFINITY,
     overflow: options.outbox?.overflow ?? 'reject-newest',
     storage: options.outbox?.storage as WebSocketOutboxStorage<TSend> | undefined,
   };
-  const heartbeat = options.heartbeat ?? (options.heartbeatInterval && options.heartbeatInterval > 0
+  const heartbeat = options.heartbeat
     ? {
-        intervalMs: options.heartbeatInterval,
-        payload: options.heartbeatPayload ?? 'ping',
-        isHeartbeat: (event: MessageEvent) => {
-          try {
-            return event.data === serializer(options.heartbeatPayload ?? 'ping');
-          } catch {
-            return false;
-          }
-        },
+        ...options.heartbeat,
+        timeoutMs: options.heartbeat.timeoutMs ?? (options.heartbeat.intervalMs > 0
+          ? options.heartbeat.intervalMs * 2
+          : 0),
       }
-    : undefined);
+    : (options.heartbeatInterval && options.heartbeatInterval > 0
+      ? {
+          intervalMs: options.heartbeatInterval,
+          payload: options.heartbeatPayload ?? 'ping',
+          timeoutMs: options.heartbeatInterval * 2,
+          isHeartbeat: (event: MessageEvent) => {
+            try {
+              return event.data === serializer(options.heartbeatPayload ?? 'ping');
+            } catch {
+              return false;
+            }
+          },
+        }
+      : undefined);
   const plugins = options.plugins ?? [];
   const canCreateTransport = Boolean(options.webSocketFactory) || typeof WebSocket !== 'undefined';
 
@@ -108,6 +140,8 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
   let socket: WebSocketLike | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let connectionTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  let livenessTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectAttempts = 0;
   let intentionallyClosed = false;
   let activeUrl: string | null = null;
@@ -141,9 +175,22 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
   const clearTimers = () => {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (connectionTimeoutTimer) clearTimeout(connectionTimeoutTimer);
+    if (livenessTimer) clearTimeout(livenessTimer);
     heartbeatTimer = null;
     reconnectTimer = null;
+    connectionTimeoutTimer = null;
+    livenessTimer = null;
     retryDelay.set(null);
+  };
+
+  const forceCloseForRetry = () => {
+    if (!socket) return;
+    try {
+      socket.close();
+    } catch {
+      // Closing a failed native socket can itself throw.
+    }
   };
 
   const detachAndCloseSocket = (code?: number, reason?: string) => {
@@ -297,16 +344,30 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
     }
   };
 
-  const startHeartbeat = () => {
-    if (!heartbeat || heartbeat.intervalMs <= 0) return;
-    heartbeatTimer = setInterval(() => {
+  const armLivenessWatchdog = () => {
+    if (livenessTimer) clearTimeout(livenessTimer);
+    livenessTimer = null;
+    const timeoutMs = heartbeat?.timeoutMs ?? 0;
+    if (timeoutMs <= 0) return;
+    livenessTimer = setTimeout(() => {
       if (!socket || socket.readyState !== OPEN) return;
-      try {
-        socket.send(serializer(heartbeat.payload as TSend));
-      } catch (error) {
-        reportError('send', 'Unable to send the WebSocket heartbeat.', error);
-      }
-    }, heartbeat.intervalMs);
+      reportError('connection', 'WebSocket heartbeat timed out: no inbound traffic.', undefined);
+      forceCloseForRetry();
+    }, timeoutMs);
+  };
+
+  const startHeartbeat = () => {
+    if (heartbeat && heartbeat.intervalMs > 0) {
+      heartbeatTimer = setInterval(() => {
+        if (!socket || socket.readyState !== OPEN) return;
+        try {
+          socket.send(serializer(heartbeat.payload as TSend));
+        } catch (error) {
+          reportError('send', 'Unable to send the WebSocket heartbeat.', error);
+        }
+      }, heartbeat.intervalMs);
+    }
+    armLivenessWatchdog();
   };
 
   const connect = async (nextUrl: string) => {
@@ -344,8 +405,21 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
         : new WebSocket(connectionUrl);
       socket = nextSocket;
 
+      if (reconnect.connectionTimeoutMs > 0) {
+        connectionTimeoutTimer = setTimeout(() => {
+          if (connectionGeneration !== generation || socket !== nextSocket) return;
+          if (nextSocket.readyState === OPEN) return;
+          reportError('connection', 'WebSocket connection timed out: handshake did not complete.', undefined);
+          forceCloseForRetry();
+        }, reconnect.connectionTimeoutMs);
+      }
+
       nextSocket.onopen = () => {
         if (connectionGeneration !== generation || socket !== nextSocket) return;
+        if (connectionTimeoutTimer) {
+          clearTimeout(connectionTimeoutTimer);
+          connectionTimeoutTimer = null;
+        }
         reconnectAttempts = 0;
         currentError.set(null);
         setStatus('connected');
@@ -355,6 +429,7 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
 
       nextSocket.onmessage = (event) => {
         if (connectionGeneration !== generation || socket !== nextSocket) return;
+        armLivenessWatchdog();
         if (heartbeat?.isHeartbeat?.(event)) return;
         try {
           let message = deserializer(event);
@@ -389,9 +464,12 @@ export function createWebSocket<TSend = unknown, TReceive = unknown>(
           reportError('reconnect', 'WebSocket connection timed out: Max reconnection attempts reached.', event);
           return;
         }
-        const delay = Math.min(
-          reconnect.initialDelayMs * Math.pow(reconnect.backoffFactor, reconnectAttempts),
+        const delay = computeReconnectDelay(
+          reconnect.initialDelayMs,
+          reconnect.backoffFactor,
           reconnect.maxDelayMs,
+          reconnectAttempts,
+          reconnect.jitter,
         );
         reconnectAttempts++;
         retryDelay.set(delay);

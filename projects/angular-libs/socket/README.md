@@ -46,6 +46,8 @@ export class ChatComponent {
             initialDelayMs: 1_000,
             maxDelayMs: 15_000,
             backoffFactor: 2,
+            connectionTimeoutMs: 5_000,
+            jitter: 0.5,
          },
          outbox: { maxSize: 500, overflow: 'reject-newest' },
       },
@@ -132,6 +134,13 @@ JSON serialization and deserialization are defaults. Supply a codec for another
 wire format. Application heartbeats are disabled by default because heartbeat
 formats are server-specific; configure both the payload and the receive filter.
 
+Outbound pings alone cannot detect a half-open socket. When a heartbeat is
+configured, an inbound liveness watchdog also runs: **any** received frame
+resets the window, including messages filtered by `isHeartbeat`. If nothing
+arrives within `timeoutMs` (default `intervalMs * 2`), the client closes the
+transport and reconnects. Set `timeoutMs: 0` to keep outbound-only heartbeats.
+This is an application ping/pong convention, not the Socket.IO protocol.
+
 ```ts
 const socket = createWebSocket<Command, Event>(() => url(), {
    serializer: (command) => JSON.stringify(command),
@@ -139,10 +148,17 @@ const socket = createWebSocket<Command, Event>(() => url(), {
    heartbeat: {
       intervalMs: 30_000,
       payload: { type: 'ping' },
+      timeoutMs: 60_000,
       isHeartbeat: (event) => event.data === JSON.stringify({ type: 'ping' }),
    },
 });
 ```
+
+A CONNECTING handshake that never fires `onopen` is aborted after
+`reconnect.connectionTimeoutMs` (default 5000 ms) and retried through the
+normal backoff. Reconnect delays use Socket.IO-style jitter
+(`delay * (1 - jitter + random * jitter * 2)`, default `jitter: 0.5`). Set
+`connectionTimeoutMs: 0` or `jitter: 0` to disable either behavior.
 
 `error()` returns a typed `WebSocketError` with a `kind` such as `connection`,
 `send`, `deserialize`, `reconnect`, or `queue`.
