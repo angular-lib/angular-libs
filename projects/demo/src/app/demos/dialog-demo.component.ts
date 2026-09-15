@@ -15,44 +15,12 @@ import {
     <div class="demo-container">
       <div class="header-section">
         <h2>Dialog Playground</h2>
-        <p class="description">Intent-based API on native HTML5 <code>&lt;dialog&gt;</code>.</p>
+        <p class="description">Default design via <code>DialogService</code> + CSS, or Aria-style <code>alDialog</code> on your markup.</p>
         <button class="btn btn-danger" (click)="closeAll()">Close All</button>
       </div>
 
       <section class="section">
-        <h3 class="section-title">Design system (Aria-style)</h3>
-        <div class="grid">
-          <div class="card">
-            <h4>alDialog</h4>
-            <p>Headless directive on <em>your</em> <code>&lt;dialog&gt;</code>. Your CSS only.</p>
-            <button class="btn btn-primary" type="button" (click)="kitOpen.set(true)">Open kit dialog</button>
-          </div>
-        </div>
-        <dialog
-          alDialog
-          class="kit-sheet"
-          [open]="kitOpen()"
-          labelledBy="kit-title"
-          describedBy="kit-desc"
-          (closed)="kitOpen.set(false)"
-        >
-          <h2 id="kit-title">Edit user</h2>
-          <p id="kit-desc">Your chrome. The lib only handles focus, Escape, and backdrop.</p>
-          <form (submit)="$event.preventDefault(); kitOpen.set(false)">
-            <label>
-              Name
-              <input type="text" name="name" value="Ada" />
-            </label>
-            <div class="kit-actions">
-              <button type="submit" class="btn btn-primary">Save</button>
-              <button type="button" class="btn btn-secondary" (click)="kitOpen.set(false)">Lukk</button>
-            </div>
-          </form>
-        </dialog>
-      </section>
-
-      <section class="section">
-        <h3 class="section-title">Intents</h3>
+        <h3 class="section-title">Default design (batteries)</h3>
         <div class="grid">
           <div class="card">
             <h4>Window</h4>
@@ -88,6 +56,38 @@ import {
             <button class="btn btn-purple" (click)="openCustom()">Custom plugin</button>
           </div>
         </div>
+      </section>
+
+      <section class="section">
+        <h3 class="section-title">Design system (Aria-style)</h3>
+        <div class="grid">
+          <div class="card">
+            <h4>alDialog</h4>
+            <p>Headless directive on <em>your</em> <code>&lt;dialog&gt;</code>. Your CSS only — no <code>core.css</code>.</p>
+            <button class="btn btn-primary" type="button" (click)="kitOpen.set(true)">Open kit dialog</button>
+          </div>
+        </div>
+        <dialog
+          alDialog
+          class="kit-sheet"
+          [open]="kitOpen()"
+          labelledBy="kit-title"
+          describedBy="kit-desc"
+          (closed)="kitOpen.set(false)"
+        >
+          <h2 id="kit-title">Edit user</h2>
+          <p id="kit-desc">Your chrome. The lib only handles focus, Escape, and backdrop.</p>
+          <form (submit)="$event.preventDefault(); kitOpen.set(false)">
+            <label>
+              Name
+              <input type="text" name="name" value="Ada" />
+            </label>
+            <div class="kit-actions">
+              <button type="submit" class="btn btn-primary">Save</button>
+              <button type="button" class="btn btn-secondary" (click)="kitOpen.set(false)">Lukk</button>
+            </div>
+          </form>
+        </dialog>
       </section>
     </div>
   `,
