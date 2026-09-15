@@ -99,7 +99,7 @@ export function myPlugin<T>(): DataGridPlugin<T> {
 Maps processed `T[]` → `DisplayRow[]` (group / tree / custom).
 
 **Exclusive:** only one display builder may be active. Registering another
-replaces the previous (row group and tree cannot run together).
+replaces the previous (row group, tree, and master-detail cannot run together).
 
 ```ts
 context.capabilities.registerDisplayBuilder({
@@ -191,8 +191,10 @@ createGrid({
 Expanded masters insert a full-width `plugin` display row
 (`pluginKind: 'masterDetail'`). The default panel hosts a nested
 `<al-data-grid>` from `detailColumns` / `detailGrid` (AG `detailGridOptions`
-spirit). Override with `detailComponent` for forms. Mutually exclusive with
-`rowGroupPlugin` / `treeDataPlugin` (one display builder).
+spirit). Nested controllers + sort/filter/selection are kept across remounts
+(`keepDetailGrids`, default true). Override with `detailComponent` for forms.
+Mutually exclusive with `rowGroupPlugin` / `treeDataPlugin` (one display builder).
+Status-bar "N rows" counts processed master rows, not open detail panels.
 
 ```ts
 detailGrid: {

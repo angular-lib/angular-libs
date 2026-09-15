@@ -18,7 +18,7 @@ export type TreeDataPlugin<T = unknown> = DataGridPlugin<T> & TreeDataAdapter;
 /**
  * Registers a tree display builder + store-style collapse adapter.
  *
- * Mutually exclusive with `rowGroupPlugin` (capabilities keep one display builder).
+ * Mutually exclusive with `rowGroupPlugin` / `masterDetailPlugin` (one display builder).
  * Expand / collapse live on the adapter / API — no default toolbar buttons.
  *
  * @example

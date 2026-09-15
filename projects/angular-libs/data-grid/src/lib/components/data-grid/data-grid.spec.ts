@@ -19,6 +19,7 @@ import {
   reconcileHiddenColumnIds,
 } from '../../utils/column-layout';
 import { FocusController } from '../../controllers/focus';
+import { selectRowAriaLabelOf } from '../../hosts/binder-template.helpers';
 import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
 import { parseGridState, serializeGridState } from '../../utils/state';
@@ -27,6 +28,8 @@ import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
 import { parseClipboardMatrix, tileMatrix } from '../../utils/clipboard-paste';
 import {
   findPlugin,
+  masterDetailPlugin,
+  MasterDetailDefaultView,
   rowGroupPlugin,
   sideBarPlugin,
   statusBarPlugin,
@@ -194,6 +197,12 @@ describe('data-grid utils', () => {
     );
     expect(next[0]!.name).toBe('Augusta');
     expect(people[0]!.name).toBe('Ada');
+  });
+
+  it('builds select-row aria labels from a name, not the raw id', () => {
+    expect(selectRowAriaLabelOf('Select row', 0, 'Ada')).toBe('Select row Ada');
+    expect(selectRowAriaLabelOf('Select row', 4, '  ')).toBe('Select row 5');
+    expect(selectRowAriaLabelOf('Select row', 2)).toBe('Select row 3');
   });
 
   it('normalizes dates and navigates focus', () => {
@@ -652,6 +661,26 @@ describe('DataGrid', () => {
     const body = el.querySelector('.al-data-grid__tbody [role="row"]');
     expect(body?.getAttribute('aria-rowindex')).toBeTruthy();
   });
+
+  it('labels row checkboxes with the row name, not the row id', async () => {
+    const el: HTMLElement = fixture.nativeElement;
+    const ada = el.querySelector(
+      '[data-testid="al-dg-row-1"] [data-testid="al-dg-select-row"]',
+    );
+    expect(ada?.getAttribute('aria-label')).toBe('Select row Ada');
+
+    fixture.componentInstance.grid.api()?.setSortModel([
+      { columnId: 'age', direction: 'desc' },
+    ]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const grace = el.querySelector(
+      '[data-testid="al-dg-row-2"] [data-testid="al-dg-select-row"]',
+    );
+    expect(grace?.getAttribute('aria-label')).toBe('Select row Grace');
+    expect(grace?.getAttribute('aria-label')).not.toBe('Select row 2');
+  });
 });
 
 @Component({
@@ -1053,6 +1082,163 @@ describe('DataGrid tree UI', () => {
     expect(el.querySelectorAll('[data-testid^="al-dg-group-"]').length).toBeGreaterThanOrEqual(2);
     expect(el.textContent).toContain('UK');
     expect(el.textContent).toContain('Ada');
+  });
+});
+
+interface CallRecord {
+  callId: number;
+  number: string;
+}
+
+interface Account {
+  id: number;
+  name: string;
+  calls: CallRecord[];
+}
+
+const accounts: Account[] = [
+  {
+    id: 1,
+    name: 'Mila',
+    calls: [
+      { callId: 1, number: '555-0100' },
+      { callId: 2, number: '555-0101' },
+    ],
+  },
+  { id: 2, name: 'Noah', calls: [] },
+  { id: 3, name: 'Olivia', calls: [{ callId: 3, number: '555-0199' }] },
+];
+
+@Component({
+  imports: [DataGrid],
+  template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+})
+class MasterDetailHostGrid {
+  readonly rows = signal(accounts);
+  readonly masterDetail = masterDetailPlugin<Account, CallRecord>({
+    getDetailRows: (row) => row.calls,
+    detailGrid: {
+      columns: [
+        { field: 'callId', header: 'Call ID', width: 90 },
+        { field: 'number', header: 'Number', flex: 1 },
+      ],
+      rowId: (row) => row.callId,
+    },
+    detailRowHeight: 160,
+    isOpenByDefault: (row) => row.id === 1,
+  });
+  readonly grid = createGrid<Account>({
+    columns: [
+      this.masterDetail.expandColumn(),
+      { field: 'name', header: 'Name', filter: true },
+    ],
+    rowId: (row) => row.id,
+    plugins: [statusBarPlugin<Account>(), this.masterDetail],
+    viewport: { rowHeight: 40, virtual: false, pagination: false },
+  });
+}
+
+describe('DataGrid master-detail UI', () => {
+  async function render(): Promise<{
+    fixture: ComponentFixture<MasterDetailHostGrid>;
+    el: HTMLElement;
+    host: MasterDetailHostGrid;
+  }> {
+    await TestBed.configureTestingModule({ imports: [MasterDetailHostGrid] }).compileComponents();
+    const fixture = TestBed.createComponent(MasterDetailHostGrid);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return {
+      fixture,
+      el: fixture.nativeElement as HTMLElement,
+      host: fixture.componentInstance,
+    };
+  }
+
+  it('opens the default master and sizes the nested detail grid', async () => {
+    const { el } = await render();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:2"]')).toBeFalsy();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:3"]')).toBeFalsy();
+    expect(el.textContent).toContain('555-0100');
+
+    const panel = el.querySelector('[data-testid="al-dg-plugin-row-md:1"]') as HTMLElement;
+    expect(panel.style.height).toBe('160px');
+    expect(el.querySelector('[data-testid="al-dg-master-detail"] al-data-grid')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-status-bar"]')?.textContent).toContain('3 rows');
+    expect(el.querySelector('[data-testid="al-dg-status-bar"]')?.textContent).not.toContain('4 rows');
+  });
+
+  it('keeps nested sort when the master is filtered out and back', async () => {
+    const { el, host, fixture } = await render();
+    const view = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
+      .componentInstance as MasterDetailDefaultView<Account, CallRecord>;
+    const nested = view.detailController();
+    expect(nested).toBeTruthy();
+    nested!.api()!.setSortModel([{ columnId: 'number', direction: 'desc' }]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(nested!.api()!.getSortModel()).toEqual([
+      { columnId: 'number', direction: 'desc' },
+    ]);
+
+    host.grid.api()!.setFilterModel({ name: 'Olivia' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
+
+    host.grid.api()!.setFilterModel({});
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
+
+    const view2 = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
+      .componentInstance as MasterDetailDefaultView<Account, CallRecord>;
+    expect(view2.detailController()).toBe(nested);
+    expect(view2.detailController()!.api()!.getSortModel()).toEqual([
+      { columnId: 'number', direction: 'desc' },
+    ]);
+  });
+
+  it('hides expand on empty masters and expands/collapses via the adapter', async () => {
+    const { el, host, fixture } = await render();
+
+    const toggles = [...el.querySelectorAll('[data-testid="al-dg-master-detail-toggle"]')];
+    expect(toggles).toHaveLength(2);
+
+    const noah = el.querySelector('[data-testid="al-dg-row-2"]') as HTMLElement;
+    expect(noah.querySelector('[data-testid="al-dg-master-detail-toggle"]')).toBeFalsy();
+
+    const milaToggle = el.querySelector(
+      '[data-testid="al-dg-row-1"] [data-testid="al-dg-master-detail-toggle"]',
+    ) as HTMLButtonElement;
+    expect(milaToggle.getAttribute('aria-expanded')).toBe('true');
+    milaToggle.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
+
+    host.masterDetail.expandAll(
+      host.rows()
+        .filter((r) => r.calls.length > 0)
+        .map((r) => r.id),
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:3"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:2"]')).toBeFalsy();
+
+    host.masterDetail.collapseAll();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelectorAll('[data-testid^="al-dg-plugin-row-md:"]').length).toBe(0);
   });
 });
 

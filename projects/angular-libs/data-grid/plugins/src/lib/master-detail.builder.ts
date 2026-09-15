@@ -7,7 +7,12 @@ import {
   MASTER_DETAIL_PLUGIN_KIND,
   type MasterDetailGridOptions,
   type MasterDetailPayload,
+  type PersistedDetailGridState,
 } from './master-detail.types';
+import type { DataGridApi, GridController } from '@angular-libs/data-grid';
+
+/** Compact height for an expanded master with no detail rows (default nested grid). */
+export const EMPTY_DETAIL_ROW_HEIGHT = 48;
 
 export interface BuildMasterDetailRowsOptions<T, D = unknown> {
   rows: readonly T[];
@@ -18,6 +23,23 @@ export interface BuildMasterDetailRowsOptions<T, D = unknown> {
   isRowMaster?: (row: T) => boolean;
   detailRowHeight: number;
   detailGrid?: MasterDetailGridOptions<D>;
+  /**
+   * When set, expanded masters with zero detail rows use this height instead of
+   * `detailRowHeight` (avoids a 200px empty nested grid). Omit for custom
+   * `detailComponent` panels that still want the full slot.
+   */
+  emptyDetailRowHeight?: number;
+  obtainDetailController?: (
+    masterRowId: string | number,
+    config: MasterDetailGridOptions<D>,
+  ) => GridController<D>;
+  persistDetailState?: (
+    masterRowId: string | number,
+    api: DataGridApi<D> | null,
+  ) => void;
+  takePersistedDetailState?: (
+    masterRowId: string | number,
+  ) => PersistedDetailGridState | null;
 }
 
 /**
@@ -34,6 +56,10 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
     isRowMaster,
     detailRowHeight,
     detailGrid,
+    emptyDetailRowHeight,
+    obtainDetailController,
+    persistDetailState,
+    takePersistedDetailState,
   } = options;
 
   const out: DisplayRow<T>[] = [];
@@ -55,13 +81,24 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
       masterRowId: data.rowId,
       detailRows,
       detailGrid,
+      obtainDetailController: obtainDetailController
+        ? (cfg) => obtainDetailController(data.rowId, cfg)
+        : undefined,
+      persistDetailState: persistDetailState
+        ? (api) => persistDetailState(data.rowId, api)
+        : undefined,
+      takePersistedDetailState: takePersistedDetailState
+        ? () => takePersistedDetailState(data.rowId)
+        : undefined,
     };
+    const empty = detailRows.length === 0;
     out.push({
       kind: 'plugin',
       pluginKind: MASTER_DETAIL_PLUGIN_KIND,
       id: `md:${String(data.rowId)}`,
       payload,
-      height: detailRowHeight,
+      height:
+        empty && emptyDetailRowHeight != null ? emptyDetailRowHeight : detailRowHeight,
     });
   }
 

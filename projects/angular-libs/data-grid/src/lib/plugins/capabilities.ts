@@ -140,7 +140,7 @@ export class GridCapabilities<T = unknown> {
       if (others.length > 0) {
         const prev = others.map((b) => b.id).join(', ');
         console.warn(
-          `[data-grid] display builders are exclusive — replacing "${prev}" with "${builder.id}" (row group and tree cannot run together)`,
+          `[data-grid] display builders are exclusive — replacing "${prev}" with "${builder.id}" (row group, tree, and master-detail cannot run together)`,
         );
       }
       // Exactly one active builder: replace any previous registration.

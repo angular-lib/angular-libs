@@ -111,7 +111,7 @@ aggregates) and/or **chrome** (toolbar / status / sidebar). See [PLUGINS.md](./P
 | --- | --- |
 | `findPlugin()` | Find UI + Ctrl/Cmd+F / F3 shortcuts |
 | `sideBarPlugin(config?)` | Columns / filters tool panels |
-| `statusBarPlugin()` | Footer counts (uses `api.getLocale()`) |
+| `statusBarPlugin()` | Footer counts (processed data rows + selection; uses `api.getLocale()`) |
 | `clipboardPlugin()` | Owns copy + paste listeners → `(paste)` |
 | `csvExportPlugin()` / `autosizePlugin()` | Opt-in toolbar CSV / autosize actions |
 | `notesPlugin({ notes, save })` | Cell notes — pass `notesResource.value` + `save` / `reload` |
@@ -154,8 +154,9 @@ inputs on `DataGrid` (see architecture Phase 1).
 
 ## Row grouping & tree
 
-**Mutually exclusive:** only one display builder is active (row group **or** tree).
-Registering both replaces the previous builder with a console warning.
+**Mutually exclusive:** only one display builder is active (row group, tree, **or**
+master-detail). Registering another replaces the previous builder with a console
+warning.
 
 ```ts
 const groups = rowGroupPlugin({ columns: ['department'] });

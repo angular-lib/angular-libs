@@ -1,10 +1,19 @@
-import { describe, expect, it } from 'vitest';
+import { Component, signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { describe, expect, it, vi } from 'vitest';
+import { GridCapabilities } from '@angular-libs/data-grid/plugin';
+import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
 import {
   buildMasterDetailDisplayRows,
   createMasterDetailAdapter,
   masterDetailPlugin,
   MASTER_DETAIL_PLUGIN_KIND,
+  EMPTY_DETAIL_ROW_HEIGHT,
 } from './master-detail.plugin';
+import {
+  MasterDetailDefaultView,
+  detailGridConfigKey,
+} from './master-detail-default.view';
 import { computeVirtualWindow } from '@angular-libs/data-grid/internals';
 
 interface Order {
@@ -23,6 +32,16 @@ const customers: Customer[] = [
   { id: 2, name: 'Grace', orders: [] },
   { id: 3, name: 'Alan', orders: [{ sku: 'B2', qty: 1 }, { sku: 'C3', qty: 4 }] },
 ];
+
+function pluginContext(caps: GridCapabilities<Customer>) {
+  return {
+    api: {} as never,
+    element: document.createElement('div'),
+    injector: null as never,
+    slots: {} as never,
+    capabilities: caps,
+  };
+}
 
 describe('masterDetailPlugin', () => {
   it('inserts detail plugin rows only for expanded masters', () => {
@@ -69,6 +88,47 @@ describe('masterDetailPlugin', () => {
     expect(plugins.map((r) => r.id)).toEqual(['md:1', 'md:3']);
   });
 
+  it('uses a compact height for empty default-view detail panels', () => {
+    const rows = buildMasterDetailDisplayRows({
+      rows: customers,
+      rowId: (r) => r.id,
+      isExpanded: () => true,
+      getDetailRows: (r) => r.orders,
+      isRowMaster: () => true,
+      detailRowHeight: 200,
+      emptyDetailRowHeight: EMPTY_DETAIL_ROW_HEIGHT,
+    });
+    const empty = rows.find((r) => r.id === 'md:2');
+    expect(empty?.kind).toBe('plugin');
+    if (empty?.kind === 'plugin') {
+      expect(empty.height).toBe(EMPTY_DETAIL_ROW_HEIGHT);
+    }
+    const full = rows.find((r) => r.id === 'md:1');
+    if (full?.kind === 'plugin') {
+      expect(full.height).toBe(200);
+    }
+  });
+
+  it('defaults isRowMaster to rows that have detail children', () => {
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailColumns: [{ field: 'sku' }],
+    });
+    const caps = new GridCapabilities<Customer>();
+    md.setup!(pluginContext(caps));
+    md.expandAll([1, 2, 3]);
+
+    const display = caps.buildDisplayRows(customers, {
+      columnsById: new Map(),
+      rowId: (row) => row.id,
+      collapsedGroupIds: new Set(),
+    });
+    expect(display.filter((r) => r.kind === 'plugin').map((r) => r.id)).toEqual([
+      'md:1',
+      'md:3',
+    ]);
+  });
+
   it('adapter toggles expand state with open-by-default', () => {
     const adapter = createMasterDetailAdapter();
     expect(adapter.isExpanded(1, true)).toBe(true);
@@ -89,6 +149,30 @@ describe('masterDetailPlugin', () => {
     expect(adapter.isExpanded(3, true)).toBe(false);
   });
 
+  it('re-evaluates isOpenByDefault on every display pass until overridden', () => {
+    const adapter = createMasterDetailAdapter();
+    let openAda = true;
+    const build = () =>
+      buildMasterDetailDisplayRows({
+        rows: customers,
+        rowId: (r) => r.id,
+        isExpanded: (id, row) =>
+          adapter.isExpanded(id, row.id === 1 && openAda),
+        getDetailRows: (r) => r.orders,
+        isRowMaster: (r) => r.orders.length > 0,
+        detailRowHeight: 120,
+      });
+
+    expect(build().some((r) => r.id === 'md:1')).toBe(true);
+    openAda = false;
+    expect(build().some((r) => r.id === 'md:1')).toBe(false);
+    openAda = true;
+    expect(build().some((r) => r.id === 'md:1')).toBe(true);
+
+    adapter.collapse(1);
+    expect(build().some((r) => r.id === 'md:1')).toBe(false);
+  });
+
   it('collapseAll without ids blocks open-by-default', () => {
     const adapter = createMasterDetailAdapter();
     expect(adapter.isExpanded(1, true)).toBe(true);
@@ -98,7 +182,7 @@ describe('masterDetailPlugin', () => {
     expect(adapter.isExpanded(1, true)).toBe(true);
   });
 
-  it('expandColumn wires renderer params to the adapter', () => {
+  it('expandColumn wires renderer params to the plugin adapter', () => {
     const md = masterDetailPlugin<Customer, Order>({
       getDetailRows: (r) => r.orders,
       detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
@@ -145,5 +229,169 @@ describe('masterDetailPlugin', () => {
     expect(window.totalHeight).toBe(36 + 160 + 36 + 36 + 160);
     expect(window.start).toBe(0);
     expect(window.end).toBeGreaterThan(1);
+  });
+
+  it('detailGridConfigKey changes when column fields are replaced', () => {
+    const a = detailGridConfigKey({ columns: [{ field: 'sku' }] });
+    const b = detailGridConfigKey({ columns: [{ field: 'qty' }] });
+    expect(a).not.toBe(b);
+  });
+
+  it('reuses the nested controller for the same master across display passes', () => {
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
+    });
+    const caps = new GridCapabilities<Customer>();
+    md.setup!(pluginContext(caps));
+    md.expand(1);
+
+    const ctx = {
+      columnsById: new Map(),
+      rowId: (row: Customer) => row.id,
+      collapsedGroupIds: new Set<string>(),
+    };
+    const first = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
+    expect(first?.kind).toBe('plugin');
+    const obtain =
+      first?.kind === 'plugin'
+        ? (first.payload as { obtainDetailController?: (cfg: { columns: { field: string }[] }) => unknown })
+            .obtainDetailController
+        : undefined;
+    expect(obtain).toBeTruthy();
+    const cfg = { columns: [{ field: 'sku' }], rowId: (r: Order) => r.sku };
+    const a = obtain!(cfg);
+    const b = obtain!(cfg);
+    expect(a).toBe(b);
+
+    const second = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
+    const obtain2 =
+      second?.kind === 'plugin'
+        ? (
+            second.payload as {
+              obtainDetailController?: (config: {
+                columns: { field: string }[];
+                rowId: (r: Order) => string;
+              }) => unknown;
+            }
+          ).obtainDetailController
+        : undefined;
+    expect(obtain2!(cfg)).toBe(a);
+  });
+
+  it('persists and restores nested grid state on the payload hooks', () => {
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
+    });
+    const caps = new GridCapabilities<Customer>();
+    md.setup!(pluginContext(caps));
+    md.expand(1);
+    const row = caps
+      .buildDisplayRows(customers, {
+        columnsById: new Map(),
+        rowId: (row) => row.id,
+        collapsedGroupIds: new Set<string>(),
+      })
+      .find((r) => r.id === 'md:1');
+    expect(row?.kind).toBe('plugin');
+    const payload = row?.kind === 'plugin' ? (row.payload as {
+      obtainDetailController?: (cfg: { columns: { field: string }[] }) => unknown;
+      persistDetailState?: (api: {
+        getState: () => { sorts: { columnId: string; direction: string }[] };
+        getSelectedIds: () => Array<string | number>;
+      }) => void;
+      takePersistedDetailState?: () => {
+        state: { sorts: { columnId: string; direction: string }[] };
+        selectedIds: Array<string | number>;
+      } | null;
+    }) : undefined;
+    payload!.obtainDetailController!({ columns: [{ field: 'sku' }] });
+    payload!.persistDetailState!({
+      getState: () => ({ sorts: [{ columnId: 'sku', direction: 'desc' }] }),
+      getSelectedIds: () => ['A1'],
+    });
+    const snap = payload!.takePersistedDetailState!();
+    expect(snap?.state.sorts).toEqual([{ columnId: 'sku', direction: 'desc' }]);
+    expect(snap?.selectedIds).toEqual(['A1']);
+    expect(payload!.takePersistedDetailState!()).toBeNull();
+  });
+});
+
+describe('MasterDetailDefaultView nested controller', () => {
+  it('recreates the nested grid when detailGrid columns change', async () => {
+    const detailGrid: {
+      columns: { field: keyof Order & string }[];
+      rowId: (row: Order) => string;
+    } = {
+      columns: [{ field: 'sku' }],
+      rowId: (r) => r.sku,
+    };
+    const item = signal<CustomDisplayRow>({
+      kind: 'plugin',
+      pluginKind: MASTER_DETAIL_PLUGIN_KIND,
+      id: 'md:1',
+      payload: {
+        master: customers[0],
+        masterRowId: 1,
+        detailRows: customers[0]!.orders,
+        detailGrid,
+      },
+    });
+
+    @Component({
+      imports: [MasterDetailDefaultView],
+      template: `<al-dg-master-detail-view [item]="item()" />`,
+    })
+    class Host {
+      readonly item = item;
+    }
+
+    await TestBed.configureTestingModule({ imports: [Host] }).compileComponents();
+    const fixture = TestBed.createComponent(Host);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const view = fixture.debugElement.children[0]!
+      .componentInstance as MasterDetailDefaultView<Customer, Order>;
+    const first = view.detailController();
+    expect(first).toBeTruthy();
+    expect(first!.columns).toEqual([{ field: 'sku' }]);
+
+    detailGrid.columns = [{ field: 'qty' }];
+    item.set({
+      kind: 'plugin',
+      pluginKind: MASTER_DETAIL_PLUGIN_KIND,
+      id: 'md:1',
+      payload: {
+        master: customers[0],
+        masterRowId: 1,
+        detailRows: customers[0]!.orders,
+        detailGrid,
+      },
+    });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const second = view.detailController();
+    expect(second).toBeTruthy();
+    expect(second).not.toBe(first);
+    expect(second!.columns).toEqual([{ field: 'qty' }]);
+  });
+});
+
+describe('exclusive display builders', () => {
+  it('warns that master-detail cannot share a builder with row group', () => {
+    const caps = new GridCapabilities();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    caps.registerDisplayBuilder({ id: 'rowGroup', build: () => [] });
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailColumns: [{ field: 'sku' }],
+    });
+    md.setup!(pluginContext(caps as GridCapabilities<Customer>));
+    expect(String(warn.mock.calls[0]?.[0])).toContain('master-detail');
+    warn.mockRestore();
   });
 });

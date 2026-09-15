@@ -19,6 +19,7 @@ export type RowGroupPlugin<T = unknown> = DataGridPlugin<T> & RowGroupAdapter;
  *
  * Expand / collapse / clear are available on the adapter and {@link DataGridApi}
  * — no default toolbar buttons (compose your own via `registerToolbar` / `[toolbarActions]`).
+ * Mutually exclusive with `treeDataPlugin` / `masterDetailPlugin` (one display builder).
  *
  * @example
  * ```ts

@@ -349,11 +349,12 @@
                           <input
                             type="checkbox"
                             tabindex="-1"
+                            data-testid="al-dg-select-row"
                             [checked]="selectionHost.isSelected(id)"
                             [disabled]="!selectionHost.isRowSelectable(row, id)"
                             (click)="$event.stopPropagation()"
                             (change)="selectionHost.toggleRowSelection(id, $event)"
-                            [attr.aria-label]="resolvedLocale().selectRowAriaLabel + ' ' + id"
+                            [attr.aria-label]="selectionHost.selectRowAriaLabel(row, rowIndex, resolvedLocale().selectRowAriaLabel)"
                           />
                         </div>
                       }
