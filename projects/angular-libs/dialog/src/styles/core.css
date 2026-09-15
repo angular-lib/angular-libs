@@ -101,6 +101,76 @@ dialog.al-dialog.al-dialog-maximized {
   resize: none !important;
 }
 
+/* Transparent native backdrop when hasBackdrop: false */
+dialog.al-dialog.al-dialog-no-backdrop::backdrop {
+  background: transparent;
+}
+
+/* fullscreenBelow — stretch the modal under the matching breakpoint */
+@media (max-width: 639.98px) {
+  dialog.al-dialog.al-dialog-fullscreen-below-sm {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    --al-dialog-border-radius: 0 !important;
+    transform: none !important;
+    resize: none !important;
+  }
+}
+
+@media (max-width: 767.98px) {
+  dialog.al-dialog.al-dialog-fullscreen-below-md {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    --al-dialog-border-radius: 0 !important;
+    transform: none !important;
+    resize: none !important;
+  }
+}
+
+@media (max-width: 1023.98px) {
+  dialog.al-dialog.al-dialog-fullscreen-below-lg {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    --al-dialog-border-radius: 0 !important;
+    transform: none !important;
+    resize: none !important;
+  }
+}
+
+@media (max-width: 1279.98px) {
+  dialog.al-dialog.al-dialog-fullscreen-below-xl {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    --al-dialog-border-radius: 0 !important;
+    transform: none !important;
+    resize: none !important;
+  }
+}
+
 dialog.al-dialog.al-dialog-minimized {
   position: fixed !important;
   inset: auto !important;

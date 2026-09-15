@@ -1,5 +1,4 @@
-import type { DialogPlugin, DialogPluginContext } from '../dialog.types';
-import type { DialogRef } from '../dialog-ref';
+import type { DialogPlugin, DialogPluginContext, PopoverPlacement } from '../dialog.types';
 
 export interface PopoverOptions {
   /**
@@ -19,10 +18,7 @@ export interface PopoverOptions {
    * - 'right'
    * Defaults to 'bottom-left'.
    */
-  placement?:
-    | 'bottom-left' | 'bottom' | 'bottom-right'
-    | 'top-left' | 'top' | 'top-right'
-    | 'left' | 'right';
+  placement?: PopoverPlacement;
   /**
    * Offset in pixels between the anchor and the popover.
    * Defaults to 12.
@@ -37,6 +33,180 @@ export interface PopoverOptions {
    * CSS color of the arrow. Defaults to `var(--al-dialog-bg)` so it matches the dialog surface / theme.
    */
   arrowColor?: string;
+  /**
+   * Flip to the opposite side when the preferred placement overflows the viewport.
+   * Defaults to `true`. Viewport clamp / shift still runs afterward as a fallback.
+   */
+  flip?: boolean;
+}
+
+export interface PopoverPositionInput {
+  placement: PopoverPlacement;
+  anchor: Pick<DOMRect, 'left' | 'top' | 'right' | 'bottom' | 'width' | 'height'>;
+  dialogWidth: number;
+  dialogHeight: number;
+  offset: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  /** When `false`, only clamp/shift (legacy). Defaults to `true`. */
+  flip?: boolean;
+  padding?: number;
+}
+
+export interface PopoverPositionResult {
+  left: number;
+  top: number;
+  placement: PopoverPlacement;
+}
+
+const FLIP_MAP: Record<PopoverPlacement, PopoverPlacement> = {
+  'bottom-left': 'top-left',
+  bottom: 'top',
+  'bottom-right': 'top-right',
+  'top-left': 'bottom-left',
+  top: 'bottom',
+  'top-right': 'bottom-right',
+  left: 'right',
+  right: 'left',
+};
+
+function rawPosition(
+  placement: PopoverPlacement,
+  anchor: PopoverPositionInput['anchor'],
+  dialogWidth: number,
+  dialogHeight: number,
+  offset: number,
+): { left: number; top: number } {
+  switch (placement) {
+    case 'bottom-left':
+      return { left: anchor.left, top: anchor.bottom + offset };
+    case 'bottom':
+      return {
+        left: anchor.left + (anchor.width - dialogWidth) / 2,
+        top: anchor.bottom + offset,
+      };
+    case 'bottom-right':
+      return { left: anchor.right - dialogWidth, top: anchor.bottom + offset };
+    case 'top-left':
+      return { left: anchor.left, top: anchor.top - dialogHeight - offset };
+    case 'top':
+      return {
+        left: anchor.left + (anchor.width - dialogWidth) / 2,
+        top: anchor.top - dialogHeight - offset,
+      };
+    case 'top-right':
+      return { left: anchor.right - dialogWidth, top: anchor.top - dialogHeight - offset };
+    case 'left':
+      return {
+        left: anchor.left - dialogWidth - offset,
+        top: anchor.top + (anchor.height - dialogHeight) / 2,
+      };
+    case 'right':
+      return {
+        left: anchor.right + offset,
+        top: anchor.top + (anchor.height - dialogHeight) / 2,
+      };
+  }
+}
+
+function mainAxisOverflow(
+  placement: PopoverPlacement,
+  pos: { left: number; top: number },
+  dialogWidth: number,
+  dialogHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  if (placement.startsWith('bottom')) {
+    return Math.max(0, pos.top + dialogHeight - viewportHeight);
+  }
+  if (placement.startsWith('top')) {
+    return Math.max(0, -pos.top);
+  }
+  if (placement === 'left') {
+    return Math.max(0, -pos.left);
+  }
+  return Math.max(0, pos.left + dialogWidth - viewportWidth);
+}
+
+function shiftIntoViewport(
+  pos: { left: number; top: number },
+  dialogWidth: number,
+  dialogHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  padding: number,
+): { left: number; top: number } {
+  let { left, top } = pos;
+  const maxLeft = Math.max(padding, viewportWidth - dialogWidth - padding);
+  const maxTop = Math.max(padding, viewportHeight - dialogHeight - padding);
+  if (left < padding) left = padding;
+  if (left > maxLeft) left = maxLeft;
+  if (top < padding) top = padding;
+  if (top > maxTop) top = maxTop;
+  return { left, top };
+}
+
+/**
+ * Preferred placement, optional flip on main-axis overflow, then clamp/shift
+ * so the popover stays in the viewport.
+ */
+export function computePopoverPosition(input: PopoverPositionInput): PopoverPositionResult {
+  const padding = input.padding ?? 4;
+  const shouldFlip = input.flip !== false;
+
+  const preferred = rawPosition(
+    input.placement,
+    input.anchor,
+    input.dialogWidth,
+    input.dialogHeight,
+    input.offset,
+  );
+  const preferredOverflow = mainAxisOverflow(
+    input.placement,
+    preferred,
+    input.dialogWidth,
+    input.dialogHeight,
+    input.viewportWidth,
+    input.viewportHeight,
+  );
+
+  let placement = input.placement;
+  let pos = preferred;
+
+  if (shouldFlip && preferredOverflow > 0) {
+    const flippedPlacement = FLIP_MAP[input.placement];
+    const flipped = rawPosition(
+      flippedPlacement,
+      input.anchor,
+      input.dialogWidth,
+      input.dialogHeight,
+      input.offset,
+    );
+    const flippedOverflow = mainAxisOverflow(
+      flippedPlacement,
+      flipped,
+      input.dialogWidth,
+      input.dialogHeight,
+      input.viewportWidth,
+      input.viewportHeight,
+    );
+    if (flippedOverflow < preferredOverflow) {
+      placement = flippedPlacement;
+      pos = flipped;
+    }
+  }
+
+  const shifted = shiftIntoViewport(
+    pos,
+    input.dialogWidth,
+    input.dialogHeight,
+    input.viewportWidth,
+    input.viewportHeight,
+    padding,
+  );
+
+  return { ...shifted, placement };
 }
 
 /**
@@ -49,7 +219,7 @@ export interface PopoverOptions {
  *
  * dialogService.open(HelpTipComponent, {
  *   modal: false,
- *   plugins: [popoverPlugin({ anchor: triggerButton, placement: 'bottom-start' })]
+ *   plugins: [popoverPlugin({ anchor: triggerButton, placement: 'bottom' })]
  * });
  * ```
  */
@@ -58,6 +228,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
   const offset = options.offset !== undefined ? options.offset : 12;
   const showArrow = options.showArrow !== false;
   const arrowColor = options.arrowColor ?? 'var(--al-dialog-bg)';
+  const flip = options.flip !== false;
 
   return {
     id: 'popover',
@@ -102,55 +273,24 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
         const dialogWidth = element.offsetWidth || 0;
         const dialogHeight = element.offsetHeight || 0;
 
-        let left = 0;
-        let top = 0;
+        const result = computePopoverPosition({
+          placement,
+          anchor: anchorRect,
+          dialogWidth,
+          dialogHeight,
+          offset,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          flip,
+        });
 
-        switch (placement) {
-          case 'bottom-left':
-            left = anchorRect.left;
-            top = anchorRect.bottom + offset;
-            break;
-          case 'bottom':
-            left = anchorRect.left + (anchorRect.width - dialogWidth) / 2;
-            top = anchorRect.bottom + offset;
-            break;
-          case 'bottom-right':
-            left = anchorRect.right - dialogWidth;
-            top = anchorRect.bottom + offset;
-            break;
-          case 'top-left':
-            left = anchorRect.left;
-            top = anchorRect.top - dialogHeight - offset;
-            break;
-          case 'top':
-            left = anchorRect.left + (anchorRect.width - dialogWidth) / 2;
-            top = anchorRect.top - dialogHeight - offset;
-            break;
-          case 'top-right':
-            left = anchorRect.right - dialogWidth;
-            top = anchorRect.top - dialogHeight - offset;
-            break;
-          case 'left':
-            left = anchorRect.left - dialogWidth - offset;
-            top = anchorRect.top + (anchorRect.height - dialogHeight) / 2;
-            break;
-          case 'right':
-            left = anchorRect.right + offset;
-            top = anchorRect.top + (anchorRect.height - dialogHeight) / 2;
-            break;
-        }
-
-        // Viewport bounding collision prevention helper
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-
-        if (left < 0) left = 4;
-        if (left + dialogWidth > viewportWidth) left = viewportWidth - dialogWidth - 4;
-        if (top < 0) top = 4;
-        if (top + dialogHeight > viewportHeight) top = viewportHeight - dialogHeight - 4;
+        const left = result.left;
+        const top = result.top;
+        const effectivePlacement = result.placement;
 
         element.style.left = `${left}px`;
         element.style.top = `${top}px`;
+        element.dataset['alPopoverPlacement'] = effectivePlacement;
 
         // Coordinate arrow alignment
         if (arrowEl) {
@@ -161,7 +301,11 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
           arrowEl.style.removeProperty('left');
           arrowEl.style.removeProperty('right');
 
-          if (placement === 'bottom-left' || placement === 'bottom' || placement === 'bottom-right') {
+          if (
+            effectivePlacement === 'bottom-left' ||
+            effectivePlacement === 'bottom' ||
+            effectivePlacement === 'bottom-right'
+          ) {
             // Arrow on top pointing up
             arrowEl.style.borderLeft = `${arrowSize}px solid transparent`;
             arrowEl.style.borderRight = `${arrowSize}px solid transparent`;
@@ -169,10 +313,10 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
             arrowEl.style.top = `-${arrowSize - 2}px`; // Closer to the edge
 
             let anchorTargetX: number;
-            if (placement === 'bottom-left') {
+            if (effectivePlacement === 'bottom-left') {
               const targetAnchorWidth = Math.min(anchorRect.width, 48);
               anchorTargetX = anchorRect.left + targetAnchorWidth / 2;
-            } else if (placement === 'bottom-right') {
+            } else if (effectivePlacement === 'bottom-right') {
               const targetAnchorWidth = Math.min(anchorRect.width, 48);
               anchorTargetX = anchorRect.right - targetAnchorWidth / 2;
             } else {
@@ -182,7 +326,11 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
             let arrowLeft = anchorTargetX - left - arrowSize;
             arrowLeft = Math.max(12, Math.min(arrowLeft, dialogWidth - arrowSize * 2 - 12));
             arrowEl.style.left = `${arrowLeft}px`;
-          } else if (placement === 'top-left' || placement === 'top' || placement === 'top-right') {
+          } else if (
+            effectivePlacement === 'top-left' ||
+            effectivePlacement === 'top' ||
+            effectivePlacement === 'top-right'
+          ) {
             // Arrow on bottom pointing down
             arrowEl.style.borderLeft = `${arrowSize}px solid transparent`;
             arrowEl.style.borderRight = `${arrowSize}px solid transparent`;
@@ -190,10 +338,10 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
             arrowEl.style.bottom = `-${arrowSize - 2}px`; // Closer to the edge
 
             let anchorTargetX: number;
-            if (placement === 'top-left') {
+            if (effectivePlacement === 'top-left') {
               const targetAnchorWidth = Math.min(anchorRect.width, 48);
               anchorTargetX = anchorRect.left + targetAnchorWidth / 2;
-            } else if (placement === 'top-right') {
+            } else if (effectivePlacement === 'top-right') {
               const targetAnchorWidth = Math.min(anchorRect.width, 48);
               anchorTargetX = anchorRect.right - targetAnchorWidth / 2;
             } else {
@@ -203,7 +351,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
             let arrowLeft = anchorTargetX - left - arrowSize;
             arrowLeft = Math.max(12, Math.min(arrowLeft, dialogWidth - arrowSize * 2 - 12));
             arrowEl.style.left = `${arrowLeft}px`;
-          } else if (placement === 'left') {
+          } else if (effectivePlacement === 'left') {
             // Arrow on right pointing right
             arrowEl.style.borderTop = `${arrowSize}px solid transparent`;
             arrowEl.style.borderBottom = `${arrowSize}px solid transparent`;
@@ -214,7 +362,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
             let arrowTop = anchorTargetY - top - arrowSize;
             arrowTop = Math.max(12, Math.min(arrowTop, dialogHeight - arrowSize * 2 - 12));
             arrowEl.style.top = `${arrowTop}px`;
-          } else if (placement === 'right') {
+          } else if (effectivePlacement === 'right') {
             // Arrow on left pointing left
             arrowEl.style.borderTop = `${arrowSize}px solid transparent`;
             arrowEl.style.borderBottom = `${arrowSize}px solid transparent`;

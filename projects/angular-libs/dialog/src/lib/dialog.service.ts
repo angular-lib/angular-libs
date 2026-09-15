@@ -18,6 +18,7 @@ import {
   DIALOG_SIZE_PRESETS,
   isPlainDialogStrings,
   resolveDialogStrings,
+  resolveDismissFlags,
   type GlobalDialogConfig,
   type DialogOptions,
   type InferDialogResult,
@@ -186,6 +187,12 @@ export class DialogService {
       width: options.width,
       size: options.size ?? 'sm',
       disableClose: options.disableClose,
+      closeOnEscape: options.closeOnEscape,
+      closeOnBackdrop: options.closeOnBackdrop,
+      hasBackdrop: options.hasBackdrop,
+      backdropClass: options.backdropClass,
+      fullscreenBelow: options.fullscreenBelow,
+      role: options.role ?? 'alertdialog',
       panelClass: options.panelClass,
       contentClass: options.contentClass,
       ariaLabel: options.ariaLabel ?? title,
@@ -220,6 +227,12 @@ export class DialogService {
       width: options.width,
       size: options.size ?? 'sm',
       disableClose: options.disableClose,
+      closeOnEscape: options.closeOnEscape,
+      closeOnBackdrop: options.closeOnBackdrop,
+      hasBackdrop: options.hasBackdrop,
+      backdropClass: options.backdropClass,
+      fullscreenBelow: options.fullscreenBelow,
+      role: options.role ?? 'alertdialog',
       panelClass: options.panelClass,
       contentClass: options.contentClass,
       ariaLabel: options.ariaLabel ?? title,
@@ -238,7 +251,7 @@ export class DialogService {
     component: Type<TComponent>,
     options: PopoverDialogOptions<TComponent>,
   ): DialogRef<TResult, TComponent> {
-    const { anchor, placement, offset, showArrow, arrowColor, plugins, ...rest } = options;
+    const { anchor, placement, offset, showArrow, arrowColor, flip, plugins, ...rest } = options;
     return this.openInternal(
       component,
       {
@@ -248,7 +261,7 @@ export class DialogService {
         closeOnNavigation: rest.closeOnNavigation ?? false,
         autoFocus: rest.autoFocus ?? 'first-tabbable',
         plugins: [
-          popoverPlugin({ anchor, placement, offset, showArrow, arrowColor }),
+          popoverPlugin({ anchor, placement, offset, showArrow, arrowColor, flip }),
           ...(plugins ?? []),
         ],
       },
@@ -419,6 +432,14 @@ export class DialogService {
     }
 
     applyClasses(dialogEl, mergedOptions.panelClass);
+    applyClasses(dialogEl, mergedOptions.backdropClass);
+
+    if (mergedOptions.hasBackdrop === false) {
+      dialogEl.classList.add('al-dialog-no-backdrop');
+    }
+    if (mergedOptions.fullscreenBelow) {
+      dialogEl.classList.add(`al-dialog-fullscreen-below-${mergedOptions.fullscreenBelow}`);
+    }
 
     const sizeKeys = ['width', 'minWidth', 'maxWidth', 'height', 'minHeight', 'maxHeight'] as const;
     sizeKeys.forEach((key) => {
@@ -524,6 +545,8 @@ export class DialogService {
       );
     };
 
+    const { closeOnEscape, closeOnBackdrop } = resolveDismissFlags(mergedOptions);
+
     let mousedownInside = false;
     dialogEl.addEventListener('mousedown', (event) => {
       mousedownInside = isClickInside(dialogEl, event);
@@ -532,7 +555,7 @@ export class DialogService {
     dialogEl.addEventListener('click', (event) => {
       if (
         dialogEl.open &&
-        !mergedOptions.disableClose &&
+        closeOnBackdrop &&
         !mousedownInside &&
         !isClickInside(dialogEl, event)
       ) {
@@ -542,7 +565,7 @@ export class DialogService {
 
     const handleDismiss = (e: Event) => {
       e.preventDefault();
-      if (!mergedOptions.disableClose) {
+      if (closeOnEscape) {
         dialogRef.close(undefined, 'escape');
       }
     };
@@ -618,6 +641,9 @@ function applyAria(
   isModal: boolean,
 ): void {
   dialogEl.setAttribute('aria-modal', isModal ? 'true' : 'false');
+  if (options.role) {
+    dialogEl.setAttribute('role', options.role);
+  }
   if (options.ariaLabel) {
     dialogEl.setAttribute('aria-label', options.ariaLabel);
   }
