@@ -5,6 +5,7 @@
 export * from './lib/dialog-ref';
 export * from './lib/dialog.types';
 export * from './lib/dialog.service';
+export * from './lib/al-dialog';
 export * from './lib/provide-dialog';
 export * from './lib/define-plugin';
 export * from './lib/behavior-resolver';

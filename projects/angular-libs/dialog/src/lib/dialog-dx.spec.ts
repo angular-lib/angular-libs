@@ -181,6 +181,7 @@ describe('Dialog DX redesign', () => {
     try {
       expect(ref.dialogEl.style.width).toBe('480px');
       expect(ref.dialogEl.getAttribute('aria-modal')).toBe('true');
+      expect(ref.dialogEl.matches('dialog.al-dialog[al-dialog-surface]')).toBe(true);
       const content = ref.dialogEl.querySelector('[data-al-dialog-content]');
       expect(content?.classList.contains('my-content')).toBe(true);
     } finally {

@@ -2,13 +2,28 @@
 
 Intent-based dialogs on the native HTML `<dialog>` element — modal, floating window, confirm, popover, and toast — with plugins as an escape hatch.
 
-**Browser-only:** `open()` / `window()` use `document` and are not SSR-safe.
+Pick **one** path — same split as Angular **Material vs Aria**. Do not mix them.
 
-## Install & styles
+| Path | Use when | What you use |
+| --- | --- | --- |
+| **1. Default design (batteries)** | You want a look out of the box | `DialogService` + `core.css` + DefaultDialog chrome |
+| **2. Aria-style (headless)** | You already own chrome / a design system | `alDialog` on *your* `<dialog>` — **zero CSS import** |
+
+- Batteries: import the CSS, call `open` / `confirm` / `alert` / `window` / `popover` / `toast`.
+- Aria: your markup + your CSS. The directive only does keyboard, focus, dismiss, and ARIA.
+- There is no token-bridge, `appearance`, `scheme`, or parts API on either path.
+
+**Browser-only:** `showModal()` / `open()` / `window()` use `document` and are not SSR-safe.
+
+## 1. Default design (batteries)
+
+### Install & styles
 
 ```bash
 npm install @angular-libs/dialog
 ```
+
+Required for this path. Skip these imports if you use `alDialog` instead.
 
 ```css
 /* Modal / confirm / toast / popover */
@@ -39,7 +54,7 @@ Override dialog tokens on `dialog.al-dialog` (or a parent). Dock tokens live on 
 
 Light defaults ship out of the box; `prefers-color-scheme: dark` adjusts the same tokens. Additional vars exist for header/footer/buttons; treat those as advanced.
 
-## Bootstrap
+### Bootstrap
 
 ```ts
 import { provideDialog } from '@angular-libs/dialog';
@@ -62,7 +77,7 @@ bootstrapApplication(AppComponent, {
 });
 ```
 
-## Quick start
+### Quick start
 
 ```ts
 const dialog = inject(DialogService);
@@ -102,6 +117,57 @@ await dialog.alert({ title: 'Done', message: 'Saved.' });
 dialog.popover(MenuComponent, { anchor: event.currentTarget, placement: 'bottom' });
 dialog.toast('Saved', { duration: 3000, position: 'bottom-right' });
 ```
+
+## 2. Design systems (Aria-style)
+
+Same idea as `@angular/aria`: attribute directives on the consumer’s markup. You own HTML and CSS. **Do not** import `core.css` or `--al-dialog-*` tokens on this path.
+
+```ts
+import { AlDialog } from '@angular-libs/dialog';
+
+@Component({
+  imports: [AlDialog],
+  template: `
+    <dialog
+      alDialog
+      class="sheet"
+      [open]="open()"
+      labelledBy="edit-title"
+      (closed)="open.set(false)"
+    >
+      <h2 id="edit-title">Edit user</h2>
+      <form>…</form>
+    </dialog>
+  `,
+  styles: `
+    .sheet { border: 0; padding: 1.5rem; width: min(480px, 100%); }
+    .sheet::backdrop { background: rgb(0 0 0 / 32%); }
+  `,
+})
+export class EditUserDialog {
+  open = signal(false);
+}
+```
+
+A kit host (`<ui-dialog>`) is your wrapper — project content, pass `open` / `labelledBy`, style the native `<dialog>` yourself:
+
+```html
+<ui-dialog [open]="open()" titleId="edit-title" closeLabel="Lukk" (closed)="open.set(false)">
+  <h2 uiDialogTitle id="edit-title">…</h2>
+  <form>…</form>
+</ui-dialog>
+```
+
+```html
+<!-- inside ui-dialog -->
+<dialog alDialog [open]="open()" [labelledBy]="titleId()" (closed)="closed.emit()">
+  <ng-content />
+</dialog>
+```
+
+`alDialog` lives on native `<dialog>` so `showModal()` can use the top layer.
+
+Inputs: `open`, `modal`, `labelledBy`, `describedBy`, `closeOnEscape`, `closeOnBackdrop`, `restoreFocus`, `autoFocus`. Output: `closed`. `#d="alDialog"` exposes `close()`. Set `aria-label` / `role` on the host if you need them — the directive does not invent a second ARIA API.
 
 ## Desktop window features
 
