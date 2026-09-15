@@ -8,6 +8,7 @@ import {
   inject,
   signal,
   DestroyRef,
+  type ComponentRef,
   type WritableSignal,
 } from '@angular/core';
 import { Location } from '@angular/common';
@@ -28,22 +29,26 @@ import {
   type ToastOptions,
   type ToastPosition,
   type DialogSizePreset,
-  type AutoFocusTarget,
   type DialogAnimation,
   type ProvideDialogConfig,
   type DialogStrings,
+  type AutoFocusTarget,
+  type DialogRole,
 } from './dialog.types';
 import { mergePlugins, resolveBehaviorPlugins } from './behavior-resolver';
 import { popoverPlugin } from './plugins/popover.plugin';
 import { autoClosePlugin } from './plugins/auto-close.plugin';
 import { DefaultDialogComponent } from './components/default-dialog.component';
+import { AlDialogSurface } from './al-dialog-surface';
 
 const TOAST_STACK_GAP_PX = 12;
 
 /**
- * Service for opening Angular components inside a native HTML `<dialog>` element.
+ * Batteries path: open Angular components inside a native HTML `<dialog>`
+ * with default chrome (`core.css` + {@link DefaultDialogComponent}).
  *
- * Prefer intent helpers when possible:
+ * Internally this layers on {@link AlDialog} (same primitive as the Aria-style
+ * design-system path). Prefer intent helpers:
  * - {@link open} — modal dialogs
  * - {@link window} — modeless floating windows
  * - {@link confirm} / {@link alert} — built-in chrome
@@ -417,14 +422,18 @@ export class DialogService {
 
     // Strip non-dialog option bags that shouldn't live on DialogRef.options forever is fine
     const { inputs } = mergedOptions;
+    const { closeOnEscape, closeOnBackdrop } = resolveDismissFlags(mergedOptions);
 
     const opener =
       typeof document !== 'undefined' && document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
 
-    const dialogEl = document.createElement('dialog');
-    dialogEl.classList.add('al-dialog');
+    const surfaceRef = createComponent(AlDialogSurface, {
+      environmentInjector: this.envInjector,
+    });
+    const dialogEl = surfaceRef.location.nativeElement as HTMLDialogElement;
+
     if (meta.intent === 'window') {
       dialogEl.classList.add('al-dialog-window');
     } else if (meta.intent === 'popover') {
@@ -454,14 +463,15 @@ export class DialogService {
       if (!mergedOptions.minHeight) dialogEl.style.minHeight = 'min-content';
     }
 
-    applyAria(dialogEl, mergedOptions, isModal);
-
     this.getMountTarget().appendChild(dialogEl);
-    dialogEl.tabIndex = -1;
+    this.appRef.attachView(surfaceRef.hostView);
 
     const dialogRef = new DialogRef<TResult, TComponent>(dialogEl, mergedOptions);
     dialogRef._opener = opener;
     dialogRef._restoreFocus = mergedOptions.restoreFocus !== false;
+    surfaceRef.instance.alDialog.dismissHandler = (reason) => {
+      void dialogRef.close(undefined, reason);
+    };
 
     const anim = resolveAnimationClasses(mergedOptions.animation);
     dialogRef._leaveAnimationClass = anim.leave;
@@ -522,6 +532,24 @@ export class DialogService {
     }
     dialogEl.appendChild(compRootNode);
 
+    const labelledBy = dialogEl.getAttribute('aria-labelledby');
+    const describedBy = dialogEl.getAttribute('aria-describedby');
+
+    applySurfaceInputs(surfaceRef, {
+      open: true,
+      modal: isModal,
+      labelledBy: mergedOptions.ariaLabelledBy ?? labelledBy ?? undefined,
+      describedBy: mergedOptions.ariaDescribedBy ?? describedBy ?? undefined,
+      ariaLabel: mergedOptions.ariaLabel,
+      role: mergedOptions.role,
+      closeOnEscape,
+      closeOnBackdrop,
+      restoreFocus: mergedOptions.restoreFocus !== false,
+      scrollLock: isModal,
+      autoFocus: mergedOptions.autoFocus,
+    });
+    surfaceRef.changeDetectorRef.detectChanges();
+
     const pluginTeardowns =
       mergedOptions.plugins?.map((p) =>
         p.setup?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }),
@@ -529,47 +557,9 @@ export class DialogService {
 
     dialogRef.component = compRef.instance;
 
-    isModal ? dialogEl.showModal() : dialogEl.show();
-
     mergedOptions.plugins?.forEach((p) =>
       p.onOpen?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }),
     );
-
-    const isClickInside = (el: HTMLElement, event: MouseEvent) => {
-      const rect = el.getBoundingClientRect();
-      return (
-        rect.top <= event.clientY &&
-        event.clientY <= rect.bottom &&
-        rect.left <= event.clientX &&
-        event.clientX <= rect.right
-      );
-    };
-
-    const { closeOnEscape, closeOnBackdrop } = resolveDismissFlags(mergedOptions);
-
-    let mousedownInside = false;
-    dialogEl.addEventListener('mousedown', (event) => {
-      mousedownInside = isClickInside(dialogEl, event);
-    });
-
-    dialogEl.addEventListener('click', (event) => {
-      if (
-        dialogEl.open &&
-        closeOnBackdrop &&
-        !mousedownInside &&
-        !isClickInside(dialogEl, event)
-      ) {
-        dialogRef.close(undefined, 'backdrop');
-      }
-    });
-
-    const handleDismiss = (e: Event) => {
-      e.preventDefault();
-      if (closeOnEscape) {
-        dialogRef.close(undefined, 'escape');
-      }
-    };
-    dialogEl.addEventListener('cancel', handleDismiss);
 
     let unlistenNav: VoidFunction | undefined;
     if (mergedOptions.closeOnNavigation && this.location) {
@@ -590,6 +580,8 @@ export class DialogService {
 
         this.appRef.detachView(compRef.hostView);
         compRef.destroy();
+        this.appRef.detachView(surfaceRef.hostView);
+        surfaceRef.destroy();
         dialogEl.remove();
 
         pluginTeardowns.forEach((teardown) => teardown?.());
@@ -611,7 +603,6 @@ export class DialogService {
           setPosition(dialogRef, 0, 0);
         }
       }
-      applyAutoFocus(dialogEl, mergedOptions.autoFocus);
     });
 
     return dialogRef;
@@ -635,24 +626,33 @@ function applyClasses(el: HTMLElement, value?: string | string[]): void {
   if (classes.length) el.classList.add(...classes);
 }
 
-function applyAria(
-  dialogEl: HTMLDialogElement,
-  options: DialogOptions,
-  isModal: boolean,
+function applySurfaceInputs(
+  surfaceRef: ComponentRef<AlDialogSurface>,
+  values: {
+    open: boolean;
+    modal: boolean;
+    labelledBy?: string;
+    describedBy?: string;
+    ariaLabel?: string;
+    role?: DialogRole;
+    closeOnEscape: boolean;
+    closeOnBackdrop: boolean;
+    restoreFocus: boolean;
+    scrollLock: boolean;
+    autoFocus?: AutoFocusTarget;
+  },
 ): void {
-  dialogEl.setAttribute('aria-modal', isModal ? 'true' : 'false');
-  if (options.role) {
-    dialogEl.setAttribute('role', options.role);
-  }
-  if (options.ariaLabel) {
-    dialogEl.setAttribute('aria-label', options.ariaLabel);
-  }
-  if (options.ariaLabelledBy) {
-    dialogEl.setAttribute('aria-labelledby', options.ariaLabelledBy);
-  }
-  if (options.ariaDescribedBy) {
-    dialogEl.setAttribute('aria-describedby', options.ariaDescribedBy);
-  }
+  surfaceRef.setInput('open', values.open);
+  surfaceRef.setInput('modal', values.modal);
+  surfaceRef.setInput('labelledBy', values.labelledBy);
+  surfaceRef.setInput('describedBy', values.describedBy);
+  surfaceRef.setInput('ariaLabel', values.ariaLabel);
+  surfaceRef.setInput('role', values.role);
+  surfaceRef.setInput('closeOnEscape', values.closeOnEscape);
+  surfaceRef.setInput('closeOnBackdrop', values.closeOnBackdrop);
+  surfaceRef.setInput('restoreFocus', values.restoreFocus);
+  surfaceRef.setInput('scrollLock', values.scrollLock);
+  surfaceRef.setInput('autoFocus', values.autoFocus);
 }
 
 function ensureTitleId(
@@ -688,32 +688,6 @@ function resolveAnimationClasses(
     enter: animation.enter ?? null,
     leave: animation.leave ?? null,
   };
-}
-
-function applyAutoFocus(dialogEl: HTMLDialogElement, target: AutoFocusTarget | undefined): void {
-  if (target === false) return;
-
-  if (target === 'dialog' || target === undefined) {
-    dialogEl.focus();
-    return;
-  }
-
-  if (typeof target === 'string' && target !== 'first-tabbable') {
-    const el = dialogEl.querySelector(target) as HTMLElement | null;
-    el?.focus();
-    return;
-  }
-
-  if (target instanceof HTMLElement) {
-    target.focus();
-    return;
-  }
-
-  // first-tabbable
-  const focusable = dialogEl.querySelector(
-    'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  ) as HTMLElement | null;
-  (focusable ?? dialogEl).focus();
 }
 
 function restoreFocusAfterClose(

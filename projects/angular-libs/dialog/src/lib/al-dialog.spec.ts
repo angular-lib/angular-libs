@@ -42,10 +42,16 @@ class HostComponent {
 
 describe('AlDialog', () => {
   let showModal: ReturnType<typeof vi.spyOn>;
+  let show: ReturnType<typeof vi.spyOn>;
   let nativeClose: ReturnType<typeof vi.spyOn>;
 
   beforeAll(() => {
     showModal = vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (
+      this: HTMLDialogElement,
+    ) {
+      this.open = true;
+    });
+    show = vi.spyOn(HTMLDialogElement.prototype, 'show').mockImplementation(function (
       this: HTMLDialogElement,
     ) {
       this.open = true;
@@ -60,6 +66,7 @@ describe('AlDialog', () => {
 
   afterAll(() => {
     showModal.mockRestore();
+    show.mockRestore();
     nativeClose.mockRestore();
   });
 
@@ -119,12 +126,17 @@ describe('AlDialog', () => {
     expect(el.open).toBe(true);
   });
 
-  it('closes on backdrop click (target is the dialog)', () => {
+  function dispatchBackdropClick(el: HTMLDialogElement): void {
+    const opts: MouseEventInit = { clientX: 200, clientY: 200, bubbles: true };
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+  }
+
+  it('closes on backdrop click (outside the dialog box)', () => {
     const { fixture, host, el } = createHost();
     open(fixture, host);
 
-    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    dispatchBackdropClick(el);
     fixture.detectChanges();
 
     expect(host.lastClosed).toEqual({ reason: 'backdrop' });
@@ -136,8 +148,9 @@ describe('AlDialog', () => {
     open(fixture, host);
 
     const first = el.querySelector('#first') as HTMLButtonElement;
-    first.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    first.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const opts: MouseEventInit = { clientX: 0, clientY: 0, bubbles: true };
+    first.dispatchEvent(new MouseEvent('mousedown', opts));
+    first.dispatchEvent(new MouseEvent('click', opts));
     fixture.detectChanges();
 
     expect(host.lastClosed).toBeNull();
@@ -150,8 +163,7 @@ describe('AlDialog', () => {
     fixture.detectChanges();
     open(fixture, host);
 
-    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-    el.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    dispatchBackdropClick(el);
     fixture.detectChanges();
 
     expect(host.lastClosed).toBeNull();
@@ -242,5 +254,53 @@ describe('AlDialog', () => {
     );
 
     expect(document.activeElement).toBe(last);
+  });
+
+  it('routes Escape through dismissHandler when the service attaches one', () => {
+    const { fixture, host, el } = createHost();
+    const dismiss = vi.fn();
+    open(fixture, host);
+    host.dialog().dismissHandler = dismiss;
+
+    el.dispatchEvent(new Event('cancel', { cancelable: true }));
+    fixture.detectChanges();
+
+    expect(dismiss).toHaveBeenCalledWith('escape');
+    expect(host.lastClosed).toBeNull();
+    expect(el.open).toBe(true);
+  });
+});
+
+@Component({
+  standalone: true,
+  imports: [AlDialog],
+  template: `<dialog alDialog [open]="open()" [modal]="false"><span>Hi</span></dialog>`,
+})
+class ModelessHost {
+  open = signal(false);
+}
+
+describe('AlDialog modeless', () => {
+  beforeAll(() => {
+    vi.spyOn(HTMLDialogElement.prototype, 'show').mockImplementation(function (
+      this: HTMLDialogElement,
+    ) {
+      this.open = true;
+    });
+    vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (
+      this: HTMLDialogElement,
+    ) {
+      this.open = true;
+    });
+  });
+
+  it('calls show() and sets aria-modal=false', () => {
+    const fixture = TestBed.createComponent(ModelessHost);
+    fixture.detectChanges();
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    const el = fixture.nativeElement.querySelector('dialog') as HTMLDialogElement;
+    expect(el.getAttribute('aria-modal')).toBe('false');
+    expect(HTMLDialogElement.prototype.show).toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@
 
 ### Added
 - `alDialog` — Aria-style headless attribute directive on the consumer’s `<dialog>` (focus trap, restore focus, Escape, backdrop, scroll lock; no CSS import)
+- `DialogService` now layers default chrome on that same primitive (`dialog[al-dialog-surface]` + host directive) so dismiss / focus / ARIA are not a second implementation
 - Independent `closeOnEscape` / `closeOnBackdrop` ( `disableClose` remains a both-off shorthand )
 - Optional `hasBackdrop` and `backdropClass`
 - `role?: 'dialog' | 'alertdialog'` — `confirm()` / `alert()` default to `alertdialog`

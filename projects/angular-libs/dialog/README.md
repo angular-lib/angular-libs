@@ -2,10 +2,14 @@
 
 Intent-based dialogs on the native HTML `<dialog>` element — modal, floating window, confirm, popover, and toast — with plugins as an escape hatch.
 
-Two paths:
+Two paths, same split as Angular **Material vs Aria**:
 
-- **Design systems** — `alDialog` on *your* `<dialog>`. Behavior only (focus, ARIA, dismiss). No library CSS.
-- **Batteries** — `DialogService` (`open` / `confirm` / `window` / `toast`) when you want built-in chrome.
+| Path | Use when | What you import |
+| --- | --- | --- |
+| **Batteries (default design)** | You want chrome now | `DialogService` + `@angular-libs/dialog/styles/core.css` |
+| **Aria-style (headless)** | You own a design system | `AlDialog` on *your* `<dialog>` — **no CSS import** |
+
+The batteries path is layered on the same `alDialog` primitive (focus, restore, Escape, backdrop, ARIA). DefaultDialog + `core.css` is the optional skin. There is no token-bridge / `appearance` / `scheme` / parts API.
 
 **Browser-only:** `showModal()` / `open()` / `window()` use `document` and are not SSR-safe.
 
