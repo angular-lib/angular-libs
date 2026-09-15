@@ -2,6 +2,21 @@ import { Component, signal, viewChild } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { AlDialog, type AlDialogClosed } from './al-dialog';
 
+beforeAll(() => {
+  HTMLDialogElement.prototype.show = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+    this.open = true;
+  });
+  HTMLDialogElement.prototype.showModal = vi.fn().mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.open = true;
+  });
+  HTMLDialogElement.prototype.close = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
+    this.open = false;
+    this.dispatchEvent(new Event('close'));
+  });
+});
+
 @Component({
   standalone: true,
   imports: [AlDialog],
@@ -41,35 +56,6 @@ class HostComponent {
 }
 
 describe('AlDialog', () => {
-  let showModal: ReturnType<typeof vi.spyOn>;
-  let show: ReturnType<typeof vi.spyOn>;
-  let nativeClose: ReturnType<typeof vi.spyOn>;
-
-  beforeAll(() => {
-    showModal = vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (
-      this: HTMLDialogElement,
-    ) {
-      this.open = true;
-    });
-    show = vi.spyOn(HTMLDialogElement.prototype, 'show').mockImplementation(function (
-      this: HTMLDialogElement,
-    ) {
-      this.open = true;
-    });
-    nativeClose = vi.spyOn(HTMLDialogElement.prototype, 'close').mockImplementation(function (
-      this: HTMLDialogElement,
-    ) {
-      this.open = false;
-      this.dispatchEvent(new Event('close'));
-    });
-  });
-
-  afterAll(() => {
-    showModal.mockRestore();
-    show.mockRestore();
-    nativeClose.mockRestore();
-  });
-
   afterEach(() => {
     document.body.style.overflow = '';
   });
@@ -91,7 +77,7 @@ describe('AlDialog', () => {
     const { fixture, host, el } = createHost();
     open(fixture, host);
 
-    expect(showModal).toHaveBeenCalled();
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled();
     expect(el.getAttribute('aria-modal')).toBe('true');
     expect(el.getAttribute('aria-labelledby')).toBe('edit-title');
     expect(el.getAttribute('aria-describedby')).toBe('edit-desc');
@@ -281,19 +267,6 @@ class ModelessHost {
 }
 
 describe('AlDialog modeless', () => {
-  beforeAll(() => {
-    vi.spyOn(HTMLDialogElement.prototype, 'show').mockImplementation(function (
-      this: HTMLDialogElement,
-    ) {
-      this.open = true;
-    });
-    vi.spyOn(HTMLDialogElement.prototype, 'showModal').mockImplementation(function (
-      this: HTMLDialogElement,
-    ) {
-      this.open = true;
-    });
-  });
-
   it('calls show() and sets aria-modal=false', () => {
     const fixture = TestBed.createComponent(ModelessHost);
     fixture.detectChanges();
