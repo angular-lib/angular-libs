@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- `alDialog` — Aria-style headless attribute directive on the consumer’s `<dialog>` (focus trap, restore focus, Escape, backdrop, scroll lock; no CSS import)
 - Independent `closeOnEscape` / `closeOnBackdrop` ( `disableClose` remains a both-off shorthand )
 - Optional `hasBackdrop` and `backdropClass`
 - `role?: 'dialog' | 'alertdialog'` — `confirm()` / `alert()` default to `alertdialog`
