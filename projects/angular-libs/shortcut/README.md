@@ -79,10 +79,24 @@ export class MyComponent {
 
 ### Config highlights
 
-- `when?: () => boolean` — skip when false
+- `when?: () => boolean` — skip when false (keyboard and `trigger()`)
 - `stopPropagation` / `stopImmediatePropagation`
 - `id` / `group` — returned from `getShortcuts()`, usable with `trigger()`
 - `getConflicts()` — normalised keys with more than one handler
+
+### Programmatic `trigger()`
+
+`trigger()` uses the **same execute pipeline** as keyboard dispatch:
+
+1. `onBeforeExecute` — return `false` to cancel (`contextGuardPlugin`, `inputSuppressorPlugin`, …)
+2. `when()`, event `type`, and element-scope filters
+3. action, then `onAfterExecute`
+
+**Target:** defaults to `document.activeElement` so `inputSuppressorPlugin` sees the same focus as a keypress. Override with `trigger('ctrl+s', { target })` (pass `null` to skip target-based guards). A `KeyboardEvent` as the second argument still works.
+
+The command palette calls `trigger(item, { target })` with the element that was focused when the palette opened — not the search input — so typing in the palette does not by itself suppress the chosen command. If that prior focus is an input, `inputSuppressorPlugin` still blocks (unless the shortcut is an exception).
+
+Returns `false` if no matching shortcut is registered or a plugin cancelled via `onBeforeExecute`.
 
 ## Headless plugins (stable core)
 

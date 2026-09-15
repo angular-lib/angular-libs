@@ -82,6 +82,32 @@ export interface ALShortcutConflict {
 }
 
 /**
+ * Options for programmatic {@link ALShortcutHost.trigger}.
+ *
+ * `trigger()` uses the same execute pipeline as keyboard dispatch
+ * (`onBeforeExecute` → `when()` / type / element filters → action → `onAfterExecute`).
+ *
+ * **Target:** defaults to `document.activeElement` (or `event.target` when the
+ * supplied event already has an Element target) so `inputSuppressorPlugin`
+ * sees the same focus as a keypress. Pass `target` to override — including
+ * `null` to skip target-based guards. The command palette passes the element
+ * that was focused when the palette opened, not the search input.
+ */
+export interface ALShortcutTriggerOptions {
+  /**
+   * Event passed to the action and plugin hooks.
+   * When omitted, a cancelable bubbling `keydown` is synthesized from the shortcut.
+   */
+  event?: KeyboardEvent;
+  /**
+   * Focus target for `onBeforeExecute` and element-scoped matching.
+   * When omitted, uses `event.target` if it is an Element, otherwise
+   * `document.activeElement`.
+   */
+  target?: Element | null;
+}
+
+/**
  * Narrow host surface passed to plugins (avoids coupling to the concrete service class).
  */
 export interface ALShortcutHost {
@@ -89,9 +115,14 @@ export interface ALShortcutHost {
   register(config: ALShortcutConfig | ALShortcutConfig[]): () => void;
   getShortcuts(): ALShortcutDescriptor[];
   getConflicts(): ALShortcutConflict[];
+  /**
+   * Invoke a registered shortcut through the same execute/guard pipeline as
+   * keyboard dispatch. Returns `false` if no match is found or a plugin
+   * cancelled via `onBeforeExecute`.
+   */
   trigger(
     target: string | Partial<ALShortcutDescriptor>,
-    customEvent?: KeyboardEvent
+    eventOrOptions?: KeyboardEvent | ALShortcutTriggerOptions
   ): boolean;
   getLayoutMap(): ReadonlyMap<string, string> | null;
   normaliseShortcut(shortcut: string): string;
