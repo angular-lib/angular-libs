@@ -554,6 +554,7 @@ export class DialogService {
     }
 
     this.appRef.attachView(compRef.hostView);
+    this.appRef.tick();
 
     const compRootNode = (compRef.hostView as any).rootNodes[0] as HTMLElement;
     if (compRootNode) {
