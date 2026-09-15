@@ -441,6 +441,36 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     }),
   );
 
+  const isMasterDetailExpandFocus = (columnId: string | undefined): boolean => {
+    if (!columnId) {
+      return false;
+    }
+    const bag = columnLayout.columnsById().get(columnId)?.cellRendererParams;
+    return !!bag && typeof bag === 'object' && 'masterDetail' in bag;
+  };
+
+  const toggleMasterDetailAt = (item: DisplayRow<T> | undefined): void => {
+    const cell = viewport.focusedCell();
+    if (!item || item.kind !== 'data' || !cell) {
+      return;
+    }
+    const bag = columnLayout.columnsById().get(cell.columnId)?.cellRendererParams as
+      | {
+          masterDetail?: { toggle: (id: string | number, openByDefault?: boolean) => void };
+          openByDefault?: (row: T) => boolean;
+          isRowMaster?: (row: T) => boolean;
+        }
+      | undefined;
+    const md = bag?.masterDetail;
+    if (!md) {
+      return;
+    }
+    if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
+      return;
+    }
+    md.toggle(item.rowId, bag.openByDefault?.(item.row) ?? false);
+  };
+
   kernel = new GridKernel<T>(
     {
       api,
@@ -466,9 +496,19 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
         const item = viewport.pagedDisplayRows()[rowIndex];
         if (item?.kind === 'group') {
           viewport.toggleGroup(item.id);
+          return;
         }
+        toggleMasterDetailAt(item);
       },
-      isGroupRow: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.kind === 'group',
+      isGroupRow: (rowIndex) => {
+        const item = viewport.pagedDisplayRows()[rowIndex];
+        if (item?.kind === 'group') {
+          return true;
+        }
+        const cell = viewport.focusedCell();
+        return !!item && item.kind === 'data' && isMasterDetailExpandFocus(cell?.columnId);
+      },
+      isSkipRow: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.kind === 'plugin',
       getPageRowCount: () =>
         Math.max(1, Math.floor(viewport.viewportHeight() / rowHeight()) || 10),
       onHeaderActivate: (columnId, multi) => columnLayout.activateHeaderSort(columnId, multi),

@@ -43,6 +43,12 @@ export interface DataGridLocale {
   ungroup: string;
   expandAllAriaLabel: string;
   collapseAllAriaLabel: string;
+  expandDetailAriaLabel: string;
+  collapseDetailAriaLabel: string;
+  detailEmptyMessage: string;
+  detailLoadingMessage: string;
+  detailNotConfiguredMessage: string;
+  detailGridAriaLabel: string;
   ungroupAriaLabel: string;
   columnsPanelShortLabel: string;
   filtersPanelShortLabel: string;
@@ -118,6 +124,12 @@ export const defaultGridLocale: DataGridLocale = {
   ungroup: 'Ungroup',
   expandAllAriaLabel: 'Expand all groups',
   collapseAllAriaLabel: 'Collapse all groups',
+  expandDetailAriaLabel: 'Expand detail',
+  collapseDetailAriaLabel: 'Collapse detail',
+  detailEmptyMessage: 'No detail rows.',
+  detailLoadingMessage: 'Preparing detail grid…',
+  detailNotConfiguredMessage: 'No detail grid configured.',
+  detailGridAriaLabel: 'Detail grid',
   ungroupAriaLabel: 'Clear row grouping',
   columnsPanelShortLabel: 'Cols',
   filtersPanelShortLabel: 'Filters',

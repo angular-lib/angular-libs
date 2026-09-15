@@ -45,6 +45,11 @@ export interface FocusControllerOptions {
   onToggleGroup?: (rowIndex: number) => void;
   /** True when the focused display row is a group header. */
   isGroupRow?: (rowIndex: number) => boolean;
+  /**
+   * Body rows the continuum should skip (master-detail plugin/detail shells).
+   * Arrow / page moves land on the next non-skipped row, or stay put.
+   */
+  isSkipRow?: (rowIndex: number) => boolean;
   /** PageUp/PageDown step size (defaults to 10). Prefer viewport/rowHeight. */
   getPageRowCount?: () => number;
   /** Enter on header — toggle sort (Shift = multi). */
@@ -285,7 +290,10 @@ export class FocusController {
       return this.focused;
     }
 
-    rowIndex = clamp(rowIndex + dRow, 0, this.options.getRowCount() - 1);
+    const max = this.options.getRowCount() - 1;
+    const from = rowIndex;
+    rowIndex = clamp(rowIndex + dRow, 0, max);
+    rowIndex = skipBodyRows(this.options.isSkipRow, from, rowIndex, max);
     const next: FocusCell = { rowIndex, columnId: cols[colIndex]!, realm: 'body' };
     this.setFocus(next);
     return next;
@@ -505,4 +513,24 @@ export class FocusController {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+function skipBodyRows(
+  isSkip: ((rowIndex: number) => boolean) | undefined,
+  from: number,
+  landed: number,
+  max: number,
+): number {
+  if (!isSkip || landed === from) {
+    return landed;
+  }
+  const dir = landed > from ? 1 : -1;
+  let i = landed;
+  while (i >= 0 && i <= max && isSkip(i)) {
+    i += dir;
+  }
+  if (i < 0 || i > max || isSkip(i)) {
+    return from;
+  }
+  return i;
 }

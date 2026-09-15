@@ -1,8 +1,10 @@
-import type {
-  ColumnDef,
-  DataGridApi,
-  DataGridState,
-  GridController,
+import {
+  defaultGridLocale,
+  type ColumnDef,
+  type DataGridApi,
+  type DataGridLocale,
+  type DataGridState,
+  type GridController,
 } from '@angular-libs/data-grid';
 import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 import {
@@ -131,6 +133,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   const isOpenByDefault = options.isOpenByDefault;
   const hasCustomDetail = !!options.detailComponent;
   const keepDetailGrids = options.keepDetailGrids !== false;
+  let getLocale: () => DataGridLocale = () => defaultGridLocale;
 
   interface CachedDetail {
     key: string;
@@ -139,6 +142,24 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     selectedIds?: Array<string | number>;
   }
   const detailCache = new Map<string, CachedDetail>();
+
+  const evictStaleDetailCaches = (
+    activeRows: readonly T[],
+    rowId: (row: T, index: number) => string | number,
+  ): void => {
+    if (!keepDetailGrids || detailCache.size === 0) {
+      return;
+    }
+    const active = new Set<string>();
+    for (let i = 0; i < activeRows.length; i++) {
+      active.add(String(rowId(activeRows[i]!, i)));
+    }
+    for (const id of [...detailCache.keys()]) {
+      if (!active.has(id)) {
+        detailCache.delete(id);
+      }
+    }
+  };
 
   const obtainDetailController = (
     masterRowId: string | number,
@@ -216,15 +237,22 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
           masterDetail: plugin,
           isRowMaster,
           openByDefault: openDefaultFor,
+          getLocale: () => getLocale(),
         },
       };
     },
 
     setup(context: DataGridPluginContext<T>): () => void {
+      getLocale = () => context.api.getLocale();
       const cleanDisplay = context.capabilities.registerDisplayBuilder({
         id: 'masterDetail',
-        build: (rows, ctx) =>
-          buildMasterDetailDisplayRows({
+        build: (rows, ctx) => {
+          const source =
+            typeof context.api.getSourceRows === 'function'
+              ? context.api.getSourceRows()
+              : rows;
+          evictStaleDetailCaches(source, ctx.rowId);
+          return buildMasterDetailDisplayRows({
             rows,
             rowId: ctx.rowId,
             isExpanded: (rowId, row) =>
@@ -238,7 +266,8 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             obtainDetailController,
             persistDetailState,
             takePersistedDetailState,
-          }),
+          });
+        },
       });
 
       const cleanView = context.capabilities.registerDisplayView({

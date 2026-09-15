@@ -37,6 +37,12 @@ export {
   isDataDisplayRow,
   isGroupDisplayRow,
   isPluginDisplayRow,
+  isPaginationSlotRow,
+  countPaginationSlots,
+  paginationSlotIndex,
+  pageIndexForDisplayIndex,
+  paginateDisplayRows,
+  stepDisplayIndexSkippingPlugins,
   resolveDisplayRowHeight,
 } from './lib/utils/row-display';
 export type {
