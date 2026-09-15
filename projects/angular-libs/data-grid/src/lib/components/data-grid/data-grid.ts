@@ -87,7 +87,6 @@ import {
   headerRowCountOf,
   mergeCellClass,
   resolveBaseCellClass,
-  selectRowAriaLabelOf,
 } from '../../hosts/binder-template.helpers';
 import type {
   CellClickEvent,
@@ -704,21 +703,6 @@ export class DataGrid<T = unknown> {
 
   ariaBodyRowIndex(displayIndex: number): number {
     return ariaBodyRowIndexOf(this.headerRows(), displayIndex);
-  }
-
-  selectRowAriaLabel(row: T, dataIndex: number): string {
-    const locale = this.resolvedLocale().selectRowAriaLabel;
-    for (const col of this.columnLayoutHost.visibleColumns()) {
-      if (!col.field && col.cellRenderer) {
-        continue;
-      }
-      const value = this.cellValue(row, col, dataIndex);
-      const text = this.displayValue(value, row, col, dataIndex);
-      if (text != null && String(text).trim()) {
-        return selectRowAriaLabelOf(locale, dataIndex, String(text));
-      }
-    }
-    return selectRowAriaLabelOf(locale, dataIndex);
   }
 
   cellAriaSelected(

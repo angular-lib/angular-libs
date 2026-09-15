@@ -1,6 +1,8 @@
 import { computed, type Signal } from '@angular/core';
 import { isDataDisplayRow } from '../utils/row-display';
+import { formatCellValue, getCellValue } from '../utils/cell-value';
 import { rowsToCsv } from '../utils/csv';
+import { selectRowAriaLabelOf } from './binder-template.helpers';
 import type { SelectionDeps } from './binder-surface';
 import type {
   DataGridQuery,
@@ -190,5 +192,18 @@ export class SelectionHost<T> {
       }
     }
     return null;
+  }
+
+  selectRowAriaLabel(row: T, dataIndex: number, selectRowAriaLabel: string): string {
+    for (const col of this.s.visibleColumns()) {
+      if (!col.field && col.cellRenderer) {
+        continue;
+      }
+      const text = formatCellValue(getCellValue(row, col, dataIndex), row, col, dataIndex);
+      if (text.trim()) {
+        return selectRowAriaLabelOf(selectRowAriaLabel, dataIndex, text);
+      }
+    }
+    return selectRowAriaLabelOf(selectRowAriaLabel, dataIndex);
   }
 }

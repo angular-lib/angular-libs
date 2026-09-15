@@ -354,7 +354,7 @@
                             [disabled]="!selectionHost.isRowSelectable(row, id)"
                             (click)="$event.stopPropagation()"
                             (change)="selectionHost.toggleRowSelection(id, $event)"
-                            [attr.aria-label]="selectRowAriaLabel(row, rowIndex)"
+                            [attr.aria-label]="selectionHost.selectRowAriaLabel(row, rowIndex, resolvedLocale().selectRowAriaLabel)"
                           />
                         </div>
                       }

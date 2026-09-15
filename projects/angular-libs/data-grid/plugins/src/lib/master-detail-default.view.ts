@@ -1,4 +1,5 @@
 import {
+  afterEveryRender,
   ChangeDetectionStrategy,
   Component,
   DestroyRef,
@@ -226,19 +227,27 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
       });
     });
 
-    effect(() => {
-      const api = this.detailController()?.api() ?? null;
-      const pending = this.pendingRestore();
+    afterEveryRender(() => {
+      const api = untracked(() => this.detailController()?.api() ?? null);
+      const pending = untracked(() => this.pendingRestore());
       if (!api || !pending) {
         return;
       }
-      untracked(() => {
-        api.setState(pending.state);
-        if (pending.selectedIds.length) {
-          api.setSelectedIds(pending.selectedIds);
-        }
-        this.pendingRestore.set(null);
-      });
+      api.setState(pending.state);
+      if (pending.selectedIds.length) {
+        api.setSelectedIds(pending.selectedIds);
+      }
+      untracked(() => this.pendingRestore.set(null));
+    });
+
+    effect(() => {
+      const api = this.detailController()?.api() ?? null;
+      if (!api) {
+        return;
+      }
+      void api.getState();
+      void api.getSelectedIds();
+      untracked(() => this.persistOpenDetail());
     });
 
     this.destroyRef.onDestroy(() => this.persistOpenDetail());

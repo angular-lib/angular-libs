@@ -1179,6 +1179,9 @@ describe('DataGrid master-detail UI', () => {
     nested!.api()!.setSortModel([{ columnId: 'number', direction: 'desc' }]);
     fixture.detectChanges();
     await fixture.whenStable();
+    expect(nested!.api()!.getSortModel()).toEqual([
+      { columnId: 'number', direction: 'desc' },
+    ]);
 
     host.grid.api()!.setFilterModel({ name: 'Olivia' });
     fixture.detectChanges();
@@ -1190,6 +1193,9 @@ describe('DataGrid master-detail UI', () => {
     await fixture.whenStable();
     fixture.detectChanges();
     await fixture.whenStable();
+    fixture.detectChanges();
+    await Promise.resolve();
+    fixture.detectChanges();
 
     const view2 = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
       .componentInstance as MasterDetailDefaultView<Account, CallRecord>;

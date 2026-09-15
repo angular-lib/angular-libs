@@ -267,10 +267,54 @@ describe('masterDetailPlugin', () => {
     const second = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
     const obtain2 =
       second?.kind === 'plugin'
-        ? (second.payload as { obtainDetailController?: (cfg: typeof cfg) => unknown })
-            .obtainDetailController
+        ? (
+            second.payload as {
+              obtainDetailController?: (config: {
+                columns: { field: string }[];
+                rowId: (r: Order) => string;
+              }) => unknown;
+            }
+          ).obtainDetailController
         : undefined;
     expect(obtain2!(cfg)).toBe(a);
+  });
+
+  it('persists and restores nested grid state on the payload hooks', () => {
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
+    });
+    const caps = new GridCapabilities<Customer>();
+    md.setup!(pluginContext(caps));
+    md.expand(1);
+    const row = caps
+      .buildDisplayRows(customers, {
+        columnsById: new Map(),
+        rowId: (row) => row.id,
+        collapsedGroupIds: new Set<string>(),
+      })
+      .find((r) => r.id === 'md:1');
+    expect(row?.kind).toBe('plugin');
+    const payload = row?.kind === 'plugin' ? (row.payload as {
+      obtainDetailController?: (cfg: { columns: { field: string }[] }) => unknown;
+      persistDetailState?: (api: {
+        getState: () => { sorts: { columnId: string; direction: string }[] };
+        getSelectedIds: () => Array<string | number>;
+      }) => void;
+      takePersistedDetailState?: () => {
+        state: { sorts: { columnId: string; direction: string }[] };
+        selectedIds: Array<string | number>;
+      } | null;
+    }) : undefined;
+    payload!.obtainDetailController!({ columns: [{ field: 'sku' }] });
+    payload!.persistDetailState!({
+      getState: () => ({ sorts: [{ columnId: 'sku', direction: 'desc' }] }),
+      getSelectedIds: () => ['A1'],
+    });
+    const snap = payload!.takePersistedDetailState!();
+    expect(snap?.state.sorts).toEqual([{ columnId: 'sku', direction: 'desc' }]);
+    expect(snap?.selectedIds).toEqual(['A1']);
+    expect(payload!.takePersistedDetailState!()).toBeNull();
   });
 });
 
