@@ -302,6 +302,11 @@ export class DataGridApi<T = unknown> {
     return this.host.getProcessedRows();
   }
 
+  /** Bound source rows (`[data]`), including filtered-out. */
+  getSourceRows(): readonly T[] {
+    return this.host.getSourceRows();
+  }
+
   getQuery(): DataGridQuery {
     return this.host.getQuery();
   }
