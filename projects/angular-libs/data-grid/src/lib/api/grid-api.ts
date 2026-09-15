@@ -54,6 +54,11 @@ export interface BoundCellRangeAdapter {
 export interface DataGridSelectionHost<T = unknown> {
   getSelectedIds(): Array<string | number>;
   setSelectedIds(ids: Array<string | number>): void;
+  /**
+   * Display-row count (data + group + plugin rows).
+   * Status "N rows" uses {@link getProcessedRows} — not this — so detail
+   * panels are not counted as extra data rows.
+   */
   getDisplayedRowCount(): number;
   getProcessedRows(): readonly T[];
   /** Bound source rows (`[data]`), including filtered-out. */

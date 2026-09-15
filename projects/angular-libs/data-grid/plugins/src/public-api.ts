@@ -75,6 +75,8 @@ export {
   MasterDetailDefaultView,
   MasterDetailExpandCell,
   MASTER_DETAIL_PLUGIN_KIND,
+  createDetailGridController,
+  detailGridConfigKey,
 } from './lib/master-detail.plugin';
 export type {
   MasterDetailPlugin,
@@ -83,6 +85,7 @@ export type {
   MasterDetailPayload,
   MasterDetailExpandColumnOptions,
   MasterDetailGridOptions,
+  PersistedDetailGridState,
 } from './lib/master-detail.plugin';
 export { defaultGridPlugins } from './lib/default-plugins';
 export type { DefaultGridPluginsOptions } from './lib/default-plugins';

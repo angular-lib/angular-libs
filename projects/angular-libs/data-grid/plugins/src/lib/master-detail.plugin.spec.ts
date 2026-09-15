@@ -236,6 +236,42 @@ describe('masterDetailPlugin', () => {
     const b = detailGridConfigKey({ columns: [{ field: 'qty' }] });
     expect(a).not.toBe(b);
   });
+
+  it('reuses the nested controller for the same master across display passes', () => {
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
+    });
+    const caps = new GridCapabilities<Customer>();
+    md.setup!(pluginContext(caps));
+    md.expand(1);
+
+    const ctx = {
+      columnsById: new Map(),
+      rowId: (row: Customer) => row.id,
+      collapsedGroupIds: new Set<string>(),
+    };
+    const first = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
+    expect(first?.kind).toBe('plugin');
+    const obtain =
+      first?.kind === 'plugin'
+        ? (first.payload as { obtainDetailController?: (cfg: { columns: { field: string }[] }) => unknown })
+            .obtainDetailController
+        : undefined;
+    expect(obtain).toBeTruthy();
+    const cfg = { columns: [{ field: 'sku' }], rowId: (r: Order) => r.sku };
+    const a = obtain!(cfg);
+    const b = obtain!(cfg);
+    expect(a).toBe(b);
+
+    const second = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
+    const obtain2 =
+      second?.kind === 'plugin'
+        ? (second.payload as { obtainDetailController?: (cfg: typeof cfg) => unknown })
+            .obtainDetailController
+        : undefined;
+    expect(obtain2!(cfg)).toBe(a);
+  });
 });
 
 describe('MasterDetailDefaultView nested controller', () => {

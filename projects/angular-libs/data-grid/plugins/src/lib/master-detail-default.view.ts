@@ -1,8 +1,10 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   computed,
   effect,
+  inject,
   input,
   signal,
   untracked,
@@ -17,6 +19,7 @@ import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
 import type {
   MasterDetailGridOptions,
   MasterDetailPayload,
+  PersistedDetailGridState,
 } from './master-detail.types';
 
 /**
@@ -52,6 +55,31 @@ export function detailGridConfigKey(cfg: {
     `rh:${cfg.viewport?.rowHeight ?? ''}`,
     `chrome:${cfg.chrome?.showToolbar ?? ''}:${cfg.chrome?.floatingFilters ?? ''}`,
   ].join('|');
+}
+
+/** Nested controller defaults — compact chrome, no virtualization. */
+export function createDetailGridController<D>(
+  cfg: MasterDetailGridOptions<D>,
+): GridController<D> {
+  return createGrid<D>({
+    columns: cfg.columns,
+    rowId: cfg.rowId,
+    plugins: cfg.plugins ?? [],
+    selection: cfg.selection ?? 'none',
+    viewport: {
+      virtual: false,
+      rowHeight: 32,
+      ...cfg.viewport,
+    },
+    chrome: {
+      showToolbar: false,
+      floatingFilters: false,
+      stripe: true,
+      columnReorder: false,
+      contextMenu: false,
+      ...cfg.chrome,
+    },
+  });
 }
 
 /**
@@ -164,6 +192,8 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
   readonly detailController = signal<GridController<D> | null>(null);
 
   private readonly controllerKey = signal<string | null>(null);
+  private readonly pendingRestore = signal<PersistedDetailGridState | null>(null);
+  private readonly destroyRef = inject(DestroyRef);
 
   constructor() {
     effect(() => {
@@ -171,12 +201,13 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
       // the same `detailGrid` options object still recreate the nested grid.
       const payload = this.payload();
       const cfg = this.detailGrid();
-      void payload;
 
       if (!cfg?.columns?.length) {
         untracked(() => {
+          this.persistOpenDetail();
           this.detailController.set(null);
           this.controllerKey.set(null);
+          this.pendingRestore.set(null);
         });
         return;
       }
@@ -186,29 +217,34 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
         if (this.controllerKey() === key && this.detailController()) {
           return;
         }
+        this.persistOpenDetail();
+        const controller =
+          payload?.obtainDetailController?.(cfg) ?? createDetailGridController(cfg);
         this.controllerKey.set(key);
-        this.detailController.set(
-          createGrid<D>({
-            columns: cfg.columns,
-            rowId: cfg.rowId,
-            plugins: cfg.plugins ?? [],
-            selection: cfg.selection ?? 'none',
-            viewport: {
-              virtual: false,
-              rowHeight: 32,
-              ...cfg.viewport,
-            },
-            chrome: {
-              showToolbar: false,
-              floatingFilters: false,
-              stripe: true,
-              columnReorder: false,
-              contextMenu: false,
-              ...cfg.chrome,
-            },
-          }),
-        );
+        this.detailController.set(controller);
+        this.pendingRestore.set(payload?.takePersistedDetailState?.() ?? null);
       });
     });
+
+    effect(() => {
+      const api = this.detailController()?.api() ?? null;
+      const pending = this.pendingRestore();
+      if (!api || !pending) {
+        return;
+      }
+      untracked(() => {
+        api.setState(pending.state);
+        if (pending.selectedIds.length) {
+          api.setSelectedIds(pending.selectedIds);
+        }
+        this.pendingRestore.set(null);
+      });
+    });
+
+    this.destroyRef.onDestroy(() => this.persistOpenDetail());
+  }
+
+  private persistOpenDetail(): void {
+    this.payload()?.persistDetailState?.(this.detailController()?.api() ?? null);
   }
 }

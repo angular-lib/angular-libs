@@ -2,6 +2,9 @@ import type { Type } from '@angular/core';
 import type {
   ColumnDef,
   ColumnOrGroupDef,
+  DataGridApi,
+  DataGridState,
+  GridController,
   SelectionMode,
 } from '@angular-libs/data-grid';
 import type { DataGridPlugin } from '@angular-libs/data-grid/plugin';
@@ -29,6 +32,11 @@ export interface MasterDetailGridOptions<D = unknown> {
   chrome?: GridChromeOptions;
 }
 
+export interface PersistedDetailGridState {
+  state: DataGridState;
+  selectedIds: Array<string | number>;
+}
+
 export interface MasterDetailPayload<T = unknown, D = unknown> {
   master: T;
   masterRowId: string | number;
@@ -40,6 +48,15 @@ export interface MasterDetailPayload<T = unknown, D = unknown> {
   detailGrid?: MasterDetailGridOptions<D>;
   /** @deprecated Prefer `detailGrid.columns` — kept for payload readers. */
   detailColumns?: readonly ColumnDef<D>[];
+  /**
+   * Default-view hook: reuse a nested controller across remounts
+   * (filter-out, virtualization, collapse/expand).
+   */
+  obtainDetailController?: (config: MasterDetailGridOptions<D>) => GridController<D>;
+  /** Snapshot nested sort/filter/selection before the detail view is destroyed. */
+  persistDetailState?: (api: DataGridApi<D> | null) => void;
+  /** Consume a snapshot saved by {@link persistDetailState} (once). */
+  takePersistedDetailState?: () => PersistedDetailGridState | null;
 }
 
 export interface MasterDetailPluginOptions<T = unknown, D = unknown> {
@@ -77,6 +94,11 @@ export interface MasterDetailPluginOptions<T = unknown, D = unknown> {
    * the adapter. Default collapsed.
    */
   isOpenByDefault?: boolean | ((row: T) => boolean);
+  /**
+   * Keep nested default-view controllers + sort/filter/selection across
+   * remounts (filter, virtualization, collapse). Default true.
+   */
+  keepDetailGrids?: boolean;
 }
 
 export interface MasterDetailExpandColumnOptions {

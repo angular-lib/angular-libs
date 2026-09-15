@@ -1,4 +1,9 @@
-import type { ColumnDef } from '@angular-libs/data-grid';
+import type {
+  ColumnDef,
+  DataGridApi,
+  DataGridState,
+  GridController,
+} from '@angular-libs/data-grid';
 import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 import {
   createMasterDetailAdapter,
@@ -8,13 +13,18 @@ import {
   buildMasterDetailDisplayRows,
   EMPTY_DETAIL_ROW_HEIGHT,
 } from './master-detail.builder';
-import { MasterDetailDefaultView } from './master-detail-default.view';
+import {
+  createDetailGridController,
+  detailGridConfigKey,
+  MasterDetailDefaultView,
+} from './master-detail-default.view';
 import { MasterDetailExpandCell } from './master-detail-expand.cell';
 import {
   MASTER_DETAIL_PLUGIN_KIND,
   type MasterDetailExpandColumnOptions,
   type MasterDetailGridOptions,
   type MasterDetailPluginOptions,
+  type PersistedDetailGridState,
 } from './master-detail.types';
 
 export type {
@@ -22,12 +32,17 @@ export type {
   MasterDetailGridOptions,
   MasterDetailPayload,
   MasterDetailPluginOptions,
+  PersistedDetailGridState,
 } from './master-detail.types';
 export { MASTER_DETAIL_PLUGIN_KIND } from './master-detail.types';
 export type { MasterDetailAdapter } from './master-detail.adapter';
 export { createMasterDetailAdapter } from './master-detail.adapter';
 export { buildMasterDetailDisplayRows, EMPTY_DETAIL_ROW_HEIGHT } from './master-detail.builder';
-export { MasterDetailDefaultView } from './master-detail-default.view';
+export {
+  MasterDetailDefaultView,
+  createDetailGridController,
+  detailGridConfigKey,
+} from './master-detail-default.view';
 export { MasterDetailExpandCell } from './master-detail-expand.cell';
 
 export type MasterDetailPlugin<T = unknown, D = unknown> = DataGridPlugin<T> &
@@ -115,6 +130,61 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   const isRowMaster = resolveIsRowMaster(options);
   const isOpenByDefault = options.isOpenByDefault;
   const hasCustomDetail = !!options.detailComponent;
+  const keepDetailGrids = options.keepDetailGrids !== false;
+
+  interface CachedDetail {
+    key: string;
+    controller: GridController<D>;
+    state?: DataGridState;
+    selectedIds?: Array<string | number>;
+  }
+  const detailCache = new Map<string, CachedDetail>();
+
+  const obtainDetailController = (
+    masterRowId: string | number,
+    cfg: MasterDetailGridOptions<D>,
+  ): GridController<D> => {
+    const key = detailGridConfigKey(cfg);
+    if (!keepDetailGrids) {
+      return createDetailGridController(cfg);
+    }
+    const id = String(masterRowId);
+    const hit = detailCache.get(id);
+    if (hit && hit.key === key) {
+      return hit.controller;
+    }
+    const controller = createDetailGridController(cfg);
+    detailCache.set(id, { key, controller });
+    return controller;
+  };
+
+  const persistDetailState = (
+    masterRowId: string | number,
+    api: DataGridApi<D> | null,
+  ): void => {
+    if (!keepDetailGrids || !api) {
+      return;
+    }
+    const hit = detailCache.get(String(masterRowId));
+    if (!hit) {
+      return;
+    }
+    hit.state = api.getState();
+    hit.selectedIds = api.getSelectedIds();
+  };
+
+  const takePersistedDetailState = (
+    masterRowId: string | number,
+  ): PersistedDetailGridState | null => {
+    const hit = detailCache.get(String(masterRowId));
+    if (!hit?.state) {
+      return null;
+    }
+    const snap = { state: hit.state, selectedIds: hit.selectedIds ?? [] };
+    hit.state = undefined;
+    hit.selectedIds = undefined;
+    return snap;
+  };
 
   const openDefaultFor = (row: T): boolean =>
     resolveOpenByDefault(row, isOpenByDefault);
@@ -165,6 +235,9 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             // Re-read options each display pass so in-place `detailGrid` updates flow.
             detailGrid: resolveDetailGrid(options),
             emptyDetailRowHeight: hasCustomDetail ? undefined : EMPTY_DETAIL_ROW_HEIGHT,
+            obtainDetailController,
+            persistDetailState,
+            takePersistedDetailState,
           }),
       });
 
@@ -174,6 +247,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
       });
 
       return () => {
+        detailCache.clear();
         cleanView();
         cleanDisplay();
       };

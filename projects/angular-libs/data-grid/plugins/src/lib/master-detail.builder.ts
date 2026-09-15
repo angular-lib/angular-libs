@@ -7,7 +7,9 @@ import {
   MASTER_DETAIL_PLUGIN_KIND,
   type MasterDetailGridOptions,
   type MasterDetailPayload,
+  type PersistedDetailGridState,
 } from './master-detail.types';
+import type { DataGridApi, GridController } from '@angular-libs/data-grid';
 
 /** Compact height for an expanded master with no detail rows (default nested grid). */
 export const EMPTY_DETAIL_ROW_HEIGHT = 48;
@@ -27,6 +29,17 @@ export interface BuildMasterDetailRowsOptions<T, D = unknown> {
    * `detailComponent` panels that still want the full slot.
    */
   emptyDetailRowHeight?: number;
+  obtainDetailController?: (
+    masterRowId: string | number,
+    config: MasterDetailGridOptions<D>,
+  ) => GridController<D>;
+  persistDetailState?: (
+    masterRowId: string | number,
+    api: DataGridApi<D> | null,
+  ) => void;
+  takePersistedDetailState?: (
+    masterRowId: string | number,
+  ) => PersistedDetailGridState | null;
 }
 
 /**
@@ -44,6 +57,9 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
     detailRowHeight,
     detailGrid,
     emptyDetailRowHeight,
+    obtainDetailController,
+    persistDetailState,
+    takePersistedDetailState,
   } = options;
 
   const out: DisplayRow<T>[] = [];
@@ -65,6 +81,15 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
       masterRowId: data.rowId,
       detailRows,
       detailGrid,
+      obtainDetailController: obtainDetailController
+        ? (cfg) => obtainDetailController(data.rowId, cfg)
+        : undefined,
+      persistDetailState: persistDetailState
+        ? (api) => persistDetailState(data.rowId, api)
+        : undefined,
+      takePersistedDetailState: takePersistedDetailState
+        ? () => takePersistedDetailState(data.rowId)
+        : undefined,
     };
     const empty = detailRows.length === 0;
     out.push({

@@ -132,6 +132,19 @@ export function ariaBodyRowIndexOf(
   return headerRows + displayIndex + 1;
 }
 
+/**
+ * Checkbox label: prefer a readable cell value ("Select row Ada") over the
+ * raw row id ("Select row 1"), which tracks identity not visual position.
+ */
+export function selectRowAriaLabelOf(
+  selectRowAriaLabel: string,
+  dataIndex: number,
+  rowName?: string | null,
+): string {
+  const suffix = rowName?.trim() ? rowName.trim() : String(dataIndex + 1);
+  return `${selectRowAriaLabel} ${suffix}`;
+}
+
 export function isCellFocusedOf(
   focus: FocusCell | null,
   rowIndex: number,

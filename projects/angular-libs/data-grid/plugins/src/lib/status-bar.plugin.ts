@@ -3,13 +3,16 @@ import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-g
 export interface StatusBarPluginOptions {
   /** Show selected row count. Default true. */
   showSelected?: boolean;
-  /** Show displayed (filtered/sorted) row count. Default true. */
+  /** Show filtered/sorted data-row count. Default true. */
   showRows?: boolean;
 }
 
 /**
- * Registers status-bar slot items (selected / displayed counts).
+ * Registers status-bar slot items (selected / data-row counts).
  * Labels come from `api.getLocale()`.
+ *
+ * Row count uses processed (filtered/sorted) data rows — not display rows —
+ * so master-detail panels and group headers are not counted as extra rows.
  */
 export function statusBarPlugin<T = unknown>(
   options: StatusBarPluginOptions = {},
@@ -28,7 +31,7 @@ export function statusBarPlugin<T = unknown>(
             order: 10,
             text: () => {
               const locale = context.api.getLocale();
-              return `${context.api.getDisplayedRowCount()} ${locale.statusRows}`;
+              return `${context.api.getProcessedRows().length} ${locale.statusRows}`;
             },
           }),
         );

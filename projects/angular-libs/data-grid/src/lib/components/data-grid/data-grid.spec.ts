@@ -19,6 +19,7 @@ import {
   reconcileHiddenColumnIds,
 } from '../../utils/column-layout';
 import { FocusController } from '../../controllers/focus';
+import { selectRowAriaLabelOf } from '../../hosts/binder-template.helpers';
 import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
 import { parseGridState, serializeGridState } from '../../utils/state';
@@ -28,6 +29,7 @@ import { parseClipboardMatrix, tileMatrix } from '../../utils/clipboard-paste';
 import {
   findPlugin,
   masterDetailPlugin,
+  MasterDetailDefaultView,
   rowGroupPlugin,
   sideBarPlugin,
   statusBarPlugin,
@@ -195,6 +197,12 @@ describe('data-grid utils', () => {
     );
     expect(next[0]!.name).toBe('Augusta');
     expect(people[0]!.name).toBe('Ada');
+  });
+
+  it('builds select-row aria labels from a name, not the raw id', () => {
+    expect(selectRowAriaLabelOf('Select row', 0, 'Ada')).toBe('Select row Ada');
+    expect(selectRowAriaLabelOf('Select row', 4, '  ')).toBe('Select row 5');
+    expect(selectRowAriaLabelOf('Select row', 2)).toBe('Select row 3');
   });
 
   it('normalizes dates and navigates focus', () => {
@@ -653,6 +661,26 @@ describe('DataGrid', () => {
     const body = el.querySelector('.al-data-grid__tbody [role="row"]');
     expect(body?.getAttribute('aria-rowindex')).toBeTruthy();
   });
+
+  it('labels row checkboxes with the row name, not the row id', async () => {
+    const el: HTMLElement = fixture.nativeElement;
+    const ada = el.querySelector(
+      '[data-testid="al-dg-row-1"] [data-testid="al-dg-select-row"]',
+    );
+    expect(ada?.getAttribute('aria-label')).toBe('Select row Ada');
+
+    fixture.componentInstance.grid.api()?.setSortModel([
+      { columnId: 'age', direction: 'desc' },
+    ]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const grace = el.querySelector(
+      '[data-testid="al-dg-row-2"] [data-testid="al-dg-select-row"]',
+    );
+    expect(grace?.getAttribute('aria-label')).toBe('Select row Grace');
+    expect(grace?.getAttribute('aria-label')).not.toBe('Select row 2');
+  });
 });
 
 @Component({
@@ -1100,9 +1128,12 @@ class MasterDetailHostGrid {
     isOpenByDefault: (row) => row.id === 1,
   });
   readonly grid = createGrid<Account>({
-    columns: [this.masterDetail.expandColumn(), { field: 'name', header: 'Name' }],
+    columns: [
+      this.masterDetail.expandColumn(),
+      { field: 'name', header: 'Name', filter: true },
+    ],
     rowId: (row) => row.id,
-    plugins: [this.masterDetail],
+    plugins: [statusBarPlugin<Account>(), this.masterDetail],
     viewport: { rowHeight: 40, virtual: false, pagination: false },
   });
 }
@@ -1135,6 +1166,37 @@ describe('DataGrid master-detail UI', () => {
     const panel = el.querySelector('[data-testid="al-dg-plugin-row-md:1"]') as HTMLElement;
     expect(panel.style.height).toBe('160px');
     expect(el.querySelector('[data-testid="al-dg-master-detail"] al-data-grid')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-status-bar"]')?.textContent).toContain('3 rows');
+    expect(el.querySelector('[data-testid="al-dg-status-bar"]')?.textContent).not.toContain('4 rows');
+  });
+
+  it('keeps nested sort when the master is filtered out and back', async () => {
+    const { el, host, fixture } = await render();
+    const view = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
+      .componentInstance as MasterDetailDefaultView<Account, CallRecord>;
+    const nested = view.detailController();
+    expect(nested).toBeTruthy();
+    nested!.api()!.setSortModel([{ columnId: 'number', direction: 'desc' }]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    host.grid.api()!.setFilterModel({ name: 'Olivia' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
+
+    host.grid.api()!.setFilterModel({});
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const view2 = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
+      .componentInstance as MasterDetailDefaultView<Account, CallRecord>;
+    expect(view2.detailController()).toBe(nested);
+    expect(view2.detailController()!.api()!.getSortModel()).toEqual([
+      { columnId: 'number', direction: 'desc' },
+    ]);
   });
 
   it('hides expand on empty masters and expands/collapses via the adapter', async () => {

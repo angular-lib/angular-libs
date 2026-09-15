@@ -191,8 +191,10 @@ createGrid({
 Expanded masters insert a full-width `plugin` display row
 (`pluginKind: 'masterDetail'`). The default panel hosts a nested
 `<al-data-grid>` from `detailColumns` / `detailGrid` (AG `detailGridOptions`
-spirit). Override with `detailComponent` for forms. Mutually exclusive with
-`rowGroupPlugin` / `treeDataPlugin` (one display builder).
+spirit). Nested controllers + sort/filter/selection are kept across remounts
+(`keepDetailGrids`, default true). Override with `detailComponent` for forms.
+Mutually exclusive with `rowGroupPlugin` / `treeDataPlugin` (one display builder).
+Status-bar "N rows" counts processed master rows, not open detail panels.
 
 ```ts
 detailGrid: {
