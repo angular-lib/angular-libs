@@ -28,6 +28,9 @@ import type {
 import { leafHeaderRowIndex, type FocusCell } from '../controllers/focus';
 import type { ResolvedColumn, SideBarConfig } from '../components/data-grid/data-grid.types';
 import {
+  countPaginationSlots,
+  pageIndexForDisplayIndex,
+  paginateDisplayRows,
   resolveDisplayRowHeight,
   type DisplayRow,
 } from '../utils/row-display';
@@ -165,7 +168,10 @@ export class ViewportHost<T> {
     if (!this.s.pagination()) {
       return 1;
     }
-    return Math.max(1, Math.ceil(this.s.displayRows().length / this.s.pageSize()));
+    return Math.max(
+      1,
+      Math.ceil(countPaginationSlots(this.s.displayRows()) / this.s.pageSize()),
+    );
   });
 
   readonly pagedDisplayRows: Signal<readonly DisplayRow<T>[]> = computed(() => {
@@ -173,9 +179,7 @@ export class ViewportHost<T> {
     if (!this.s.pagination()) {
       return rows;
     }
-    const size = this.s.pageSize();
-    const start = this.pageIndex() * size;
-    return rows.slice(start, start + size);
+    return paginateDisplayRows(rows, this.pageIndex(), this.s.pageSize());
   });
 
   readonly virtualEnabled: Signal<boolean> = computed(
@@ -230,11 +234,7 @@ export class ViewportHost<T> {
 
   ensureRowVisible(rowIndex: number): void {
     if (this.s.pagination()) {
-      const size = this.s.pageSize();
-      const page = Math.floor(rowIndex / size);
-      if (page !== this.pageIndex()) {
-        this.goToPage(page);
-      }
+      // `rowIndex` is already relative to `pagedDisplayRows`.
       return;
     }
     if (!this.virtualEnabled()) {
@@ -349,12 +349,18 @@ export class ViewportHost<T> {
     const scrollIndex = absoluteDisplayIndex >= 0 ? absoluteDisplayIndex : match.rowIndex;
 
     if (this.s.pagination()) {
-      const page = Math.floor(scrollIndex / this.s.pageSize());
+      const page = pageIndexForDisplayIndex(
+        this.s.displayRows(),
+        scrollIndex,
+        this.s.pageSize(),
+      );
       if (page !== this.pageIndex()) {
         this.pageIndex.set(page);
       }
     } else if (this.virtualEnabled()) {
-      const top = Math.max(0, scrollIndex * this.s.rowHeight() - this.s.rowHeight() * 2);
+      const defaultH = this.s.rowHeight();
+      const heights = this.s.displayRows().map((row) => resolveDisplayRowHeight(row, defaultH));
+      const top = Math.max(0, rowOffsetY(scrollIndex, defaultH, heights) - defaultH * 2);
       this.scrollTop.set(top);
       const scroll = this.s.hostElement().querySelector('.al-data-grid__scroll') as HTMLElement | null;
       if (scroll) {

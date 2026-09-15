@@ -192,9 +192,18 @@ Expanded masters insert a full-width `plugin` display row
 (`pluginKind: 'masterDetail'`). The default panel hosts a nested
 `<al-data-grid>` from `detailColumns` / `detailGrid` (AG `detailGridOptions`
 spirit). Nested controllers + sort/filter/selection are kept across remounts
-(`keepDetailGrids`, default true). Override with `detailComponent` for forms.
+(`keepDetailGrids`, default true) and evicted when the master leaves source
+`[data]`. Override with `detailComponent` for forms.
 Mutually exclusive with `rowGroupPlugin` / `treeDataPlugin` (one display builder).
-Status-bar "N rows" counts processed master rows, not open detail panels.
+Status-bar "N rows" and pagination page size count processed master rows, not
+open detail panels.
+
+**Server-side:** `getDetailRows` is synchronous. Combine with
+`createGrid({ serverSide: true })` only when each host payload already embeds
+detail rows. There is no lazy fetch-on-expand.
+
+**Find / range / clipboard:** walk master data rows. Open detail shells are
+skipped (they are not data cells). Nested grids are a separate find/range realm.
 
 ```ts
 detailGrid: {

@@ -131,12 +131,25 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
       matrixToApply = tileMatrix(matrix, outRows, columnIds.length);
     }
   } else if (focus) {
-    // Prefer focused data row; otherwise the next data row at/after focus.
-    for (let i = focus.rowIndex; i < displayRows.length; i++) {
-      const item = displayRows[i];
-      if (item?.kind === 'data') {
-        startRowIndex = item.dataIndex;
-        break;
+    const at = displayRows[focus.rowIndex];
+    if (at?.kind === 'data') {
+      startRowIndex = at.dataIndex;
+    } else if (at?.kind === 'plugin') {
+      // Detail shell — paste into the master immediately above.
+      for (let i = focus.rowIndex - 1; i >= 0; i--) {
+        const item = displayRows[i];
+        if (item?.kind === 'data') {
+          startRowIndex = item.dataIndex;
+          break;
+        }
+      }
+    } else {
+      for (let i = focus.rowIndex; i < displayRows.length; i++) {
+        const item = displayRows[i];
+        if (item?.kind === 'data') {
+          startRowIndex = item.dataIndex;
+          break;
+        }
       }
     }
     if (focus.columnId) {

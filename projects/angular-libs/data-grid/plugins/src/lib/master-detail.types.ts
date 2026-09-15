@@ -97,6 +97,8 @@ export interface MasterDetailPluginOptions<T = unknown, D = unknown> {
   /**
    * Keep nested default-view controllers + sort/filter/selection across
    * remounts (filter, virtualization, collapse). Default true.
+   * Entries are evicted when the master leaves source `[data]` (not when
+   * it is only filtered out of the processed list).
    */
   keepDetailGrids?: boolean;
 }

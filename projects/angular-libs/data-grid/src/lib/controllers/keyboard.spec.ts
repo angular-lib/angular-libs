@@ -23,6 +23,18 @@ describe('FocusController keyboard matrix (KEYBOARD.md)', () => {
   }
 
   describe('Body', () => {
+    it('Arrow keys skip plugin/detail rows', () => {
+      const focus = createFocus({
+        getRowCount: () => 4,
+        isSkipRow: (i) => i === 1,
+      });
+      focus.focusCell(0, 'a');
+      expect(focus.handleKeydown(key('ArrowDown'))).toBe(true);
+      expect(focus.getFocus()?.rowIndex).toBe(2);
+      expect(focus.handleKeydown(key('ArrowUp'))).toBe(true);
+      expect(focus.getFocus()?.rowIndex).toBe(0);
+    });
+
     it('Arrow keys move focus', () => {
       const focus = createFocus();
       focus.focusCell(2, 'b');

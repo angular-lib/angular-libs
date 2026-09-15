@@ -33,9 +33,18 @@ const customers: Customer[] = [
   { id: 3, name: 'Alan', orders: [{ sku: 'B2', qty: 1 }, { sku: 'C3', qty: 4 }] },
 ];
 
-function pluginContext(caps: GridCapabilities<Customer>) {
+function pluginContext(
+  caps: GridCapabilities<Customer>,
+  api: { getSourceRows?: () => readonly Customer[]; getLocale?: () => unknown } = {},
+) {
   return {
-    api: {} as never,
+    api: {
+      getLocale: () => ({
+        expandDetailAriaLabel: 'Expand detail',
+        collapseDetailAriaLabel: 'Collapse detail',
+      }),
+      ...api,
+    } as never,
     element: document.createElement('div'),
     injector: null as never,
     slots: {} as never,
@@ -277,6 +286,57 @@ describe('masterDetailPlugin', () => {
           ).obtainDetailController
         : undefined;
     expect(obtain2!(cfg)).toBe(a);
+  });
+
+  it('evicts cached detail controllers when a master leaves source data', () => {
+    const source = [...customers];
+    const md = masterDetailPlugin<Customer, Order>({
+      getDetailRows: (r) => r.orders,
+      detailGrid: { columns: [{ field: 'sku' }], rowId: (r) => r.sku },
+    });
+    const caps = new GridCapabilities<Customer>();
+    md.setup!(
+      pluginContext(caps, {
+        getSourceRows: () => source,
+      }),
+    );
+    md.expand(1);
+
+    const ctx = {
+      columnsById: new Map(),
+      rowId: (row: Customer) => row.id,
+      collapsedGroupIds: new Set<string>(),
+    };
+    const first = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
+    const obtain = (
+      first?.kind === 'plugin'
+        ? (
+            first.payload as {
+              obtainDetailController?: (cfg: { columns: { field: string }[] }) => unknown;
+            }
+          ).obtainDetailController
+        : undefined
+    )!;
+    const cfg = { columns: [{ field: 'sku' }] };
+    const cached = obtain(cfg);
+    expect(obtain(cfg)).toBe(cached);
+
+    source.splice(0, source.length, ...customers.filter((c) => c.id !== 1));
+    caps.buildDisplayRows(source, ctx);
+
+    source.splice(0, source.length, ...customers);
+    md.expand(1);
+    const again = caps.buildDisplayRows(customers, ctx).find((r) => r.id === 'md:1');
+    const obtain2 = (
+      again?.kind === 'plugin'
+        ? (
+            again.payload as {
+              obtainDetailController?: (cfg: { columns: { field: string }[] }) => unknown;
+            }
+          ).obtainDetailController
+        : undefined
+    )!;
+    expect(obtain2(cfg)).not.toBe(cached);
   });
 
   it('persists and restores nested grid state on the payload hooks', () => {

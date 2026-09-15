@@ -21,6 +21,7 @@ import {
 } from '@angular-libs/data-grid/plugin';
 import {
   isDataDisplayRow,
+  stepDisplayIndexSkippingPlugins,
   type DisplayRow,
 } from '@angular-libs/data-grid/internals';
 
@@ -152,6 +153,16 @@ export function cellRangePlugin<T = unknown>(
       if (!nextActive) {
         return false;
       }
+      const displayRows = getDisplayRows();
+      const skippedRow = stepDisplayIndexSkippingPlugins(
+        displayRows,
+        current.active.rowIndex,
+        nextActive.rowIndex - current.active.rowIndex,
+      );
+      if (displayRows[skippedRow]?.kind === 'plugin') {
+        return false;
+      }
+      nextActive.rowIndex = skippedRow;
       setRangeInternal({
         anchor: current.anchor,
         active: { rowIndex: nextActive.rowIndex, columnId: nextActive.columnId },
