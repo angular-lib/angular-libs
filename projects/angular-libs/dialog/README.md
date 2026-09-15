@@ -2,13 +2,71 @@
 
 Intent-based dialogs on the native HTML `<dialog>` element — modal, floating window, confirm, popover, and toast — with plugins as an escape hatch.
 
-**Browser-only:** `open()` / `window()` use `document` and are not SSR-safe.
+Two paths:
+
+- **Design systems** — `alDialog` on *your* `<dialog>`. Behavior only (focus, ARIA, dismiss). No library CSS.
+- **Batteries** — `DialogService` (`open` / `confirm` / `window` / `toast`) when you want built-in chrome.
+
+**Browser-only:** `showModal()` / `open()` / `window()` use `document` and are not SSR-safe.
+
+## Design systems (Aria-style)
+
+Same idea as `@angular/aria`: attribute directives on the consumer’s markup. You own HTML and CSS. The lib does keyboard, focus, and ARIA.
+
+```ts
+import { AlDialog } from '@angular-libs/dialog';
+
+@Component({
+  imports: [AlDialog],
+  template: `
+    <dialog
+      alDialog
+      class="sheet"
+      [open]="open()"
+      labelledBy="edit-title"
+      (closed)="open.set(false)"
+    >
+      <h2 id="edit-title">Edit user</h2>
+      <form>…</form>
+    </dialog>
+  `,
+  styles: `
+    .sheet { border: 0; padding: 1.5rem; width: min(480px, 100%); }
+    .sheet::backdrop { background: rgb(0 0 0 / 32%); }
+  `,
+})
+export class EditUserDialog {
+  open = signal(false);
+}
+```
+
+No `@import "@angular-libs/dialog/..."`. No `--al-dialog-*` tokens, `appearance`, `scheme`, or parts API.
+
+A kit host (`<ui-dialog>`) is just your wrapper — project content, pass `open` / `labelledBy`, style the native `<dialog>` yourself:
+
+```html
+<ui-dialog [open]="open()" titleId="edit-title" closeLabel="Lukk" (closed)="open.set(false)">
+  <h2 uiDialogTitle id="edit-title">…</h2>
+  <form>…</form>
+</ui-dialog>
+```
+
+```html
+<!-- inside ui-dialog -->
+<dialog alDialog [open]="open()" [labelledBy]="titleId()" (closed)="closed.emit()">
+  <ng-content />
+</dialog>
+```
+
+`alDialog` lives on native `<dialog>` so `showModal()` can use the top layer. Inputs: `open`, `labelledBy`, `describedBy`, `closeOnEscape`, `closeOnBackdrop`, `restoreFocus`, `scrollLock`. Output: `closed`. `#d="alDialog"` exposes `close()`.
 
 ## Install & styles
 
 ```bash
 npm install @angular-libs/dialog
 ```
+
+Styles are for the **service / chrome** path only. Skip them when you use `alDialog`.
 
 ```css
 /* Modal / confirm / toast / popover */
