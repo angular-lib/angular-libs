@@ -8,7 +8,6 @@ import {
   inject,
   signal,
   DestroyRef,
-  type ComponentRef,
   type WritableSignal,
 } from '@angular/core';
 import { Location } from '@angular/common';
@@ -32,14 +31,12 @@ import {
   type DialogAnimation,
   type ProvideDialogConfig,
   type DialogStrings,
-  type AutoFocusTarget,
-  type DialogRole,
 } from './dialog.types';
 import { mergePlugins, resolveBehaviorPlugins } from './behavior-resolver';
 import { popoverPlugin } from './plugins/popover.plugin';
 import { autoClosePlugin } from './plugins/auto-close.plugin';
 import { DefaultDialogComponent } from './components/default-dialog.component';
-import { AlDialogSurface } from './al-dialog-surface';
+import { AlDialogSurface, presentDialogSurface } from './al-dialog-surface';
 
 const TOAST_STACK_GAP_PX = 12;
 
@@ -469,9 +466,9 @@ export class DialogService {
     const dialogRef = new DialogRef<TResult, TComponent>(dialogEl, mergedOptions);
     dialogRef._opener = opener;
     dialogRef._restoreFocus = mergedOptions.restoreFocus !== false;
-    surfaceRef.instance.alDialog.dismissHandler = (reason) => {
+    surfaceRef.instance.wireDismiss((reason) => {
       void dialogRef.close(undefined, reason);
-    };
+    });
 
     const anim = resolveAnimationClasses(mergedOptions.animation);
     dialogRef._leaveAnimationClass = anim.leave;
@@ -535,20 +532,21 @@ export class DialogService {
     const labelledBy = dialogEl.getAttribute('aria-labelledby');
     const describedBy = dialogEl.getAttribute('aria-describedby');
 
-    applySurfaceInputs(surfaceRef, {
-      open: true,
+    presentDialogSurface(surfaceRef, {
       modal: isModal,
       labelledBy: mergedOptions.ariaLabelledBy ?? labelledBy ?? undefined,
       describedBy: mergedOptions.ariaDescribedBy ?? describedBy ?? undefined,
-      ariaLabel: mergedOptions.ariaLabel,
-      role: mergedOptions.role,
       closeOnEscape,
       closeOnBackdrop,
       restoreFocus: mergedOptions.restoreFocus !== false,
-      scrollLock: isModal,
       autoFocus: mergedOptions.autoFocus,
     });
-    surfaceRef.changeDetectorRef.detectChanges();
+    if (mergedOptions.ariaLabel) {
+      dialogEl.setAttribute('aria-label', mergedOptions.ariaLabel);
+    }
+    if (mergedOptions.role) {
+      dialogEl.setAttribute('role', mergedOptions.role);
+    }
 
     const pluginTeardowns =
       mergedOptions.plugins?.map((p) =>
@@ -589,7 +587,7 @@ export class DialogService {
           p.onClose?.({ element: dialogEl, dialogRef: dialogRef, injector: customInjector }),
         );
 
-        restoreFocusAfterClose(dialogRef, this.openDialogs);
+        focusRemainingDialog(this.openDialogs);
 
         dialogRef._finishClose();
       },
@@ -624,35 +622,6 @@ function applyClasses(el: HTMLElement, value?: string | string[]): void {
     .flatMap((c) => c.split(' '))
     .filter(Boolean);
   if (classes.length) el.classList.add(...classes);
-}
-
-function applySurfaceInputs(
-  surfaceRef: ComponentRef<AlDialogSurface>,
-  values: {
-    open: boolean;
-    modal: boolean;
-    labelledBy?: string;
-    describedBy?: string;
-    ariaLabel?: string;
-    role?: DialogRole;
-    closeOnEscape: boolean;
-    closeOnBackdrop: boolean;
-    restoreFocus: boolean;
-    scrollLock: boolean;
-    autoFocus?: AutoFocusTarget;
-  },
-): void {
-  surfaceRef.setInput('open', values.open);
-  surfaceRef.setInput('modal', values.modal);
-  surfaceRef.setInput('labelledBy', values.labelledBy);
-  surfaceRef.setInput('describedBy', values.describedBy);
-  surfaceRef.setInput('ariaLabel', values.ariaLabel);
-  surfaceRef.setInput('role', values.role);
-  surfaceRef.setInput('closeOnEscape', values.closeOnEscape);
-  surfaceRef.setInput('closeOnBackdrop', values.closeOnBackdrop);
-  surfaceRef.setInput('restoreFocus', values.restoreFocus);
-  surfaceRef.setInput('scrollLock', values.scrollLock);
-  surfaceRef.setInput('autoFocus', values.autoFocus);
 }
 
 function ensureTitleId(
@@ -690,24 +659,9 @@ function resolveAnimationClasses(
   };
 }
 
-function restoreFocusAfterClose(
-  dialogRef: DialogRef<any, any>,
-  openDialogs: DialogRef<any, any>[],
-): void {
-  if (!dialogRef._restoreFocus) {
-    if (openDialogs.length > 0 && document.activeElement === document.body) {
-      openDialogs[openDialogs.length - 1]?.dialogEl?.focus();
-    }
-    return;
-  }
-
-  const opener = dialogRef._opener;
-  if (opener && document.contains(opener)) {
-    opener.focus();
-    return;
-  }
-
-  if (openDialogs.length > 0) {
+/** AlDialog already restored the opener; if focus landed on body, keep a stack. */
+function focusRemainingDialog(openDialogs: DialogRef<any, any>[]): void {
+  if (openDialogs.length > 0 && document.activeElement === document.body) {
     openDialogs[openDialogs.length - 1]?.dialogEl?.focus();
   }
 }

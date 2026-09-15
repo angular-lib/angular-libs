@@ -1,11 +1,21 @@
-import { Component, inject } from '@angular/core';
-import { AlDialog } from './al-dialog';
+import { Component, inject, type ComponentRef } from '@angular/core';
+import { AlDialog, type AlDialogCloseReason } from './al-dialog';
+import type { AutoFocusTarget } from './dialog.types';
+
+export interface AlDialogPresentOptions {
+  modal: boolean;
+  labelledBy?: string;
+  describedBy?: string;
+  closeOnEscape: boolean;
+  closeOnBackdrop: boolean;
+  restoreFocus: boolean;
+  autoFocus?: AutoFocusTarget;
+}
 
 /**
- * Batteries host: a native `<dialog>` with {@link AlDialog} as a host directive.
- * `DialogService` creates this, then projects the consumer (or DefaultDialog) inside
- * and applies `core.css` classes. Not for design-system consumers — they put
- * `alDialog` on their own markup.
+ * Batteries host: native `<dialog>` + {@link AlDialog}.
+ * `DialogService` creates this, drops chrome inside, and applies `core.css` classes.
+ * Design-system consumers put `alDialog` on their own markup instead.
  *
  * @internal
  */
@@ -24,12 +34,9 @@ import { AlDialog } from './al-dialog';
         'modal',
         'labelledBy',
         'describedBy',
-        'ariaLabel',
-        'role',
         'closeOnEscape',
         'closeOnBackdrop',
         'restoreFocus',
-        'scrollLock',
         'autoFocus',
       ],
       outputs: ['closed'],
@@ -38,4 +45,24 @@ import { AlDialog } from './al-dialog';
 })
 export class AlDialogSurface {
   readonly alDialog = inject(AlDialog);
+
+  wireDismiss(handler: (reason: AlDialogCloseReason) => void): void {
+    this.alDialog.handleDismiss(handler);
+  }
+}
+
+/** Push batteries options onto the surface and open it. */
+export function presentDialogSurface(
+  ref: ComponentRef<AlDialogSurface>,
+  options: AlDialogPresentOptions,
+): void {
+  ref.setInput('open', true);
+  ref.setInput('modal', options.modal);
+  ref.setInput('labelledBy', options.labelledBy);
+  ref.setInput('describedBy', options.describedBy);
+  ref.setInput('closeOnEscape', options.closeOnEscape);
+  ref.setInput('closeOnBackdrop', options.closeOnBackdrop);
+  ref.setInput('restoreFocus', options.restoreFocus);
+  ref.setInput('autoFocus', options.autoFocus);
+  ref.changeDetectorRef.detectChanges();
 }

@@ -16,7 +16,7 @@ import {
   queryFocusable,
   unlockBodyScroll,
 } from './dialog-behavior';
-import type { AutoFocusTarget, DialogRole } from './dialog.types';
+import type { AutoFocusTarget } from './dialog.types';
 
 export type AlDialogCloseReason = 'escape' | 'backdrop' | 'close';
 
@@ -25,11 +25,13 @@ export interface AlDialogClosed {
 }
 
 /**
- * Headless modal (and optional modeless) behavior on the consumer’s own `<dialog>`.
+ * Headless behavior on the consumer’s own `<dialog>`.
  *
  * Native `<dialog>` is required so `showModal()` can use the top layer.
- * The lib does not inject CSS, tokens, or chrome — that’s the batteries path
- * (`DialogService` + `core.css`).
+ * No CSS, tokens, or chrome — that is the batteries path (`DialogService` + `core.css`).
+ *
+ * ARIA: pass `labelledBy` / `describedBy`, or set `aria-labelledby` / `aria-label` /
+ * `role` on the host yourself. Unset inputs do not overwrite native attributes.
  *
  * @example
  * ```html
@@ -45,10 +47,6 @@ export interface AlDialogClosed {
   standalone: true,
   host: {
     '[attr.aria-modal]': 'modal() ? "true" : "false"',
-    '[attr.aria-label]': 'ariaLabel() || null',
-    '[attr.aria-labelledby]': 'labelledBy() || null',
-    '[attr.aria-describedby]': 'describedBy() || null',
-    '[attr.role]': 'role() || undefined',
     '[attr.tabindex]': '-1',
     '(cancel)': 'onCancel($event)',
     '(mousedown)': 'onMouseDown($event)',
@@ -64,39 +62,27 @@ export class AlDialog {
   /** When true, opens the dialog (`showModal` / `show`); when false, closes it. */
   readonly open = input(false, { transform: booleanAttribute });
   /**
-   * Modal (`showModal`, focus trap, `aria-modal=true`) vs modeless (`show`).
-   * Default `true`. Design-system hosts almost always want modal.
+   * Modal (`showModal`, focus trap, scroll lock, `aria-modal=true`) vs modeless (`show`).
+   * Default `true`.
    */
   readonly modal = input(true, { transform: booleanAttribute });
-  /** Sets `aria-labelledby` on the host. */
+  /** Sets `aria-labelledby`. Omit to keep a native attribute on the host. */
   readonly labelledBy = input<string | undefined>(undefined);
-  /** Sets `aria-describedby` on the host. */
+  /** Sets `aria-describedby`. Omit to keep a native attribute on the host. */
   readonly describedBy = input<string | undefined>(undefined);
-  /** Sets `aria-label` when there is no labelled-by id. */
-  readonly ariaLabel = input<string | undefined>(undefined);
-  /** Explicit role. Confirm/alert use `alertdialog`. */
-  readonly role = input<DialogRole | undefined>(undefined);
   /** Dismiss on Escape. Default `true`. */
   readonly closeOnEscape = input(true, { transform: booleanAttribute });
   /** Dismiss on backdrop (click outside the dialog box). Default `true`. */
   readonly closeOnBackdrop = input(true, { transform: booleanAttribute });
   /** Return focus to the opener on close. Default `true`. */
   readonly restoreFocus = input(true, { transform: booleanAttribute });
-  /** Set `document.body` overflow to `hidden` while open. Default `true`. */
-  readonly scrollLock = input(true, { transform: booleanAttribute });
   /** Where to put focus after open. Default `first-tabbable`. */
   readonly autoFocus = input<AutoFocusTarget>('first-tabbable');
 
   /** Emits after the dialog finishes closing. */
   readonly closed = output<AlDialogClosed>();
 
-  /**
-   * When set (DialogService), Escape/backdrop go through {@link DialogRef.close}
-   * so plugins and leave animations still run.
-   * @internal
-   */
-  dismissHandler: ((reason: AlDialogCloseReason) => void) | null = null;
-
+  private dismissFn: ((reason: AlDialogCloseReason) => void) | null = null;
   private opened = false;
   private closeReason: AlDialogCloseReason = 'close';
   private suppressEmit = false;
@@ -105,6 +91,15 @@ export class AlDialog {
   private bodyLocked = false;
 
   constructor() {
+    effect(() => {
+      const id = this.labelledBy();
+      if (id) this.el.setAttribute('aria-labelledby', id);
+    });
+    effect(() => {
+      const id = this.describedBy();
+      if (id) this.el.setAttribute('aria-describedby', id);
+    });
+
     effect(() => {
       const shouldOpen = this.open();
       untracked(() => {
@@ -122,6 +117,15 @@ export class AlDialog {
   /** Close from the template (`#d="alDialog"; d.close()`). */
   close(): void {
     this.hide('close');
+  }
+
+  /**
+   * Batteries hook: Escape / backdrop call this instead of closing, so
+   * {@link DialogRef.close} can run plugins and leave animations.
+   * @internal
+   */
+  handleDismiss(handler: ((reason: AlDialogCloseReason) => void) | null): void {
+    this.dismissFn = handler;
   }
 
   protected onCancel(event: Event): void {
@@ -170,8 +174,8 @@ export class AlDialog {
   }
 
   private requestDismiss(reason: AlDialogCloseReason): void {
-    if (this.dismissHandler) {
-      this.dismissHandler(reason);
+    if (this.dismissFn) {
+      this.dismissFn(reason);
       return;
     }
     this.hide(reason);
@@ -247,7 +251,7 @@ export class AlDialog {
   }
 
   private lockScroll(): void {
-    if (!this.scrollLock() || this.bodyLocked) return;
+    if (!this.modal() || this.bodyLocked) return;
     lockBodyScroll();
     this.bodyLocked = true;
   }

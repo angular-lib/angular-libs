@@ -29,7 +29,6 @@ beforeAll(() => {
       [closeOnEscape]="closeOnEscape"
       [closeOnBackdrop]="closeOnBackdrop"
       [restoreFocus]="restoreFocus"
-      [scrollLock]="scrollLock"
       (closed)="onClosed($event)"
     >
       <h2 id="edit-title">Edit user</h2>
@@ -47,7 +46,6 @@ class HostComponent {
   closeOnEscape = true;
   closeOnBackdrop = true;
   restoreFocus = true;
-  scrollLock = true;
   lastClosed: AlDialogClosed | null = null;
   onClosed(event: AlDialogClosed): void {
     this.lastClosed = event;
@@ -179,14 +177,21 @@ describe('AlDialog', () => {
     expect(document.body.style.overflow).toBe('auto');
   });
 
-  it('skips scroll lock when scrollLock is false', () => {
-    const { fixture, host } = createHost();
-    host.scrollLock = false;
+  it('does not lock scroll when modeless', () => {
+    const fixture = TestBed.createComponent(ModelessHost);
     document.body.style.overflow = 'scroll';
     fixture.detectChanges();
-
-    open(fixture, host);
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
     expect(document.body.style.overflow).toBe('scroll');
+  });
+
+  it('keeps native aria-labelledby when labelledBy is unset', () => {
+    const fixture = TestBed.createComponent(NativeAriaHost);
+    fixture.detectChanges();
+    const el = fixture.nativeElement.querySelector('dialog') as HTMLDialogElement;
+    expect(el.getAttribute('aria-labelledby')).toBe('native-title');
+    expect(el.getAttribute('role')).toBe('alertdialog');
   });
 
   it('restores focus to the opener', async () => {
@@ -242,11 +247,11 @@ describe('AlDialog', () => {
     expect(document.activeElement).toBe(last);
   });
 
-  it('routes Escape through dismissHandler when the service attaches one', () => {
+  it('routes Escape through handleDismiss when the service attaches one', () => {
     const { fixture, host, el } = createHost();
     const dismiss = vi.fn();
     open(fixture, host);
-    host.dialog().dismissHandler = dismiss;
+    host.dialog().handleDismiss(dismiss);
 
     el.dispatchEvent(new Event('cancel', { cancelable: true }));
     fixture.detectChanges();
@@ -265,6 +270,17 @@ describe('AlDialog', () => {
 class ModelessHost {
   open = signal(false);
 }
+
+@Component({
+  standalone: true,
+  imports: [AlDialog],
+  template: `
+    <dialog alDialog [open]="false" aria-labelledby="native-title" role="alertdialog">
+      <h2 id="native-title">Native</h2>
+    </dialog>
+  `,
+})
+class NativeAriaHost {}
 
 describe('AlDialog modeless', () => {
   it('calls show() and sets aria-modal=false', () => {

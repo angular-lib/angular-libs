@@ -165,7 +165,9 @@ A kit host (`<ui-dialog>`) is your wrapper — project content, pass `open` / `l
 </dialog>
 ```
 
-`alDialog` lives on native `<dialog>` so `showModal()` can use the top layer. Inputs: `open`, `labelledBy`, `describedBy`, `closeOnEscape`, `closeOnBackdrop`, `restoreFocus`, `scrollLock`. Output: `closed`. `#d="alDialog"` exposes `close()`.
+`alDialog` lives on native `<dialog>` so `showModal()` can use the top layer.
+
+Inputs: `open`, `modal`, `labelledBy`, `describedBy`, `closeOnEscape`, `closeOnBackdrop`, `restoreFocus`, `autoFocus`. Output: `closed`. `#d="alDialog"` exposes `close()`. Set `aria-label` / `role` on the host if you need them — the directive does not invent a second ARIA API.
 
 ## Desktop window features
 
