@@ -1,0 +1,34 @@
+/**
+ * Token bridge — map a host design system onto @angular-libs/dialog.
+ *
+ * This file is a copy-paste reference (importing it does not change visuals).
+ * Prefer `provideDialog({ tokens })` / `applyDialogTokens()` / `dialogTokensAsCss()`
+ * so the mapping lives next to your kit tokens.
+ *
+ * @example
+ * dialog.al-dialog {
+ *   --al-dialog-bg: var(--kit-color-surface);
+ *   --al-dialog-color: var(--kit-color-ink);
+ *   --al-dialog-border: var(--kit-border);
+ *   --al-dialog-border-radius: var(--kit-radius);
+ *   --al-dialog-shadow: var(--kit-shadow-lg);
+ *   --al-dialog-backdrop: var(--kit-scrim);
+ *   --al-dialog-accent: var(--kit-color-primary);
+ *   --al-dialog-font-family: var(--kit-font-sans);
+ *   --al-dialog-header-border-color: var(--kit-border-subtle);
+ *   --al-dialog-footer-border-color: var(--kit-border-subtle);
+ *   --al-dialog-title-color: var(--kit-color-heading);
+ *   --al-dialog-subtitle-color: var(--kit-color-muted);
+ *   --al-btn-primary-bg: var(--kit-color-primary);
+ *   --al-btn-primary-color: var(--kit-color-on-primary);
+ *   --al-btn-secondary-bg: var(--kit-color-neutral);
+ *   --al-btn-secondary-color: var(--kit-color-ink);
+ * }
+ *
+ * Stable hooks (no class fighting):
+ *   dialog.al-dialog[data-al-dialog-intent="confirm"]
+ *   dialog.al-dialog[data-al-dialog-appearance="headless"]
+ *   dialog.al-dialog[data-al-dialog-chrome="none"]
+ *   [data-al-dialog-part="header" | "title" | "content" | "footer" | "button"]
+ *   [data-al-dialog-action="primary" | "secondary" | "close"]
+ */

@@ -8,23 +8,29 @@ import type { ComponentInputs } from '../dialog.types';
   standalone: true,
   imports: [CommonModule, NgComponentOutlet],
   template: `
-    <div class="al-dialog-container">
+    <div
+      class="al-dialog-container"
+      [class.al-dialog-chrome-headless]="appearance() === 'headless'"
+      data-al-dialog-part="container"
+    >
       @if (showHeader()) {
-        <header class="al-dialog-header">
-          <div class="al-header-titles">
+        <header class="al-dialog-header" data-al-dialog-part="header">
+          <div class="al-header-titles" data-al-dialog-part="titles">
             @if (title()) {
-              <h2 class="al-dialog-title">{{ title() }}</h2>
+              <h2 class="al-dialog-title" data-al-dialog-part="title">{{ title() }}</h2>
             }
             @if (subtitle()) {
-              <p class="al-dialog-subtitle">{{ subtitle() }}</p>
+              <p class="al-dialog-subtitle" data-al-dialog-part="subtitle">{{ subtitle() }}</p>
             }
           </div>
 
-          <div class="al-window-actions">
+          <div class="al-window-actions" data-al-dialog-part="window-actions">
             @if (showMinimizeIcon() && isNonModal) {
               <button
                 type="button"
                 class="al-action-icon"
+                data-al-dialog-part="action"
+                data-al-dialog-action="minimize"
                 (click)="onMinimize($event)"
                 [attr.aria-label]="minimizeTooltip()"
                 [title]="minimizeTooltip()"
@@ -38,6 +44,8 @@ import type { ComponentInputs } from '../dialog.types';
               <button
                 type="button"
                 class="al-action-icon"
+                data-al-dialog-part="action"
+                data-al-dialog-action="maximize"
                 (click)="onToggleMaximize($event)"
                 [attr.aria-label]="isMaximized ? restoreTooltip() : maximizeTooltip()"
                 [title]="isMaximized ? restoreTooltip() : maximizeTooltip()"
@@ -57,6 +65,8 @@ import type { ComponentInputs } from '../dialog.types';
               <button
                 type="button"
                 class="al-action-icon"
+                data-al-dialog-part="action"
+                data-al-dialog-action="fullscreen"
                 (click)="onToggleFullscreen($event)"
                 [attr.aria-label]="isFullscreenState() ? exitFullscreenTooltip() : fullscreenTooltip()"
                 [title]="isFullscreenState() ? exitFullscreenTooltip() : fullscreenTooltip()"
@@ -80,6 +90,8 @@ import type { ComponentInputs } from '../dialog.types';
               <button
                 type="button"
                 class="al-action-icon"
+                data-al-dialog-part="action"
+                data-al-dialog-action="close"
                 (click)="onCloseIcon()"
                 [attr.aria-label]="closeTooltip()"
                 [title]="closeTooltip()"
@@ -97,9 +109,9 @@ import type { ComponentInputs } from '../dialog.types';
         </header>
       }
 
-      <section class="al-dialog-content">
+      <section class="al-dialog-content" data-al-dialog-part="content">
         @if (contentText()) {
-          <p>{{ contentText() }}</p>
+          <p data-al-dialog-part="message">{{ contentText() }}</p>
         } @else if (contentComponent()) {
           <ng-container
             *ngComponentOutlet="contentComponent()!; inputs: contentInputs()!"
@@ -109,19 +121,37 @@ import type { ComponentInputs } from '../dialog.types';
         }
       </section>
 
-      <footer class="al-dialog-footer">
+      <footer class="al-dialog-footer" data-al-dialog-part="footer">
         @if (closeButtonText()) {
-          <button type="button" class="al-btn al-btn-close" (click)="onCloseIcon()">
+          <button
+            type="button"
+            class="al-btn al-btn-close"
+            data-al-dialog-part="button"
+            data-al-dialog-action="close"
+            (click)="onCloseIcon()"
+          >
             {{ closeButtonText() }}
           </button>
         }
         @if (secondaryButtonText()) {
-          <button type="button" class="al-btn al-btn-secondary" (click)="onSecondary()">
+          <button
+            type="button"
+            class="al-btn al-btn-secondary"
+            data-al-dialog-part="button"
+            data-al-dialog-action="secondary"
+            (click)="onSecondary()"
+          >
             {{ secondaryButtonText() }}
           </button>
         }
         @if (primaryButtonText()) {
-          <button type="button" class="al-btn al-btn-primary" (click)="onPrimary()">
+          <button
+            type="button"
+            class="al-btn al-btn-primary"
+            data-al-dialog-part="button"
+            data-al-dialog-action="primary"
+            (click)="onPrimary()"
+          >
             {{ primaryButtonText() }}
           </button>
         }
@@ -138,8 +168,16 @@ import type { ComponentInputs } from '../dialog.types';
  * (defaults: `true` / `false` / `undefined`). Output emitters still fire for advanced listeners.
  *
  * Body content is **plain text** (`contentText`) or a nested `contentComponent` — not HTML.
+ *
+ * Stable styling hooks: `[data-al-dialog-part]` (`container`, `header`, `title`,
+ * `content`, `footer`, `action`, `button`) and `[data-al-dialog-action]`.
+ * Set `appearance: 'headless'` (or `provideDialog({ appearance: 'headless' })`)
+ * to drop decorative chrome while keeping layout and a11y structure.
  */
 export class DefaultDialogComponent<TComponent = any, TResult = unknown> {
+  /** `'headless'` keeps structure but drops DefaultDialog visual opinions. */
+  appearance = input<'default' | 'headless'>('default');
+
   title = input<string>();
   subtitle = input<string>();
   showCloseIcon = input<boolean>(true);

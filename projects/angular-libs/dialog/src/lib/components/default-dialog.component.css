@@ -1,3 +1,4 @@
+/* Layout / a11y structure. Decorative values go through --al-dialog-* tokens. */
 .al-dialog-container {
   display: flex;
   flex-direction: column;
@@ -6,7 +7,7 @@
   min-height: 0;
   max-width: 100%;
   max-height: 100%;
-  font-family: var(--al-dialog-font-family, system-ui, -apple-system, sans-serif);
+  font-family: var(--al-dialog-font-family, inherit);
   overflow: hidden;
   height: 100%;
   box-sizing: border-box;
@@ -24,32 +25,31 @@
 .al-header-titles {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--al-dialog-title-gap, 4px);
 }
 .al-dialog-title {
   margin: 0;
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: var(--al-dialog-title-size, 1.25rem);
+  font-weight: var(--al-dialog-title-weight, 600);
   color: var(--al-dialog-title-color, #111);
 }
 .al-dialog-subtitle {
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--al-dialog-subtitle-size, 0.875rem);
   color: var(--al-dialog-subtitle-color, #666);
 }
 .al-window-actions {
   display: flex;
   align-items: center;
-  border-radius: 50%;
 }
 .al-action-icon {
   background: transparent;
   border: none;
-  border-radius: 50%;
+  border-radius: var(--al-action-btn-radius, 50%);
   font-size: 1.25rem;
-  color: #999;
+  color: var(--al-action-btn-color, #999);
   cursor: pointer;
-  padding: 8px;
+  padding: var(--al-action-btn-padding, 8px);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -75,19 +75,19 @@
   border-top: 1px solid var(--al-dialog-footer-border-color, #eee);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--al-dialog-footer-gap, 12px);
   flex-shrink: 0;
 }
 .al-dialog-footer:not(:has(*)) {
   display: none;
 }
 .al-btn {
-  padding: 8px 16px;
+  padding: var(--al-btn-padding, 8px 16px);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--al-btn-border-radius, 4px);
   cursor: pointer;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--al-btn-font-size, 0.875rem);
+  font-weight: var(--al-btn-font-weight, 500);
 }
 .al-btn-primary {
   background: var(--al-btn-primary-bg, #007bff);
@@ -110,4 +110,54 @@
 .al-btn-close:hover {
   background: var(--al-action-btn-hover-bg, #f0f0f0);
   color: var(--al-action-btn-hover-color, #333);
+}
+
+/* appearance: 'headless' — keep flex/a11y structure, drop decorative opinions */
+.al-dialog-container.al-dialog-chrome-headless {
+  background: transparent;
+  font-family: inherit;
+  border-radius: 0;
+}
+.al-dialog-chrome-headless .al-dialog-header {
+  padding: 0;
+  background: transparent;
+  border-bottom-color: transparent;
+}
+.al-dialog-chrome-headless .al-dialog-title,
+.al-dialog-chrome-headless .al-dialog-subtitle {
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+}
+.al-dialog-chrome-headless .al-action-icon {
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+.al-dialog-chrome-headless .al-action-icon:hover {
+  background: transparent;
+  color: inherit;
+}
+.al-dialog-chrome-headless .al-dialog-content {
+  color: inherit;
+}
+.al-dialog-chrome-headless .al-dialog-content p {
+  padding: 0;
+}
+.al-dialog-chrome-headless .al-dialog-footer {
+  padding: 0;
+  background: transparent;
+  border-top-color: transparent;
+}
+.al-dialog-chrome-headless .al-btn {
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  background: transparent;
+  color: inherit;
+}
+.al-dialog-chrome-headless .al-btn:hover {
+  background: transparent;
+  color: inherit;
 }

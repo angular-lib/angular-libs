@@ -8,7 +8,8 @@ const RESIZE_EDGE_PX = 18;
 export interface DraggablePluginOptions {
   /**
    * CSS selector for the drag handle.
-   * When omitted, uses `.al-dialog-header` if present, otherwise the whole dialog.
+   * When omitted, uses `[data-al-dialog-part="header"]` or `.al-dialog-header`
+   * if present, otherwise the whole dialog.
    */
   handle?: string;
   /** Prevent the dialog from being dragged outside the viewport bounds. */
@@ -30,7 +31,9 @@ export function draggablePlugin(options: DraggablePluginOptions = {}): DialogPlu
 
       const handleSelector =
         options.handle?.trim() ||
-        (element.querySelector('.al-dialog-header') ? '.al-dialog-header' : null);
+        (element.querySelector('[data-al-dialog-part="header"], .al-dialog-header')
+          ? '[data-al-dialog-part="header"], .al-dialog-header'
+          : null);
 
       let dragging: {
         pointerId: number;

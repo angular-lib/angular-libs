@@ -14,6 +14,15 @@ import { DIALOG_CONFIG, type ProvideDialogConfig } from './dialog.types';
  *       window: { drag: true, snap: true, dock: true },
  *       // static | Signal | () => DialogStrings
  *       strings: () => translate.dialogStrings(),
+ *       // Design-system embed (optional)
+ *       appearance: 'headless',
+ *       scheme: false,
+ *       contentClass: 'kit-dialog',
+ *       tokens: {
+ *         bg: 'var(--kit-color-surface)',
+ *         color: 'var(--kit-color-ink)',
+ *         accent: 'var(--kit-color-primary)',
+ *       },
  *     }),
  *   ],
  * });

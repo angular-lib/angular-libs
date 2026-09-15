@@ -4,6 +4,7 @@
 
 export * from './lib/dialog-ref';
 export * from './lib/dialog.types';
+export * from './lib/dialog-tokens';
 export * from './lib/dialog.service';
 export * from './lib/provide-dialog';
 export * from './lib/define-plugin';

@@ -105,4 +105,33 @@ describe('DefaultDialogComponent', () => {
     expect(element.querySelector('.al-dialog-header')).not.toBeNull();
     expect(element.querySelector('.al-dialog-title')?.textContent?.trim()).toBe('Hello');
   });
+
+  it('exposes stable data-al-dialog-part hooks', () => {
+    const fixture = TestBed.createComponent(DefaultDialogComponent);
+    fixture.componentRef.setInput('title', 'Hello');
+    fixture.componentRef.setInput('contentText', 'Body');
+    fixture.componentRef.setInput('primaryButtonText', 'OK');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-al-dialog-part="container"]')).not.toBeNull();
+    expect(element.querySelector('[data-al-dialog-part="header"]')).not.toBeNull();
+    expect(element.querySelector('[data-al-dialog-part="title"]')?.textContent?.trim()).toBe('Hello');
+    expect(element.querySelector('[data-al-dialog-part="content"]')).not.toBeNull();
+    expect(element.querySelector('[data-al-dialog-part="message"]')?.textContent?.trim()).toBe('Body');
+    expect(element.querySelector('[data-al-dialog-action="primary"]')?.textContent?.trim()).toBe(
+      'OK',
+    );
+    expect(element.querySelector('[data-al-dialog-action="close"]')).not.toBeNull();
+  });
+
+  it('applies headless chrome class when appearance is headless', () => {
+    const fixture = TestBed.createComponent(DefaultDialogComponent);
+    fixture.componentRef.setInput('appearance', 'headless');
+    fixture.componentRef.setInput('title', 'T');
+    fixture.detectChanges();
+
+    const container = (fixture.nativeElement as HTMLElement).querySelector('.al-dialog-container');
+    expect(container?.classList.contains('al-dialog-chrome-headless')).toBe(true);
+  });
 });

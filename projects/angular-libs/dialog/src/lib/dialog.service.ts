@@ -19,6 +19,7 @@ import {
   isPlainDialogStrings,
   resolveDialogStrings,
   resolveDismissFlags,
+  resolveDialogAppearance,
   type GlobalDialogConfig,
   type DialogOptions,
   type InferDialogResult,
@@ -32,7 +33,9 @@ import {
   type DialogAnimation,
   type ProvideDialogConfig,
   type DialogStrings,
+  type DialogIntent,
 } from './dialog.types';
+import { applyDialogTokens } from './dialog-tokens';
 import { mergePlugins, resolveBehaviorPlugins } from './behavior-resolver';
 import { popoverPlugin } from './plugins/popover.plugin';
 import { autoClosePlugin } from './plugins/auto-close.plugin';
@@ -120,6 +123,12 @@ export class DialogService {
         next.strings = current.strings;
       }
 
+      if (config.tokens !== undefined) {
+        next.tokens = { ...current.tokens, ...config.tokens };
+      } else {
+        next.tokens = current.tokens;
+      }
+
       return next;
     });
   }
@@ -173,34 +182,41 @@ export class DialogService {
   async confirm(options: ConfirmOptions = {}): Promise<boolean> {
     const strings = this.resolveMergedStrings(options.strings);
     const title = options.title ?? strings.confirmTitle ?? 'Confirm';
-    const ref = this.open<DefaultDialogComponent, boolean>(DefaultDialogComponent, {
-      inputs: {
-        title,
-        subtitle: options.subtitle,
-        contentText: options.message,
-        primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
-        secondaryButtonText: options.cancelText ?? strings.cancel ?? 'Cancel',
-        showCloseIcon: true,
-        primaryResult: true,
-        secondaryResult: false,
+    const ref = this.openInternal<DefaultDialogComponent, boolean>(
+      DefaultDialogComponent,
+      {
+        inputs: {
+          title,
+          subtitle: options.subtitle,
+          contentText: options.message,
+          primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
+          secondaryButtonText: options.cancelText ?? strings.cancel ?? 'Cancel',
+          showCloseIcon: true,
+          primaryResult: true,
+          secondaryResult: false,
+        },
+        width: options.width,
+        size: options.size ?? 'sm',
+        disableClose: options.disableClose,
+        closeOnEscape: options.closeOnEscape,
+        closeOnBackdrop: options.closeOnBackdrop,
+        hasBackdrop: options.hasBackdrop,
+        backdropClass: options.backdropClass,
+        fullscreenBelow: options.fullscreenBelow,
+        role: options.role ?? 'alertdialog',
+        panelClass: options.panelClass,
+        contentClass: options.contentClass,
+        appearance: options.appearance,
+        scheme: options.scheme,
+        tokens: options.tokens,
+        ariaLabel: options.ariaLabel ?? title,
+        ariaDescribedBy: options.ariaDescribedBy,
+        animation: options.animation,
+        closeOnNavigation: true,
+        restoreFocus: true,
       },
-      width: options.width,
-      size: options.size ?? 'sm',
-      disableClose: options.disableClose,
-      closeOnEscape: options.closeOnEscape,
-      closeOnBackdrop: options.closeOnBackdrop,
-      hasBackdrop: options.hasBackdrop,
-      backdropClass: options.backdropClass,
-      fullscreenBelow: options.fullscreenBelow,
-      role: options.role ?? 'alertdialog',
-      panelClass: options.panelClass,
-      contentClass: options.contentClass,
-      ariaLabel: options.ariaLabel ?? title,
-      ariaDescribedBy: options.ariaDescribedBy,
-      animation: options.animation,
-      closeOnNavigation: true,
-      restoreFocus: true,
-    });
+      { intent: 'confirm' },
+    );
 
     const { result, source } = await ref.closed;
     if (result === true) return true;
@@ -215,32 +231,39 @@ export class DialogService {
   async alert(options: ConfirmOptions = {}): Promise<void> {
     const strings = this.resolveMergedStrings(options.strings);
     const title = options.title ?? strings.alertTitle ?? 'Alert';
-    const ref = this.open<DefaultDialogComponent, true>(DefaultDialogComponent, {
-      inputs: {
-        title,
-        subtitle: options.subtitle,
-        contentText: options.message,
-        primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
-        showCloseIcon: true,
-        primaryResult: true,
+    const ref = this.openInternal<DefaultDialogComponent, true>(
+      DefaultDialogComponent,
+      {
+        inputs: {
+          title,
+          subtitle: options.subtitle,
+          contentText: options.message,
+          primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
+          showCloseIcon: true,
+          primaryResult: true,
+        },
+        width: options.width,
+        size: options.size ?? 'sm',
+        disableClose: options.disableClose,
+        closeOnEscape: options.closeOnEscape,
+        closeOnBackdrop: options.closeOnBackdrop,
+        hasBackdrop: options.hasBackdrop,
+        backdropClass: options.backdropClass,
+        fullscreenBelow: options.fullscreenBelow,
+        role: options.role ?? 'alertdialog',
+        panelClass: options.panelClass,
+        contentClass: options.contentClass,
+        appearance: options.appearance,
+        scheme: options.scheme,
+        tokens: options.tokens,
+        ariaLabel: options.ariaLabel ?? title,
+        ariaDescribedBy: options.ariaDescribedBy,
+        animation: options.animation,
+        closeOnNavigation: true,
+        restoreFocus: true,
       },
-      width: options.width,
-      size: options.size ?? 'sm',
-      disableClose: options.disableClose,
-      closeOnEscape: options.closeOnEscape,
-      closeOnBackdrop: options.closeOnBackdrop,
-      hasBackdrop: options.hasBackdrop,
-      backdropClass: options.backdropClass,
-      fullscreenBelow: options.fullscreenBelow,
-      role: options.role ?? 'alertdialog',
-      panelClass: options.panelClass,
-      contentClass: options.contentClass,
-      ariaLabel: options.ariaLabel ?? title,
-      ariaDescribedBy: options.ariaDescribedBy,
-      animation: options.animation,
-      closeOnNavigation: true,
-      restoreFocus: true,
-    });
+      { intent: 'alert' },
+    );
     await ref.closed;
   }
 
@@ -365,7 +388,7 @@ export class DialogService {
     component: Type<TComponent>,
     options: DialogOptions<TComponent>,
     meta: {
-      intent: 'open' | 'window' | 'popover' | 'toast';
+      intent: DialogIntent;
       windowDefaults?: {
         drag?: boolean | object;
         snap?: boolean | object;
@@ -397,6 +420,10 @@ export class DialogService {
     );
 
     const sizeWidth = resolveSize(options.size ?? global.size);
+    const { appearance, scheme } = resolveDialogAppearance({
+      appearance: options.appearance ?? global.appearance,
+      scheme: options.scheme !== undefined ? options.scheme : global.scheme,
+    });
     const mergedOptions: DialogOptions<TComponent> = {
       ...global,
       ...options,
@@ -413,6 +440,12 @@ export class DialogService {
         global.autoFocus ??
         (isModal ? 'first-tabbable' : 'dialog'),
       animation: options.animation ?? global.animation ?? false,
+      panelClass: mergeDialogClasses(global.panelClass, options.panelClass),
+      contentClass: mergeDialogClasses(global.contentClass, options.contentClass),
+      backdropClass: mergeDialogClasses(global.backdropClass, options.backdropClass),
+      tokens: { ...global.tokens, ...options.tokens },
+      appearance,
+      scheme,
     };
 
     // Strip non-dialog option bags that shouldn't live on DialogRef.options forever is fine
@@ -430,6 +463,11 @@ export class DialogService {
     } else if (meta.intent === 'popover') {
       dialogEl.classList.add('al-dialog-popover');
     }
+
+    applyDesignSystemHooks(dialogEl, mergedOptions, {
+      intent: meta.intent,
+      chrome: component === DefaultDialogComponent ? 'default' : 'none',
+    });
 
     applyClasses(dialogEl, mergedOptions.panelClass);
     applyClasses(dialogEl, mergedOptions.backdropClass);
@@ -503,6 +541,9 @@ export class DialogService {
         if (s.exitFullscreen !== undefined) {
           compRef.setInput('exitFullscreenTooltip', s.exitFullscreen);
         }
+      }
+      if (mergedOptions.appearance) {
+        compRef.setInput('appearance', mergedOptions.appearance);
       }
     }
 
@@ -628,11 +669,43 @@ function resolveSize(size?: DialogSizePreset | (string & {})): string | undefine
 
 function applyClasses(el: HTMLElement, value?: string | string[]): void {
   if (!value) return;
-  const classes = [value]
-    .flat()
-    .flatMap((c) => c.split(' '))
-    .filter(Boolean);
+  const classes = mergeDialogClasses(value);
   if (classes.length) el.classList.add(...classes);
+}
+
+function mergeDialogClasses(...values: Array<string | string[] | undefined | null>): string[] {
+  const seen = new Set<string>();
+  const classes: string[] = [];
+  for (const value of values) {
+    if (!value) continue;
+    for (const cls of [value].flat().flatMap((c) => c.split(/\s+/)).filter(Boolean)) {
+      if (!seen.has(cls)) {
+        seen.add(cls);
+        classes.push(cls);
+      }
+    }
+  }
+  return classes;
+}
+
+function applyDesignSystemHooks(
+  dialogEl: HTMLDialogElement,
+  options: DialogOptions,
+  meta: { intent: DialogIntent; chrome: 'default' | 'none' },
+): void {
+  const appearance = options.appearance ?? 'default';
+  const scheme = options.scheme === false ? 'none' : (options.scheme ?? 'auto');
+
+  dialogEl.dataset['alDialogIntent'] = meta.intent;
+  dialogEl.dataset['alDialogChrome'] = meta.chrome;
+  dialogEl.dataset['alDialogAppearance'] = appearance;
+  dialogEl.dataset['alDialogScheme'] = scheme;
+
+  if (appearance === 'headless') {
+    dialogEl.classList.add('al-dialog-headless');
+  }
+
+  applyDialogTokens(dialogEl, options.tokens);
 }
 
 function applyAria(
@@ -661,14 +734,18 @@ function ensureTitleId(
   options: DialogOptions,
 ): void {
   if (options.ariaLabelledBy || options.ariaLabel) return;
-  const title = contentRoot.querySelector('.al-dialog-title') as HTMLElement | null;
+  const title = contentRoot.querySelector(
+    '[data-al-dialog-part="title"], .al-dialog-title',
+  ) as HTMLElement | null;
   if (!title) return;
   if (!title.id) {
     title.id = `al-dialog-title-${Math.random().toString(36).slice(2, 9)}`;
   }
   dialogEl.setAttribute('aria-labelledby', title.id);
 
-  const body = contentRoot.querySelector('.al-dialog-content') as HTMLElement | null;
+  const body = contentRoot.querySelector(
+    '[data-al-dialog-part="content"], .al-dialog-content',
+  ) as HTMLElement | null;
   if (body && !options.ariaDescribedBy) {
     if (!body.id) {
       body.id = `al-dialog-desc-${Math.random().toString(36).slice(2, 9)}`;

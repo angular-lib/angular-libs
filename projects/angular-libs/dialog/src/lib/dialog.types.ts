@@ -7,6 +7,21 @@ import {
   type Signal,
 } from '@angular/core';
 import type { DialogRef, CloseSource } from './dialog-ref';
+import type { DialogTokenMap } from './dialog-tokens';
+
+/** Built-in visual appearance of the native `<dialog>` shell. */
+export type DialogAppearance = 'default' | 'headless';
+
+/**
+ * Color scheme for library token defaults.
+ * - `'auto'` — follow `prefers-color-scheme` (default for `appearance: 'default'`)
+ * - `'light'` / `'dark'` — force the matching built-in palette
+ * - `false` — do not apply library scheme tokens (host DS / {@link DialogTokenMap} owns color)
+ */
+export type DialogScheme = 'auto' | 'light' | 'dark' | false;
+
+/** Intent recorded on `<dialog data-al-dialog-intent>`. */
+export type DialogIntent = 'open' | 'window' | 'popover' | 'toast' | 'confirm' | 'alert';
 
 /**
  * Maps component signal inputs (`input()`, `model()`) to raw primitive/object types.
@@ -108,6 +123,20 @@ export type PopoverPlacement =
  * `disableClose: true` is a shorthand that turns both off. Explicit
  * `closeOnEscape` / `closeOnBackdrop` always win.
  */
+/**
+ * Resolves shell appearance and color scheme.
+ * Headless defaults `scheme` to `false` so host design-system tokens are not rewritten.
+ */
+export function resolveDialogAppearance(options: {
+  appearance?: DialogAppearance;
+  scheme?: DialogScheme;
+}): { appearance: DialogAppearance; scheme: DialogScheme } {
+  const appearance = options.appearance ?? 'default';
+  const scheme =
+    options.scheme !== undefined ? options.scheme : appearance === 'headless' ? false : 'auto';
+  return { appearance, scheme };
+}
+
 export function resolveDismissFlags(options: {
   disableClose?: boolean;
   closeOnEscape?: boolean;
@@ -215,6 +244,24 @@ export interface DialogConfigBase {
   /** Extra class(es) on `<dialog>` for styling `::backdrop`. */
   backdropClass?: string | string[];
   /**
+   * Shell appearance.
+   * - `'default'` — library surface tokens, shadow, radius, DefaultDialog chrome
+   * - `'headless'` — structural / a11y shell only; host a consumer component or restyle via parts
+   */
+  appearance?: DialogAppearance;
+  /**
+   * Built-in color scheme. Defaults to `'auto'` for `appearance: 'default'`
+   * and `false` for `appearance: 'headless'` (so a host DS is not overridden).
+   */
+  scheme?: DialogScheme;
+  /**
+   * Token bridge applied as CSS vars on the native `<dialog>`.
+   * Per-call values merge over {@link provideDialog} / {@link DialogService.updateConfig}.
+   *
+   * @see applyDialogTokens
+   */
+  tokens?: DialogTokenMap;
+  /**
    * Stretch the modal to the viewport below this breakpoint
    * (`sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px).
    */
@@ -294,6 +341,9 @@ export interface ConfirmOptions {
   animation?: DialogAnimation;
   /** Per-call string overrides (merged over global `provideDialog({ strings })`). */
   strings?: DialogStringsSource;
+  appearance?: DialogAppearance;
+  scheme?: DialogScheme;
+  tokens?: DialogTokenMap;
 }
 
 export interface PopoverDialogOptions<TComponent = unknown>
@@ -317,6 +367,9 @@ export interface ToastOptions {
   pauseOnHover?: boolean;
   /** Corner placement. Defaults to `bottom-right`. */
   position?: ToastPosition;
+  appearance?: DialogAppearance;
+  scheme?: DialogScheme;
+  tokens?: DialogTokenMap;
 }
 
 export type DialogSurfaceState = 'open' | 'minimized' | 'maximized' | 'closed';

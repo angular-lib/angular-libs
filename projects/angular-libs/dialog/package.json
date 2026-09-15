@@ -44,6 +44,9 @@
     },
     "./styles/window.css": {
       "default": "./src/styles/window.css"
+    },
+    "./styles/bridge.css": {
+      "default": "./src/styles/bridge.css"
     }
   },
   "sideEffects": [

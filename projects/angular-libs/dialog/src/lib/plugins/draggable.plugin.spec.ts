@@ -81,6 +81,34 @@ describe('draggablePlugin', () => {
     expect(dialogEl.classList.contains('al-dialog-dragging')).toBe(false);
   });
 
+  it('should prefer [data-al-dialog-part=header] as drag handle when present', () => {
+    dialogEl = document.createElement('dialog');
+    contentRoot = document.createElement('div');
+    contentRoot.dataset['alDialogContent'] = 'true';
+    const header = document.createElement('header');
+    header.setAttribute('data-al-dialog-part', 'header');
+    contentRoot.appendChild(header);
+    dialogEl.appendChild(contentRoot);
+    document.body.appendChild(dialogEl);
+
+    const plugin = draggablePlugin();
+    teardown = plugin.setup!({
+      element: dialogEl,
+      dialogRef: { dialogEl, options: {} } as any,
+      injector: null as any,
+    });
+
+    contentRoot.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, bubbles: true, clientX: 150, clientY: 200 }),
+    );
+    expect(dialogEl.classList.contains('al-dialog-dragging')).toBe(false);
+
+    header.dispatchEvent(
+      new PointerEvent('pointerdown', { button: 0, bubbles: true, clientX: 150, clientY: 110 }),
+    );
+    expect(dialogEl.classList.contains('al-dialog-dragging')).toBe(true);
+  });
+
   it('should prefer .al-dialog-header as drag handle when present', () => {
     setupPlugin(undefined, true);
 

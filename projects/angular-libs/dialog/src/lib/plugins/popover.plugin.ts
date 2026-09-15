@@ -252,6 +252,7 @@ export function popoverPlugin(options: PopoverOptions): DialogPlugin {
       if (showArrow) {
         arrowEl = document.createElement('div');
         arrowEl.className = 'al-dialog-popover-arrow';
+        arrowEl.dataset['alDialogPart'] = 'arrow';
         arrowEl.style.position = 'absolute';
         arrowEl.style.width = '0';
         arrowEl.style.height = '0';

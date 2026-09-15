@@ -8,6 +8,15 @@
 - `role?: 'dialog' | 'alertdialog'` — `confirm()` / `alert()` default to `alertdialog`
 - `fullscreenBelow?: 'sm' | 'md' | 'lg' | 'xl'` for mobile-fullscreen modals
 - Popover flip (and shift/clamp fallback) near viewport edges; `flip: false` keeps clamp-only
+- Design-system embed: `appearance: 'headless'`, `scheme`, and `tokens` on `provideDialog` / `open` / confirm / toast
+- Token bridge helpers: `applyDialogTokens`, `dialogTokenStyle`, `dialogTokensAsCss`, `DIALOG_TOKEN_VARS`
+- Stable hooks: `data-al-dialog-intent`, `data-al-dialog-chrome`, `data-al-dialog-appearance`, `data-al-dialog-scheme`, and `[data-al-dialog-part]` / `[data-al-dialog-action]`
+- Global `contentClass` / `panelClass` now merge with per-call classes
+- `@angular-libs/dialog/styles/bridge.css` mapping reference
+
+### Changed
+- Built-in `prefers-color-scheme: dark` tokens apply only when `data-al-dialog-scheme="auto"` (still the default for `appearance: 'default'`)
+- DefaultDialog leftover hardcoded colors now go through tokens; headless chrome is structural only
 
 ## 0.1.0
 

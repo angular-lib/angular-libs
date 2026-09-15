@@ -28,6 +28,7 @@ dialog.al-dialog {
   --al-btn-secondary-color: #333333;
   --al-btn-secondary-hover-bg: #c8c8c8;
 
+  --al-action-btn-color: #999999;
   --al-action-btn-hover-bg: #f5f5f5;
   --al-action-btn-hover-color: #333333;
 
@@ -58,8 +59,32 @@ dialog.al-dialog {
   max-height: 90vh;
 }
 
+/* Forced dark palette */
+dialog.al-dialog[data-al-dialog-scheme="dark"] {
+  --al-dialog-bg: #1e1e1e;
+  --al-dialog-color: #e8e8e8;
+  --al-dialog-border: 1px solid #333333;
+  --al-dialog-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --al-dialog-backdrop: rgba(0, 0, 0, 0.55);
+  --al-dialog-accent: #3b82f6;
+  --al-dialog-header-border-color: #333333;
+  --al-dialog-title-color: #f5f5f5;
+  --al-dialog-subtitle-color: #a3a3a3;
+  --al-dialog-footer-border-color: #333333;
+  --al-btn-primary-hover-bg: #2563eb;
+  --al-btn-secondary-bg: #333333;
+  --al-btn-secondary-color: #e8e8e8;
+  --al-btn-secondary-hover-bg: #404040;
+  --al-action-btn-color: #a3a3a3;
+  --al-action-btn-hover-bg: #2a2a2a;
+  --al-action-btn-hover-color: #f5f5f5;
+  --al-minimized-border: 1px solid rgba(255, 255, 255, 0.12);
+  --al-minimized-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+}
+
+/* Default appearance still follows the OS unless scheme: false / 'light' / 'dark' */
 @media (prefers-color-scheme: dark) {
-  dialog.al-dialog {
+  dialog.al-dialog[data-al-dialog-scheme="auto"] {
     --al-dialog-bg: #1e1e1e;
     --al-dialog-color: #e8e8e8;
     --al-dialog-border: 1px solid #333333;
@@ -74,11 +99,46 @@ dialog.al-dialog {
     --al-btn-secondary-bg: #333333;
     --al-btn-secondary-color: #e8e8e8;
     --al-btn-secondary-hover-bg: #404040;
+    --al-action-btn-color: #a3a3a3;
     --al-action-btn-hover-bg: #2a2a2a;
     --al-action-btn-hover-color: #f5f5f5;
     --al-minimized-border: 1px solid rgba(255, 255, 255, 0.12);
     --al-minimized-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
   }
+}
+
+/*
+ * appearance: 'headless' — positioning / a11y only.
+ * Host the consumer component (data-al-dialog-chrome="none") or restyle DefaultDialog parts.
+ */
+dialog.al-dialog.al-dialog-headless {
+  --al-dialog-bg: transparent;
+  --al-dialog-color: inherit;
+  --al-dialog-border: none;
+  --al-dialog-border-radius: 0;
+  --al-dialog-shadow: none;
+  --al-dialog-font-family: inherit;
+  --al-dialog-header-bg: transparent;
+  --al-dialog-header-border-color: transparent;
+  --al-dialog-header-padding: 0;
+  --al-dialog-title-color: inherit;
+  --al-dialog-subtitle-color: inherit;
+  --al-dialog-content-padding: 0;
+  --al-dialog-footer-bg: transparent;
+  --al-dialog-footer-border-color: transparent;
+  --al-dialog-footer-padding: 0;
+  --al-btn-primary-bg: transparent;
+  --al-btn-primary-color: inherit;
+  --al-btn-primary-hover-bg: transparent;
+  --al-btn-secondary-bg: transparent;
+  --al-btn-secondary-color: inherit;
+  --al-btn-secondary-hover-bg: transparent;
+  --al-action-btn-color: inherit;
+  --al-action-btn-hover-bg: transparent;
+  --al-action-btn-hover-color: inherit;
+  box-shadow: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 dialog.al-dialog::backdrop {
@@ -253,37 +313,64 @@ dialog.al-dialog.al-dialog-toast.al-toast-top-left {
   right: auto !important;
 }
 
-dialog.al-dialog.al-dialog-toast .al-dialog-container {
+dialog.al-dialog.al-dialog-toast .al-dialog-container,
+dialog.al-dialog.al-dialog-toast [data-al-dialog-part="container"] {
   min-width: 0;
   min-height: 0;
   width: 100%;
 }
 
-dialog.al-dialog.al-dialog-toast .al-dialog-header {
+dialog.al-dialog.al-dialog-toast .al-dialog-header,
+dialog.al-dialog.al-dialog-toast [data-al-dialog-part="header"] {
   border-bottom: none;
-  padding: 10px 10px 0 14px;
+  padding: var(--al-toast-header-padding, 10px 10px 0 14px);
   align-items: center;
 }
 
-dialog.al-dialog.al-dialog-toast .al-dialog-content {
+dialog.al-dialog.al-dialog-toast .al-dialog-content,
+dialog.al-dialog.al-dialog-toast [data-al-dialog-part="content"] {
   overflow: visible;
-  padding: 8px 14px 12px;
+  padding: var(--al-toast-content-padding, 8px 14px 12px);
 }
 
-dialog.al-dialog.al-dialog-toast .al-dialog-content p {
+dialog.al-dialog.al-dialog-toast .al-dialog-content p,
+dialog.al-dialog.al-dialog-toast [data-al-dialog-part="message"] {
   padding: 0;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--al-toast-font-size, 0.875rem);
   line-height: 1.4;
 }
 
-dialog.al-dialog.al-dialog-toast .al-dialog-title {
-  font-size: 0.875rem;
+dialog.al-dialog.al-dialog-toast .al-dialog-title,
+dialog.al-dialog.al-dialog-toast [data-al-dialog-part="title"] {
+  font-size: var(--al-toast-title-size, 0.875rem);
   margin: 0;
 }
 
-dialog.al-dialog.al-dialog-toast .al-dialog-footer {
+dialog.al-dialog.al-dialog-toast .al-dialog-footer,
+dialog.al-dialog.al-dialog-toast [data-al-dialog-part="footer"] {
   display: none;
+}
+
+/* Headless toast: keep corner stacking, drop leftover chrome padding / type */
+dialog.al-dialog.al-dialog-headless.al-dialog-toast {
+  box-shadow: none;
+  background: transparent;
+  border: none;
+}
+
+dialog.al-dialog.al-dialog-headless.al-dialog-toast .al-dialog-header,
+dialog.al-dialog.al-dialog-headless.al-dialog-toast [data-al-dialog-part="header"],
+dialog.al-dialog.al-dialog-headless.al-dialog-toast .al-dialog-content,
+dialog.al-dialog.al-dialog-headless.al-dialog-toast [data-al-dialog-part="content"] {
+  padding: 0;
+}
+
+dialog.al-dialog.al-dialog-headless.al-dialog-toast .al-dialog-title,
+dialog.al-dialog.al-dialog-headless.al-dialog-toast [data-al-dialog-part="title"],
+dialog.al-dialog.al-dialog-headless.al-dialog-toast .al-dialog-content p,
+dialog.al-dialog.al-dialog-headless.al-dialog-toast [data-al-dialog-part="message"] {
+  font-size: inherit;
 }
 
 /* Fade animation helpers (opt-in via animation: 'fade') */

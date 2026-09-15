@@ -37,7 +37,9 @@ Override dialog tokens on `dialog.al-dialog` (or a parent). Dock tokens live on 
 | `--al-dialog-font-family` | Font |
 | `--al-dock-bg` | Dock surface (`:root` / `.al-dialog-taskbar`, window.css) |
 
-Light defaults ship out of the box; `prefers-color-scheme: dark` adjusts the same tokens. Additional vars exist for header/footer/buttons; treat those as advanced.
+Light defaults ship out of the box; `prefers-color-scheme: dark` adjusts the same tokens **only when** `scheme` is `'auto'` (the default for `appearance: 'default'`). Additional vars exist for header/footer/buttons; treat those as advanced.
+
+Pass a [token bridge](#using-with-your-design-system) via `provideDialog({ tokens })` or `applyDialogTokens()` instead of fighting `al-*` class names.
 
 ## Bootstrap
 
@@ -57,6 +59,10 @@ bootstrapApplication(AppComponent, {
       //   ok: 'OK',
       //   cancel: 'Cancel',
       // },
+      // appearance: 'headless', // structural shell only
+      // scheme: false,          // do not rewrite colors from prefers-color-scheme
+      // contentClass: 'kit-dialog',
+      // tokens: { bg: 'var(--kit-color-surface)', accent: 'var(--kit-color-primary)' },
     }),
   ],
 });
@@ -165,6 +171,113 @@ Built-in factories (`draggablePlugin`, `dockPlugin`, …) remain exported for ad
 
 - `panelClass` → native `<dialog>`
 - `contentClass` → content root (`[data-al-dialog-content]`)
+- Global `provideDialog({ contentClass, panelClass })` **merges** with per-call classes (both apply).
+
+## Using with your design system
+
+`@angular-libs/dialog` can own behavior (open / confirm / popover / toast, focus, dismiss) while a product UI kit owns tokens and chrome.
+
+### 1. Headless / chrome-less
+
+`dialog.open(YourSheet)` already hosts **only** the consumer component — no `DefaultDialogComponent` wrapper (`data-al-dialog-chrome="none"`).
+
+Add `appearance: 'headless'` to drop library shadow, radius, surface colors, and DefaultDialog decoration. The native `<dialog>` stays for positioning, `::backdrop`, and a11y.
+
+```ts
+import { provideDialog, DialogService, DialogRef } from '@angular-libs/dialog';
+
+bootstrapApplication(App, {
+  providers: [
+    provideDialog({
+      appearance: 'headless',
+      scheme: false, // you own light/dark
+      contentClass: 'kit-dialog',
+      strings: { ok: 'Continue', cancel: 'Back' },
+    }),
+  ],
+});
+
+@Component({
+  selector: 'kit-edit-user',
+  standalone: true,
+  template: `
+    <header data-al-dialog-part="header">
+      <h2 data-al-dialog-part="title">Edit user</h2>
+    </header>
+    <section data-al-dialog-part="content"><!-- kit fields --></section>
+    <footer data-al-dialog-part="footer">
+      <button type="button" (click)="dialogRef.close()">Cancel</button>
+      <button type="button" class="kit-btn-primary" (click)="save()">Save</button>
+    </footer>
+  `,
+})
+class KitEditUserComponent {
+  dialogRef = inject(DialogRef);
+}
+
+const dialog = inject(DialogService);
+dialog.open(KitEditUserComponent, { size: 'md' });
+```
+
+`confirm()` / `alert()` / `toast()` still use `DefaultDialogComponent` for structure (title, actions, a11y). In headless mode that chrome is layout-only — style it through parts or `contentClass`.
+
+### 2. Token bridge
+
+Map host DS tokens onto `--al-dialog-*` (or pass the same map to `provideDialog` / `open`):
+
+```ts
+import { applyDialogTokens, dialogTokensAsCss } from '@angular-libs/dialog';
+
+provideDialog({
+  tokens: {
+    bg: 'var(--kit-color-surface)',
+    color: 'var(--kit-color-ink)',
+    border: 'var(--kit-border)',
+    borderRadius: 'var(--kit-radius)',
+    shadow: 'var(--kit-shadow-lg)',
+    backdrop: 'var(--kit-scrim)',
+    accent: 'var(--kit-color-primary)',
+    fontFamily: 'var(--kit-font-sans)',
+  },
+});
+
+// Equivalent CSS (also documented in @angular-libs/dialog/styles/bridge.css):
+// dialog.al-dialog {
+//   --al-dialog-bg: var(--kit-color-surface);
+//   --al-dialog-accent: var(--kit-color-primary);
+// }
+```
+
+`applyDialogTokens(element, tokens)` and `dialogTokensAsCss(tokens)` are the same mapping as a function.
+
+| `provideDialog` option | Role |
+|------------------------|------|
+| `appearance: 'headless'` | Structural shell, no library chrome |
+| `scheme: false` | Do not apply built-in light/dark palettes |
+| `tokens` | CSS variables on each `<dialog>` |
+| `contentClass` / `panelClass` | Host class hooks (merged globally + per call) |
+| `strings` | Confirm / alert / icon labels |
+
+### 3. Stable hooks
+
+Every surface sets data attributes on the native `<dialog>`:
+
+| Attribute | Values |
+|-----------|--------|
+| `data-al-dialog-intent` | `open` `confirm` `alert` `popover` `toast` `window` |
+| `data-al-dialog-chrome` | `default` (DefaultDialog) or `none` (your component) |
+| `data-al-dialog-appearance` | `default` `headless` |
+| `data-al-dialog-scheme` | `auto` `light` `dark` `none` |
+
+DefaultDialog parts (also keep the `al-*` class names):
+
+`container` `header` `titles` `title` `subtitle` `window-actions` `action` `content` `message` `footer` `button`
+
+```css
+dialog.al-dialog[data-al-dialog-intent="confirm"] [data-al-dialog-action="primary"] {
+  /* kit primary button */
+}
+```
 
 ## DialogRef
 
