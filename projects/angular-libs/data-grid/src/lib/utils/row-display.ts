@@ -279,6 +279,106 @@ export function isPluginDisplayRow<T>(row: DisplayRow<T>): row is CustomDisplayR
   return row.kind === 'plugin';
 }
 
+/**
+ * Rows that consume one pagination slot (`data` / `group`).
+ * Master-detail plugin rows trail the master and must not eat a page slot.
+ */
+export function isPaginationSlotRow<T>(row: DisplayRow<T>): boolean {
+  return row.kind !== 'plugin';
+}
+
+export function countPaginationSlots<T>(rows: readonly DisplayRow<T>[]): number {
+  let n = 0;
+  for (const row of rows) {
+    if (isPaginationSlotRow(row)) {
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * Slot index for a display index. Plugin rows share the preceding slot row.
+ */
+export function paginationSlotIndex<T>(
+  rows: readonly DisplayRow<T>[],
+  displayIndex: number,
+): number {
+  let slot = -1;
+  const last = Math.min(Math.max(displayIndex, 0), rows.length - 1);
+  for (let i = 0; i <= last; i++) {
+    if (isPaginationSlotRow(rows[i]!)) {
+      slot++;
+    }
+  }
+  return Math.max(0, slot);
+}
+
+export function pageIndexForDisplayIndex<T>(
+  rows: readonly DisplayRow<T>[],
+  displayIndex: number,
+  pageSize: number,
+): number {
+  if (pageSize <= 0) {
+    return 0;
+  }
+  return Math.floor(paginationSlotIndex(rows, displayIndex) / pageSize);
+}
+
+/**
+ * Page by slot rows; keep plugin rows immediately following an included master.
+ */
+export function paginateDisplayRows<T>(
+  rows: readonly DisplayRow<T>[],
+  pageIndex: number,
+  pageSize: number,
+): DisplayRow<T>[] {
+  if (pageSize <= 0) {
+    return [];
+  }
+  const start = pageIndex * pageSize;
+  const end = start + pageSize;
+  const out: DisplayRow<T>[] = [];
+  let slot = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    if (!isPaginationSlotRow(row)) {
+      continue;
+    }
+    if (slot >= start && slot < end) {
+      out.push(row);
+      for (let j = i + 1; j < rows.length && rows[j]!.kind === 'plugin'; j++) {
+        out.push(rows[j]!);
+      }
+    }
+    slot++;
+  }
+  return out;
+}
+
+/**
+ * Step a display index, skipping plugin (detail) rows.
+ * Returns `from` when no non-plugin landing row exists in that direction.
+ */
+export function stepDisplayIndexSkippingPlugins<T>(
+  rows: readonly DisplayRow<T>[],
+  from: number,
+  dRow: number,
+): number {
+  if (dRow === 0 || !rows.length) {
+    return from;
+  }
+  const step = dRow > 0 ? 1 : -1;
+  let i = from + dRow;
+  while (i >= 0 && i < rows.length && rows[i]!.kind === 'plugin') {
+    i += step;
+  }
+  if (i < 0 || i >= rows.length || rows[i]!.kind === 'plugin') {
+    return from;
+  }
+  return i;
+}
+
 /** Resolve paint/virtual height for a display row. */
 export function resolveDisplayRowHeight<T>(
   row: DisplayRow<T>,

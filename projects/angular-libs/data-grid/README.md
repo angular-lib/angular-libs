@@ -187,6 +187,10 @@ columns = [md.expandColumn(), { field: 'name' }];
 - API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
 - Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`)
 - Master/detail: nested detail grid via `detailGrid` / `detailColumns`; `expandColumn()`
+- Pagination counts **master / group slots**, not open detail panels
+- `keepDetailGrids` evicts nested controllers when a master leaves source `[data]` (filter-out still keeps state)
+- Find / cell-range / clipboard operate on master data rows; open detail panels do not consume a range step or a find match. Nested detail cells are not searched
+- **Server-side + master-detail:** `getDetailRows` is synchronous. With `serverSide: true`, the host must embed detail arrays on each payload. Lazy load-on-expand is not supported
 
 ## Row drag
 

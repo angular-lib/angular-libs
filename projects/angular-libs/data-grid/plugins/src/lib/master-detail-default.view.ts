@@ -13,7 +13,9 @@ import {
 import {
   DataGrid,
   createGrid,
+  defaultGridLocale,
   type DataGridApi,
+  type DataGridLocale,
   type GridController,
 } from '@angular-libs/data-grid';
 import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
@@ -142,19 +144,20 @@ export function createDetailGridController<D>(
     >
       @if (detailGrid(); as cfg) {
         @if (detailRows().length === 0) {
-          <p class="al-dg-master-detail__empty">No detail rows.</p>
+          <p class="al-dg-master-detail__empty">{{ locale().detailEmptyMessage }}</p>
         } @else if (detailController(); as ctrl) {
           <al-data-grid
             class="al-dg-master-detail__grid"
             [controller]="ctrl"
             [data]="detailRows()"
-            [emptyMessage]="'No detail rows.'"
+            [emptyMessage]="locale().detailEmptyMessage"
+            [locale]="nestedLocale()"
           />
         } @else {
-          <p class="al-dg-master-detail__empty">Preparing detail grid…</p>
+          <p class="al-dg-master-detail__empty">{{ locale().detailLoadingMessage }}</p>
         }
       } @else {
-        <p class="al-dg-master-detail__empty">No detail grid configured.</p>
+        <p class="al-dg-master-detail__empty">{{ locale().detailNotConfiguredMessage }}</p>
       }
     </div>
   `,
@@ -174,6 +177,12 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
   });
 
   readonly detailRows = computed(() => this.payload()?.detailRows ?? []);
+
+  readonly locale = computed((): DataGridLocale => this.api()?.getLocale() ?? defaultGridLocale);
+
+  readonly nestedLocale = computed((): Partial<DataGridLocale> => ({
+    gridAriaLabel: this.locale().detailGridAriaLabel,
+  }));
 
   readonly detailGrid = computed((): MasterDetailGridOptions<D> | null => {
     const p = this.payload();

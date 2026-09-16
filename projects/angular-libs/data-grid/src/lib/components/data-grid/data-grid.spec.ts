@@ -1240,6 +1240,180 @@ describe('DataGrid master-detail UI', () => {
     await fixture.whenStable();
     expect(el.querySelectorAll('[data-testid^="al-dg-plugin-row-md:"]').length).toBe(0);
   });
+
+  it('uses locale strings for expand/collapse labels', async () => {
+    const { el } = await render();
+    const milaToggle = el.querySelector(
+      '[data-testid="al-dg-row-1"] [data-testid="al-dg-master-detail-toggle"]',
+    ) as HTMLButtonElement;
+    expect(milaToggle.getAttribute('aria-label')).toBe('Collapse detail');
+  });
+
+  it('toggles master-detail with Enter on the expand column', async () => {
+    const { el, fixture } = await render();
+    const api = fixture.componentInstance.grid.api()!;
+    api.focusCell(0, '__masterDetailExpand');
+    fixture.detectChanges();
+    const gridEl = fixture.debugElement.query(By.directive(DataGrid)).nativeElement as HTMLElement;
+    gridEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
+  });
+
+  it('evicts nested state when the master leaves source data', async () => {
+    const { el, host, fixture } = await render();
+    const view = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
+      .componentInstance as MasterDetailDefaultView<Account, CallRecord>;
+    const nested = view.detailController();
+    expect(nested).toBeTruthy();
+    nested!.api()!.setSortModel([{ columnId: 'number', direction: 'desc' }]);
+
+    host.rows.set(accounts.filter((a) => a.id !== 1));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
+
+    host.rows.set(accounts);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const view2 = fixture.debugElement.query(By.directive(MasterDetailDefaultView))
+      .componentInstance as MasterDetailDefaultView<Account, CallRecord>;
+    expect(view2.detailController()).not.toBe(nested);
+    expect(view2.detailController()!.api()!.getSortModel()).toEqual([]);
+  });
+});
+
+describe('DataGrid master-detail + pagination', () => {
+  @Component({
+    imports: [DataGrid],
+    template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+  })
+  class PagedMasterDetailHost {
+    readonly rows = signal(accounts);
+    readonly masterDetail = masterDetailPlugin<Account, CallRecord>({
+      getDetailRows: (row) => row.calls,
+      detailGrid: {
+        columns: [
+          { field: 'callId', header: 'Call ID', width: 90 },
+          { field: 'number', header: 'Number', flex: 1 },
+        ],
+        rowId: (row) => row.callId,
+      },
+      detailRowHeight: 160,
+      isOpenByDefault: (row) => row.id === 1,
+    });
+    readonly grid = createGrid<Account>({
+      columns: [
+        this.masterDetail.expandColumn(),
+        { field: 'name', header: 'Name', filter: true },
+      ],
+      rowId: (row) => row.id,
+      plugins: [statusBarPlugin<Account>(), this.masterDetail],
+      viewport: { rowHeight: 40, virtual: false, pagination: true, pageSize: 2 },
+    });
+  }
+
+  it('does not let an open detail consume a page slot', async () => {
+    await TestBed.configureTestingModule({ imports: [PagedMasterDetailHost] }).compileComponents();
+    const fixture = TestBed.createComponent(PagedMasterDetailHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="al-dg-row-1"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-row-2"]')).toBeTruthy();
+    expect(el.querySelector('[data-testid="al-dg-row-3"]')).toBeFalsy();
+    expect(el.textContent).toContain('Page 1 / 2');
+    expect(el.querySelector('[data-testid="al-dg-status-bar"]')?.textContent).toContain('3 rows');
+  });
+});
+
+describe('DataGrid master-detail + cell range', () => {
+  it('Shift+arrow range skips the open detail panel', async () => {
+    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class RangeMdHost {
+      readonly rows = signal(accounts);
+      readonly ranges = cellRangePlugin<Account>();
+      readonly masterDetail = masterDetailPlugin<Account, CallRecord>({
+        getDetailRows: (row) => row.calls,
+        detailGrid: {
+          columns: [{ field: 'callId', header: 'Call ID' }],
+          rowId: (row) => row.callId,
+        },
+        isOpenByDefault: (row) => row.id === 1,
+      });
+      readonly grid = createGrid<Account>({
+        columns: [this.masterDetail.expandColumn(), { field: 'name', header: 'Name' }],
+        rowId: (row) => row.id,
+        viewport: { virtual: false, pagination: false },
+        plugins: [this.ranges, this.masterDetail],
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [RangeMdHost] }).compileComponents();
+    const fixture = TestBed.createComponent(RangeMdHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const api = fixture.componentInstance.grid.api()!;
+    api.focusCell(0, 'name');
+    expect(api.extendCellRange(1, 0)).toBe(true);
+    expect(api.getCellRange()).toEqual({
+      anchor: { rowIndex: 0, columnId: 'name' },
+      active: { rowIndex: 2, columnId: 'name' },
+    });
+    const text = api.getSelectionClipboardText();
+    expect(text).toContain('Mila');
+    expect(text).toContain('Noah');
+    expect(text).not.toContain('555-0100');
+  });
+});
+
+describe('DataGrid server-side + master-detail', () => {
+  it('renders embedded detail rows when serverSide is on', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" />`,
+    })
+    class ServerMdHost {
+      readonly rows = signal(accounts);
+      readonly masterDetail = masterDetailPlugin<Account, CallRecord>({
+        getDetailRows: (row) => row.calls,
+        detailGrid: {
+          columns: [{ field: 'number', header: 'Number' }],
+          rowId: (row) => row.callId,
+        },
+        isOpenByDefault: (row) => row.id === 1,
+      });
+      readonly grid = createGrid<Account>({
+        columns: [this.masterDetail.expandColumn(), { field: 'name', header: 'Name' }],
+        rowId: (row) => row.id,
+        serverSide: true,
+        plugins: [this.masterDetail],
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [ServerMdHost] }).compileComponents();
+    const fixture = TestBed.createComponent(ServerMdHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeTruthy();
+    expect(el.textContent).toContain('555-0100');
+  });
 });
 
 describe('createGrid + controller binding', () => {

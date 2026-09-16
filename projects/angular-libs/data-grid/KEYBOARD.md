@@ -17,13 +17,13 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 
 | Key | Action |
 | --- | --- |
-| ← ↑ → ↓ | Move focused cell |
+| ← ↑ → ↓ | Move focused cell (skip master-detail plugin/detail shells) |
 | Home / End | First / last **column** on the current row |
 | Ctrl/Cmd+Home / End | First / last **row** (same column) |
 | PageUp / PageDown | Jump by viewport-sized page |
-| Enter / F2 | Start cell/row edit (group row: Enter toggles expand) |
+| Enter / F2 | Start cell/row edit (group row or master-detail expand column: Enter toggles expand) |
 | Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; Space reserved for selection except boolean cells) |
-| Space | Toggle row selection (group: expand/collapse; focused boolean cell: toggle value) |
+| Space | Toggle row selection (group or expand column: expand/collapse; focused boolean cell: toggle value) |
 | Shift+F2 | Notes editor (`notesPlugin`) — does **not** start cell/row edit |
 | Escape | Cancel edit (does not clear range); second Escape clears range / close context menu |
 | Ctrl/Cmd+A | Select all visible rows when `selection: 'multi'` |

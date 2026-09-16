@@ -32,6 +32,7 @@ export interface GridKernelOptions<T> {
   onSelectAll?: () => boolean | void;
   onToggleGroup?: (rowIndex: number) => void;
   isGroupRow?: (rowIndex: number) => boolean;
+  isSkipRow?: (rowIndex: number) => boolean;
   getPageRowCount?: () => number;
   onHeaderActivate?: (columnId: string, multi: boolean) => void;
   onOpenColumnMenu?: (columnId: string) => void;
@@ -98,6 +99,7 @@ export class GridKernel<T = unknown> {
       onSelectAll: () => this.options.onSelectAll?.() ?? false,
       onToggleGroup: (i) => this.options.onToggleGroup?.(i),
       isGroupRow: (i) => this.options.isGroupRow?.(i) ?? false,
+      isSkipRow: (i) => this.options.isSkipRow?.(i) ?? false,
       getPageRowCount: () => this.options.getPageRowCount?.() ?? 10,
       onHeaderActivate: (columnId, multi) => this.options.onHeaderActivate?.(columnId, multi),
       onOpenColumnMenu: (columnId) => this.options.onOpenColumnMenu?.(columnId),

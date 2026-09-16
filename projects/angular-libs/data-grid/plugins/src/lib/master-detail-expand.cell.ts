@@ -4,13 +4,14 @@ import {
   computed,
   input,
 } from '@angular/core';
-import type { CellRendererParams } from '@angular-libs/data-grid';
+import { defaultGridLocale, type CellRendererParams, type DataGridLocale } from '@angular-libs/data-grid';
 import type { MasterDetailAdapter } from './master-detail.adapter';
 
 type ExpandParams<T> = CellRendererParams<T> & {
   masterDetail?: MasterDetailAdapter;
   isRowMaster?: (row: T) => boolean;
   openByDefault?: (row: T) => boolean;
+  getLocale?: () => DataGridLocale;
 };
 
 /**
@@ -27,7 +28,7 @@ type ExpandParams<T> = CellRendererParams<T> & {
         class="al-data-grid__group-toggle"
         data-testid="al-dg-master-detail-toggle"
         [attr.aria-expanded]="expanded()"
-        [attr.aria-label]="expanded() ? 'Collapse detail' : 'Expand detail'"
+        [attr.aria-label]="toggleLabel()"
         (click)="onToggle($event)"
       >
         {{ expanded() ? '▼' : '▶' }}
@@ -63,6 +64,11 @@ export class MasterDetailExpandCell<T = unknown> {
       return false;
     }
     return adapter.isExpanded(this.params().rowId, this.openByDefault());
+  });
+
+  readonly toggleLabel = computed(() => {
+    const locale = this.bag().getLocale?.() ?? defaultGridLocale;
+    return this.expanded() ? locale.collapseDetailAriaLabel : locale.expandDetailAriaLabel;
   });
 
   onToggle(event: MouseEvent): void {

@@ -80,6 +80,15 @@ const detailColumns: ColumnDef<CallRecord>[] = [
           </p>
         </div>
         <div class="demo__controls">
+          <label class="btn demo__check">
+            <input
+              type="checkbox"
+              data-testid="md-paginate"
+              [checked]="grid.viewport.pagination()"
+              (change)="togglePaginate()"
+            />
+            Paginate (2 / page)
+          </label>
           <button type="button" class="btn" (click)="expandAll()" data-testid="md-expand-all">
             Expand all
           </button>
@@ -144,6 +153,11 @@ const detailColumns: ColumnDef<CallRecord>[] = [
       font: inherit;
       cursor: pointer;
     }
+    .demo__check {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
     .demo__grid {
       flex: 1 1 0;
       min-height: 0;
@@ -186,8 +200,14 @@ export class DataGridMasterDetailDemoComponent {
     rowId: (row) => row.id,
     plugins: [...defaultGridPlugins<Account>({ sideBar: false }), this.masterDetail],
     selection: 'single',
-    viewport: { rowHeight: 40, virtual: true },
+    viewport: { rowHeight: 40, virtual: false, pagination: true, pageSize: 2 },
   });
+
+  togglePaginate(): void {
+    const next = !this.grid.viewport.pagination();
+    this.grid.viewport.pagination.set(next);
+    this.grid.viewport.virtual.set(!next);
+  }
 
   expandAll(): void {
     const ids = this.rows()
