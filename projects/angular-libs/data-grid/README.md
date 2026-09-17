@@ -189,8 +189,9 @@ columns = [md.expandColumn(), { field: 'name' }];
 - Master/detail: nested detail grid via `detailGrid` / `detailColumns`; `expandColumn()`
 - Pagination counts **master / group slots**, not open detail panels
 - `keepDetailGrids` evicts nested controllers when a master leaves source `[data]` (filter-out still keeps state)
-- Find / cell-range / clipboard operate on master data rows; open detail panels do not consume a range step or a find match. Nested detail cells are not searched
-- **Server-side + master-detail:** `getDetailRows` is synchronous. With `serverSide: true`, the host must embed detail arrays on each payload. Lazy load-on-expand is not supported
+- Nested detail is a **cell widget**: Enter on an open expand column focuses the nested grid; idle Escape returns to the master. Parent arrows skip the detail shell (`aria-details` on the master row).
+- Find / cell-range / clipboard operate on master data rows; open detail panels do not consume a range step or a find match. Nested detail cells are **Never** searched in 1.0 (`api.getDisplayedRowCount()` counts data rows only; `getDisplayRowCount()` is the full display list).
+- **Server-side + master-detail:** `getDetailRows` is synchronous (**Never** lazy/async for 1.0). With `serverSide: true`, the host must embed detail arrays on each payload.
 
 ## Row drag
 
