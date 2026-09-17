@@ -373,7 +373,7 @@ services → `context`.
 Subscribe to grid events like AG tool panels:
 
 ```ts
-inject(DATA_GRID_SIDEBAR_HOST).api.events.on('selectionChange', (ids) => { … });
+inject(DATA_GRID_SIDEBAR_HOST).api.events.on('selectionChange', ({ selectedIds, selected }) => { … });
 inject(DATA_GRID_SIDEBAR_HOST).api.events.onAny((name, payload) => { … });
 ```
 

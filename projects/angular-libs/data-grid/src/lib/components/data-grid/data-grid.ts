@@ -115,6 +115,7 @@ import type {
   RowEditEvent,
   RowEditSchema,
   RowReorderEvent,
+  SelectionChangeEvent,
   SelectionMode,
   SortState,
 } from './data-grid.types';
@@ -217,7 +218,7 @@ export class DataGrid<T = unknown> {
   readonly rowEditCancel = output<{ rowId: string | number }>();
   readonly cellClick = output<CellClickEvent<T>>();
   readonly rowClick = output<RowClickEvent<T>>();
-  readonly selectionChange = output<Array<string | number>>();
+  readonly selectionChange = output<SelectionChangeEvent<T>>();
   readonly queryChange = output<DataGridQuery>();
   readonly stateChange = output<DataGridState>();
   readonly columnOrderChange = output<string[]>();
@@ -763,6 +764,20 @@ export class DataGrid<T = unknown> {
     if (this.effectiveEditInteraction().pointerStart === 'click') {
       this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
     }
+  }
+
+  /**
+   * Native focus on a tabindex cell scrolls the nearest scroller so the cell
+   * clears sticky headers/pins — that jumps the viewport on click.
+   */
+  onCellMouseDown(event: MouseEvent): void {
+    if (event.button !== 0) {
+      return;
+    }
+    if (this.editSyncHost.isEditorEventTarget(event.target)) {
+      return;
+    }
+    event.preventDefault();
   }
 
   onCellDblClick(

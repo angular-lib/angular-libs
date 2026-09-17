@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, input, signal } from '@angular/core
 import { By } from '@angular/platform-browser';
 import { DataGrid } from './data-grid';
 import { DataGridCellDirective } from '../../data-grid-cell.directive';
-import type { ColumnDef, ColumnOrGroupDef } from './data-grid.types';
+import type { ColumnDef, ColumnOrGroupDef, SelectionChangeEvent } from './data-grid.types';
 import type { DataGridPlugin } from '../../plugins/types';
 import { filterRows, quickFilterRows, toDateKey } from '../../utils/filter-rows';
 import { sortRows, nextSortDirection } from '../../utils/sort-rows';
@@ -53,7 +53,7 @@ import {
 } from '../../utils/row-interactions';
 import { moveColumn, materializeColumnLayout, partitionColumnsByPin, setColumnPin, emptyColumnLayout, reconcileColumnLayout } from '../../utils/column-layout';
 import { formatAggregateValue } from '../../utils/editors';
-import { computeVirtualWindow } from '../../controllers/virtual-window';
+import { computeVirtualWindow, isRowInScrollport } from '../../controllers/virtual-window';
 import { vi } from 'vitest';
 
 interface Person {
@@ -880,6 +880,21 @@ describe('row pipeline + display model', () => {
     expect(window.start).toBe(8);
     expect(window.end).toBeLessThanOrEqual(100);
     expect(window.offsetY).toBe(8 * 36);
+  });
+
+  it('treats a row below the sticky header as already in the scrollport', () => {
+    const rect = (top: number, bottom: number, left = 0, right = 800): DOMRect =>
+      ({ top, bottom, left, right, width: right - left, height: bottom - top, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    const scroll = document.createElement('div');
+    const header = document.createElement('div');
+    const row = document.createElement('div');
+    vi.spyOn(scroll, 'getBoundingClientRect').mockReturnValue(rect(0, 400));
+    vi.spyOn(header, 'getBoundingClientRect').mockReturnValue(rect(0, 120));
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(130, 166));
+    expect(isRowInScrollport(row, scroll, header)).toBe(true);
+
+    vi.spyOn(row, 'getBoundingClientRect').mockReturnValue(rect(40, 76));
+    expect(isRowInScrollport(row, scroll, header)).toBe(false);
   });
 
   it('builds tree display rows from getDataPath', () => {
@@ -1935,6 +1950,51 @@ describe('createGrid + controller binding', () => {
 
     api!.setSelectedRows([]);
     expect(api!.getSelectedRows()).toEqual([]);
+  });
+
+  it('selectionChange emits selectedIds plus row snapshots', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `
+        <al-data-grid
+          [controller]="grid"
+          [data]="rows()"
+          [(selectedIds)]="selectedIds"
+          (selectionChange)="onSelection($event)"
+        />
+      `,
+    })
+    class SelectionChangeHost {
+      readonly rows = signal(people);
+      readonly selectedIds = signal<Array<string | number>>([]);
+      readonly events: SelectionChangeEvent<Person>[] = [];
+      readonly grid = createGrid({
+        columns,
+        rowId: (r: Person) => r.id,
+        selection: 'multi',
+        viewport: { virtual: false, pagination: false },
+      });
+      onSelection(event: SelectionChangeEvent<Person>): void {
+        this.events.push(event);
+      }
+    }
+
+    await TestBed.configureTestingModule({ imports: [SelectionChangeHost] }).compileComponents();
+    const fixture = TestBed.createComponent(SelectionChangeHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    fixture.componentInstance.grid.api()?.setSelectedIds([3, 1]);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.events.at(-1)).toEqual({
+      selectedIds: [3, 1],
+      selected: [
+        { rowId: 3, row: people[2], rowIndex: 2 },
+        { rowId: 1, row: people[0], rowIndex: 0 },
+      ],
+    });
   });
 
   it('cellRangePlugin Shift+arrow extends range and prefers range for copy', async () => {

@@ -272,6 +272,7 @@
                               [attr.tabindex]="groupFocused ? 0 : -1"
                               [class.al-data-grid__td--focused]="groupFocused"
                               [style.gridColumn]="'1 / -1'"
+                              (mousedown)="onCellMouseDown($event)"
                             >
                               <ng-container
                                 [ngComponentOutlet]="view.component"
@@ -296,6 +297,7 @@
                           [class.al-data-grid__td--focused]="groupFocused"
                           [style.gridColumn]="'1 / -1'"
                           [style.paddingLeft.px]="10 + item.level * 16"
+                          (mousedown)="onCellMouseDown($event)"
                         >
                           <button
                             type="button"
@@ -399,6 +401,7 @@
                           [style.--al-dg-edit-pad-left.px]="
                             col === columnLayoutHost.visibleColumns()[0] ? 10 + item.level * 16 : 10
                           "
+                          (mousedown)="onCellMouseDown($event)"
                           (click)="onCellClick(row, id, rowIndex, col, value, $event, displayIndex)"
                           (dblclick)="onCellDblClick(row, id, rowIndex, col, value, $event)"
                           (contextmenu)="onCellContextMenu(row, id, rowIndex, col, value, $event, displayIndex)"

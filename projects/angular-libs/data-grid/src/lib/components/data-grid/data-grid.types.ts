@@ -245,6 +245,31 @@ export interface RowClickEvent<T = unknown> {
   event: MouseEvent;
 }
 
+/** One selected source row in a {@link SelectionChangeEvent}. */
+export interface SelectedRow<T = unknown> {
+  rowId: string | number;
+  row: T;
+  /**
+   * Index in the filtered+sorted data list — same as {@link RowClickEvent.rowIndex}.
+   * `null` when the row is not in that list (e.g. filtered out).
+   */
+  rowIndex: number | null;
+}
+
+/**
+ * Snapshot of the current row selection.
+ * `[(selectedIds)]` stays the two-way model; this event is the richer handler payload.
+ */
+export interface SelectionChangeEvent<T = unknown> {
+  /** Same IDs as `[(selectedIds)]`, in selection order. */
+  selectedIds: Array<string | number>;
+  /**
+   * Matching source rows in `selectedIds` order.
+   * IDs with no row in `[data]` are omitted.
+   */
+  selected: SelectedRow<T>[];
+}
+
 /** Emitted when `rowDragPlugin` reorders displayed rows. */
 export interface RowReorderEvent<T = unknown> {
   fromIndex: number;

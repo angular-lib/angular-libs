@@ -10,6 +10,7 @@ import type {
   RowEditContext,
   RowEditEvent,
   RowReorderEvent,
+  SelectionChangeEvent,
   SortState,
 } from '../components/data-grid/data-grid.types';
 import type { FindMatch } from '../utils/find';
@@ -31,7 +32,7 @@ export interface DataGridEventMap<T = unknown> {
   rowEditCancel: { rowId: string | number };
   cellClick: CellClickEvent<T>;
   rowClick: RowClickEvent<T>;
-  selectionChange: Array<string | number>;
+  selectionChange: SelectionChangeEvent<T>;
   queryChange: DataGridQuery;
   stateChange: DataGridState;
   columnOrderChange: string[];

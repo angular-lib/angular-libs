@@ -139,3 +139,23 @@ export function rowHeightAt(
   }
   return rowHeight;
 }
+
+/**
+ * True when `el` intersects the scrollport *below* a sticky header.
+ * Clicking an already-visible cell must not change scrollTop.
+ */
+export function isRowInScrollport(
+  el: HTMLElement,
+  scroll: HTMLElement,
+  stickyHeader?: HTMLElement | null,
+): boolean {
+  const er = el.getBoundingClientRect();
+  const sr = scroll.getBoundingClientRect();
+  const topBound = stickyHeader?.getBoundingClientRect().bottom ?? sr.top;
+  return (
+    er.bottom > topBound + 1 &&
+    er.top < sr.bottom &&
+    er.right > sr.left &&
+    er.left < sr.right
+  );
+}

@@ -38,6 +38,9 @@ export function clipboardPlugin<T = unknown>(
             id: 'clipboard-paste',
             setup: (element) => {
               const onPaste = (event: Event): void => {
+                if (isEditableClipboardTarget(event.target)) {
+                  return;
+                }
                 const clipboardEvent = event as ClipboardEvent;
                 const text = clipboardEvent.clipboardData?.getData('text/plain');
                 if (!text?.trim()) {
@@ -61,6 +64,9 @@ export function clipboardPlugin<T = unknown>(
             id: 'clipboard-copy',
             setup: (element) => {
               const onCopy = (event: Event): void => {
+                if (shouldDeferToNativeClipboard(event)) {
+                  return;
+                }
                 const clipboardEvent = event as ClipboardEvent;
                 const text = context.api.getSelectionClipboardText();
                 if (text == null) {
@@ -83,6 +89,34 @@ export function clipboardPlugin<T = unknown>(
       };
     },
   };
+}
+
+function isEditableClipboardTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  const tag = target.tagName;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    target.isContentEditable
+  );
+}
+
+/** Let the browser copy selected text (sidebar, editors) instead of the focused cell. */
+export function shouldDeferToNativeClipboard(event: Event): boolean {
+  if (isEditableClipboardTarget(event.target)) {
+    return true;
+  }
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    return false;
+  }
+  return selection.toString().length > 0;
 }
 
 function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
