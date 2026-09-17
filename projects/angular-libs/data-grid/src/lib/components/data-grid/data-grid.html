@@ -321,6 +321,7 @@
                       class="al-data-grid__row"
                       role="row"
                       [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
+                      [attr.aria-details]="masterAriaDetails(id)"
                       [attr.data-testid]="'al-dg-row-' + id"
                       [class]="rowClasses(row, rowIndex)"
                       [class.al-data-grid__row--selected]="selectionHost.isSelected(id)"
@@ -593,23 +594,25 @@
                       @case ('plugin') {
                         @let pluginFocused = viewportHost.isBodyRowFocused(displayIndex);
                         @let pluginHeight = item.height ?? rowHeight();
+                        @let detailWidget = isNestedDetailRow(item);
                         @if (session.kernel.capabilities.getDisplayView(item.pluginKind); as view) {
                           <div
                             class="al-data-grid__row"
-                            [class.al-data-grid__row--detail]="item.pluginKind === 'masterDetail'"
+                            [class.al-data-grid__row--detail]="detailWidget"
                             role="row"
+                            [attr.id]="detailRegionId(item)"
                             [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
-                            [class.al-data-grid__row--focused]="pluginFocused"
+                            [class.al-data-grid__row--focused]="pluginFocused && !detailWidget"
                             [style.height.px]="pluginHeight"
-                            (click)="viewportHost.focusBodyRow(displayIndex)"
+                            (click)="detailWidget ? null : viewportHost.focusBodyRow(displayIndex)"
                           >
                             <div
                               class="al-data-grid__td"
-                              [class.al-data-grid__td--detail]="item.pluginKind === 'masterDetail'"
+                              [class.al-data-grid__td--detail]="detailWidget"
                               role="gridcell"
-                              [attr.tabindex]="pluginFocused ? 0 : -1"
-                              [class.al-data-grid__td--focused]="pluginFocused"
+                              [attr.tabindex]="detailWidget ? null : pluginFocused ? 0 : -1"
+                              [class.al-data-grid__td--focused]="pluginFocused && !detailWidget"
                               [style.gridColumn]="'1 / -1'"
                             >
                               <ng-container

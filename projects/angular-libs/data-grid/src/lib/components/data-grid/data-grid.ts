@@ -22,7 +22,7 @@ import { FormField, type FieldTree } from '@angular/forms/signals';
 import { DataGridApi } from '../../api/grid-api';
 import type { DataGridEventMap } from '../../api/grid-events';
 import type { GridController } from '../../create-grid';
-import { focusRealmOf, type FocusCell } from '../../controllers/focus';
+import { type FocusCell } from '../../controllers/focus';
 import {
   DataGridCellDirective,
   DataGridContextMenuDirective,
@@ -78,13 +78,18 @@ import type {
   SelectionHost,
   ViewportHost,
 } from '../../hosts';
+import { handleGridEscape } from '../../a11y/grid-escape';
+import { DATA_GRID_NESTED_REALM } from '../../a11y/nested-realm';
 import {
   ariaBodyRowIndexOf,
   ariaColIndexOf,
   ariaHeaderRowIndexOf,
   ariaRowCountOf,
   cellAriaSelectedOf,
+  detailRegionIdOf,
   headerRowCountOf,
+  isMasterDetailPluginRow,
+  masterDetailAriaDetailsOf,
   mergeCellClass,
   resolveBaseCellClass,
 } from '../../hosts/binder-template.helpers';
@@ -130,6 +135,7 @@ import type {
   host: {
     class: 'al-data-grid',
     '[attr.aria-busy]': 'loading() ? "true" : null',
+    '[attr.data-al-dg-nested]': 'nestedRealm ? "" : null',
     '(keydown)': 'onGridKeydown($event)',
     '(focusin)': 'onGridFocusIn($event)',
     '(document:pointerdown)': 'onDocumentPointerDown($event)',
@@ -139,6 +145,9 @@ import type {
   styleUrl: './data-grid.css',
 })
 export class DataGrid<T = unknown> {
+  /** Present when this instance is a nested master-detail widget. */
+  readonly nestedRealm = inject(DATA_GRID_NESTED_REALM, { optional: true });
+
   readonly data = input.required<readonly T[]>();
   /**
    * Required bootstrap from `createGrid()` — columns, plugins, selection, edit policy, optional rows.
@@ -705,6 +714,12 @@ export class DataGrid<T = unknown> {
     return ariaBodyRowIndexOf(this.headerRows(), displayIndex);
   }
 
+  masterAriaDetails(rowId: string | number): string | null {
+    return masterDetailAriaDetailsOf(this.session.displayRows(), rowId);
+  }
+  detailRegionId = detailRegionIdOf;
+  isNestedDetailRow = isMasterDetailPluginRow;
+
   cellAriaSelected(
     rowId: string | number,
     displayIndex: number,
@@ -811,56 +826,33 @@ export class DataGrid<T = unknown> {
   }
 
   onEscapeKey(event?: Event): void {
-    if (event?.defaultPrevented) {
-      return;
-    }
-    const focus = this.session.kernel.focus.getFocus();
-    const hadEdit =
-      this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null;
-    if (hadEdit) {
-      this.editSyncHost.cancelActiveEdit();
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (this.menuHost.columnMenuColumnId() || this.menuHost.contextMenuState()?.source === 'header') {
-      this.menuHost.closeColumnMenu();
-      this.menuHost.closeContextMenu();
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (focus && focusRealmOf(focus) === 'floatingFilter') {
-      const filterEl = this.host.nativeElement.querySelector(
-        `[data-testid="al-dg-filter-${focus.columnId}"]`,
-      ) as HTMLElement | null;
-      const active = typeof document !== 'undefined' ? document.activeElement : null;
-      if (
-        filterEl &&
-        active instanceof HTMLElement &&
-        filterEl.contains(active) &&
-        active !== filterEl
-      ) {
-        filterEl.focus({ preventScroll: true });
-        (event as KeyboardEvent | undefined)?.preventDefault?.();
-        return;
-      }
-      this.session.kernel.focus.focusCell(
-        this.columnLayoutHost.hasColumnGroups() ? 1 : 0,
-        focus.columnId,
-        'header',
-      );
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (this.api.getCellRange()) {
-      this.api.clearCellRange();
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    const hadMenu = this.menuHost.contextMenuState() != null;
-    this.menuHost.closeContextMenu();
-    if (hadMenu) {
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-    }
+    handleGridEscape({
+      event,
+      host: this.host.nativeElement,
+      nestedRealm: this.nestedRealm,
+      focus: this.session.kernel.focus.getFocus(),
+      hadEdit:
+        this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null,
+      cancelEdit: () => this.editSyncHost.cancelActiveEdit(),
+      headerMenuOpen:
+        !!this.menuHost.columnMenuColumnId() ||
+        this.menuHost.contextMenuState()?.source === 'header',
+      closeMenus: () => {
+        this.menuHost.closeColumnMenu();
+        this.menuHost.closeContextMenu();
+      },
+      hadCellRange: !!this.api.getCellRange(),
+      clearCellRange: () => this.api.clearCellRange(),
+      contextMenuOpen: this.menuHost.contextMenuState() != null,
+      closeContextMenu: () => this.menuHost.closeContextMenu(),
+      focusHeader: (columnId) =>
+        this.session.kernel.focus.focusCell(
+          this.columnLayoutHost.hasColumnGroups() ? 1 : 0,
+          columnId,
+          'header',
+        ),
+      clearOwnFocus: () => this.session.kernel.focus.setFocus(null),
+    });
   }
 
   syncDomFocus(cell: FocusCell | null, opts?: { force?: boolean }): void {

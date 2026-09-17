@@ -116,7 +116,7 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | Row events | **Better-path** | `(rowClick)`, `(selectionChange)`, `(rowReorder)` | No per-row listener API |
 | Row pinning (top/bottom data) | **Partial** | Aggregate footer via plugin | Full pinned-row model **Later** if needed |
 | Full-width rows | **Partial** | Via `kind: 'plugin'` + optional `height` | Master-detail uses this |
-| Master/detail | **Done** | `masterDetailPlugin` + expand column | Plugin + display kind; not with row group/tree |
+| Master/detail | **Done** | `masterDetailPlugin` + expand column | Nested grid is a cell-widget realm (Enter/Escape). `getDetailRows` sync/embedded only (**Never** async 1.0) |
 | Mutable RowNode | **Never** | — | Host owns data |
 
 ### 4.3 Sorting, filtering, selection
@@ -150,7 +150,7 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | --- | --- | --- | --- |
 | Copy / paste | **Done** | `clipboardPlugin` → `(paste)` + `suggestedRows` | TSV matrix |
 | Process cell hooks | **Partial** | Host transforms on `(paste)` | Prefer host/plugin options over AG callback soup |
-| Find | **Done** | `findPlugin`, `api.findNext/Prev` | |
+| Find | **Done** | `findPlugin`, `api.findNext/Prev` | Master processed rows only. Nested detail cells are **Never** (1.0) — separate realm |
 | CSV | **Done** | `api.exportCsv` / `csvExportPlugin` | |
 | Excel | **Never** | — | |
 
@@ -196,6 +196,7 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | Body ↔ header continuum | **Done** | ArrowUp/Down + PageUp/Down bridges | Floating filter Enter focuses control; Escape returns |
 | Tab enter/leave grid | **Done** | Roving tabindex + `restoreOrFocusDefault`; Tab not captured | Page citizen — `handleKeydown('Tab')` → false |
 | Custom nav / suppress hooks | **Later** | — | Sparse; not AG’s five callbacks |
+| Nested detail keyboard/SR | **Done** | Cell widget + `DATA_GRID_NESTED_REALM` | Separate nested `role="grid"`; `aria-details` on master |
 | Full a11y matrix | **Partial** | Cell `aria-selected` (row **or** range) shipped | Broader SR / announcements still backlog |
 | Theming | **Done** | `--al-dg-*` CSS variables | No AG theme packs |
 | Tooltips | **Done** | `AlTooltipDirective` (no CDK) | |
@@ -708,8 +709,9 @@ instance; `context` stays host-only. See [PLUGINS.md](./PLUGINS.md).
 ### `DataGridApi` (intentional small set)
 
 CSV / autosize · filter/sort/quick models · state get/set · selection · find ·
-focus · row edit start/stop · row group / tree bind + expand · clipboard text ·
-locale · `recomposePlugins`
+focus (`focusCell` / `focusRow`) · `getDisplayedRowCount` (data rows) /
+`getDisplayRowCount` (data+group+plugin) · row edit start/stop · row group /
+tree bind + expand · clipboard text · locale · `recomposePlugins`
 
 Feature-heavy ops prefer **held adapters** (`rowGroupPlugin().setColumns`).
 
@@ -869,7 +871,7 @@ Defer coding range / full menu / edit bag until Waves 0–2 are in place.
 
 **Never (unless revisited):** pivot, Excel export, charts, formulas, AI toolkit,
 column virtualization, canvas, ModuleRegistry, viewport row model, AG theme packs,
-multi-disjoint ranges.
+multi-disjoint ranges, **find in nested detail cells**, **async/lazy `getDetailRows`**.
 
 ---
 

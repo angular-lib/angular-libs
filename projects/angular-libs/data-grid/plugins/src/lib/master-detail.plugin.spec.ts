@@ -9,6 +9,7 @@ import {
   masterDetailPlugin,
   MASTER_DETAIL_PLUGIN_KIND,
   EMPTY_DETAIL_ROW_HEIGHT,
+  readSyncDetailRows,
 } from './master-detail.plugin';
 import {
   MasterDetailDefaultView,
@@ -81,6 +82,17 @@ describe('masterDetailPlugin', () => {
       expect(detail.height).toBe(160);
       expect(detail.id).toBe('md:1');
     }
+  });
+
+  it('rejects a Promise from getDetailRows without awaiting it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const rows = readSyncDetailRows(
+      () => Promise.resolve([{ sku: 'X', qty: 1 }]) as unknown as readonly Order[],
+      customers[0]!,
+    );
+    expect(rows).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('respects isRowMaster', () => {

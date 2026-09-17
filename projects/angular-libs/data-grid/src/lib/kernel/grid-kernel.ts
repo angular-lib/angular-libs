@@ -31,6 +31,8 @@ export interface GridKernelOptions<T> {
   onToggleSelect?: (rowIndex: number) => void;
   onSelectAll?: () => boolean | void;
   onToggleGroup?: (rowIndex: number) => void;
+  /** Enter on an already-open master-detail expand cell — enter the nested widget. */
+  onEnterWidget?: (rowIndex: number) => boolean;
   isGroupRow?: (rowIndex: number) => boolean;
   isSkipRow?: (rowIndex: number) => boolean;
   getPageRowCount?: () => number;
@@ -98,6 +100,7 @@ export class GridKernel<T = unknown> {
       onToggleSelect: (i) => this.options.onToggleSelect?.(i),
       onSelectAll: () => this.options.onSelectAll?.() ?? false,
       onToggleGroup: (i) => this.options.onToggleGroup?.(i),
+      onEnterWidget: (i) => this.options.onEnterWidget?.(i) ?? false,
       isGroupRow: (i) => this.options.isGroupRow?.(i) ?? false,
       isSkipRow: (i) => this.options.isSkipRow?.(i) ?? false,
       getPageRowCount: () => this.options.getPageRowCount?.() ?? 10,

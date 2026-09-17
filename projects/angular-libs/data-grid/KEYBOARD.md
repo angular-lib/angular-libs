@@ -18,6 +18,8 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Key | Action |
 | --- | --- |
 | ← ↑ → ↓ | Move focused cell (skip master-detail plugin/detail shells) |
+| Enter on expand (open) | Enter nested detail grid (cell widget) — does **not** collapse |
+| Escape (idle, in detail) | Exit nested grid → master expand cell |
 | Home / End | First / last **column** on the current row |
 | Ctrl/Cmd+Home / End | First / last **row** (same column) |
 | PageUp / PageDown | Jump by viewport-sized page |
@@ -84,3 +86,20 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 - [x] Floating filter Enter focuses control — `keyboard.spec.ts` (`onFloatingFilterEnter`)
 - [x] Shift+F2 does not start edit — `keyboard.spec.ts` (notes chord)
 - [x] Shift+arrows extend range when `onExtendRange` returns true — `keyboard.spec.ts`
+- [x] Nested master-detail is a separate keyboard/SR realm (Enter / Escape) — `data-grid.spec.ts`
+
+## Nested detail (cell widget)
+
+Angular Aria **Grid** mental model, implemented in this grid (no `@angular/aria`):
+
+| Surface | Contract |
+| --- | --- |
+| Parent arrows / range / Home–End | Skip the detail **shell** (`kind: 'plugin'`) |
+| Enter on expand column | Collapsed → expand. Already open → **enter** nested grid |
+| Space on expand column | Toggle expand/collapse |
+| Idle Escape in nested grid | Return focus to the master expand cell |
+| Tab | Page citizen — nested frame is its own tab stop |
+| Find | **Never (1.0):** master processed rows only |
+
+Master row `aria-details` points at the detail region (`id="al-dg-detail-{rowId}"`).
+The nested `<al-data-grid>` is its own `role="grid"` with `detailGridAriaLabel`.

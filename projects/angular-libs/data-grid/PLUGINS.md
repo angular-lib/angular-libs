@@ -198,12 +198,18 @@ Mutually exclusive with `rowGroupPlugin` / `treeDataPlugin` (one display builder
 Status-bar "N rows" and pagination page size count processed master rows, not
 open detail panels.
 
-**Server-side:** `getDetailRows` is synchronous. Combine with
-`createGrid({ serverSide: true })` only when each host payload already embeds
-detail rows. There is no lazy fetch-on-expand.
+**Keyboard / SR:** the nested `<al-data-grid>` is a separate focus realm (Angular
+Aria Grid cell-widget model). Enter on an already-open expand column enters the
+nested grid; idle Escape returns to the master expand cell. Master rows expose
+`aria-details` pointing at `al-dg-detail-{rowId}`.
+
+**Server-side:** `getDetailRows` is synchronous (**Never** lazy/async for 1.0).
+Combine with `createGrid({ serverSide: true })` only when each host payload
+already embeds detail rows. Custom `detailComponent` may fetch inside the panel.
 
 **Find / range / clipboard:** walk master data rows. Open detail shells are
-skipped (they are not data cells). Nested grids are a separate find/range realm.
+skipped (they are not data cells). Nested grids are a separate find/range realm
+— find-in-detail is **Never** for 1.0.
 
 ```ts
 detailGrid: {

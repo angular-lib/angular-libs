@@ -57,6 +57,8 @@ export {
   DATA_GRID_SIDEBAR_HOST,
 } from './lib/components/chrome/sidebar-host';
 export type { DataGridSidebarHost } from './lib/components/chrome/sidebar-host';
+export { DATA_GRID_NESTED_REALM } from './lib/a11y/nested-realm';
+export type { DataGridNestedRealm } from './lib/a11y/nested-realm';
 export { RowEditSession } from './lib/editing/row-edit-session';
 export type { RowEditSessionHooks } from './lib/editing/row-edit-session';
 export {

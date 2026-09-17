@@ -416,6 +416,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       editing: editSync,
       viewport: {
         focusCell: (rowIndex, columnId) => viewport.focusCell(rowIndex, columnId),
+        focusRow: (rowId, columnId) => viewport.focusRow(rowId, columnId),
         getFocusedCell: () => viewport.getFocusedCell(),
         getPagedDisplayRows: () => viewport.getPagedDisplayRows(),
         resolveRowId: (row, index) => viewport.resolveRowId(row, index),
@@ -449,18 +450,31 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     return !!bag && typeof bag === 'object' && 'masterDetail' in bag;
   };
 
+  type MasterDetailBag = {
+    masterDetail?: {
+      toggle: (id: string | number, openByDefault?: boolean) => void;
+      isExpanded?: (id: string | number, openByDefault?: boolean) => boolean;
+      enterDetail?: (id: string | number) => boolean;
+    };
+    openByDefault?: (row: T) => boolean;
+    isRowMaster?: (row: T) => boolean;
+  };
+
+  const masterDetailBag = (columnId: string | undefined): MasterDetailBag | undefined => {
+    if (!columnId) {
+      return undefined;
+    }
+    return columnLayout.columnsById().get(columnId)?.cellRendererParams as
+      | MasterDetailBag
+      | undefined;
+  };
+
   const toggleMasterDetailAt = (item: DisplayRow<T> | undefined): void => {
     const cell = viewport.focusedCell();
     if (!item || item.kind !== 'data' || !cell) {
       return;
     }
-    const bag = columnLayout.columnsById().get(cell.columnId)?.cellRendererParams as
-      | {
-          masterDetail?: { toggle: (id: string | number, openByDefault?: boolean) => void };
-          openByDefault?: (row: T) => boolean;
-          isRowMaster?: (row: T) => boolean;
-        }
-      | undefined;
+    const bag = masterDetailBag(cell.columnId);
     const md = bag?.masterDetail;
     if (!md) {
       return;
@@ -469,6 +483,27 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       return;
     }
     md.toggle(item.rowId, bag.openByDefault?.(item.row) ?? false);
+  };
+
+  const enterMasterDetailWidget = (rowIndex: number): boolean => {
+    const item = viewport.pagedDisplayRows()[rowIndex];
+    const cell = viewport.focusedCell();
+    if (!item || item.kind !== 'data' || !cell) {
+      return false;
+    }
+    const bag = masterDetailBag(cell.columnId);
+    const md = bag?.masterDetail;
+    if (!bag || !md?.enterDetail || !md.isExpanded) {
+      return false;
+    }
+    if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
+      return false;
+    }
+    const openByDefault = bag.openByDefault?.(item.row) ?? false;
+    if (!md.isExpanded(item.rowId, openByDefault)) {
+      return false;
+    }
+    return md.enterDetail(item.rowId);
   };
 
   kernel = new GridKernel<T>(
@@ -500,6 +535,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
         }
         toggleMasterDetailAt(item);
       },
+      onEnterWidget: (rowIndex) => enterMasterDetailWidget(rowIndex),
       isGroupRow: (rowIndex) => {
         const item = viewport.pagedDisplayRows()[rowIndex];
         if (item?.kind === 'group') {

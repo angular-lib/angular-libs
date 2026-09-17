@@ -11,13 +11,16 @@ import {
   untracked,
 } from '@angular/core';
 import {
+  DATA_GRID_NESTED_REALM,
   DataGrid,
   createGrid,
   defaultGridLocale,
   type DataGridApi,
   type DataGridLocale,
+  type DataGridNestedRealm,
   type GridController,
 } from '@angular-libs/data-grid';
+import { flattenColumnDefs } from '@angular-libs/data-grid/internals';
 import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
 import type {
   MasterDetailGridOptions,
@@ -93,6 +96,9 @@ export function createDetailGridController<D>(
   selector: 'al-dg-master-detail-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DataGrid],
+  providers: [
+    { provide: DATA_GRID_NESTED_REALM, useExisting: MasterDetailDefaultView },
+  ],
   host: {
     class: 'al-dg-master-detail-view',
   },
@@ -162,7 +168,7 @@ export function createDetailGridController<D>(
     </div>
   `,
 })
-export class MasterDetailDefaultView<T = unknown, D = unknown> {
+export class MasterDetailDefaultView<T = unknown, D = unknown> implements DataGridNestedRealm {
   /** Display row from the binder (`pluginKind: 'masterDetail'`). */
   readonly item = input.required<CustomDisplayRow>();
   /** Bound master grid API (available to custom views). */
@@ -200,6 +206,10 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
 
   /** One controller per expanded detail instance (own sort/filter/selection). */
   readonly detailController = signal<GridController<D> | null>(null);
+
+  get masterRowId(): string | number {
+    return this.payload()?.masterRowId ?? '';
+  }
 
   private readonly controllerKey = signal<string | null>(null);
   private readonly pendingRestore = signal<PersistedDetailGridState | null>(null);
@@ -259,10 +269,58 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> {
       untracked(() => this.persistOpenDetail());
     });
 
-    this.destroyRef.onDestroy(() => this.persistOpenDetail());
+    this.destroyRef.onDestroy(() => {
+      this.payload()?.registerNestedRealm?.(null);
+      this.persistOpenDetail();
+    });
+
+    effect(() => {
+      const payload = this.payload();
+      untracked(() => payload?.registerNestedRealm?.(this));
+    });
+  }
+
+  enter(): boolean {
+    const api = this.detailController()?.api() ?? null;
+    const columnId = firstDetailColumnId(this.detailGrid());
+    if (!api || !columnId) {
+      return false;
+    }
+    api.focusCell(0, columnId);
+    return true;
+  }
+
+  exitToMaster(): boolean {
+    const masterApi = this.api();
+    const rowId = this.payload()?.masterRowId;
+    if (!masterApi || rowId == null) {
+      return false;
+    }
+    const expandId = masterExpandColumnId(masterApi);
+    return masterApi.focusRow(rowId, expandId);
   }
 
   private persistOpenDetail(): void {
     this.payload()?.persistDetailState?.(this.detailController()?.api() ?? null);
   }
+}
+
+function firstDetailColumnId<D>(
+  cfg: MasterDetailGridOptions<D> | null,
+): string | null {
+  if (!cfg?.columns?.length) {
+    return null;
+  }
+  const leaf = flattenColumnDefs(cfg.columns)[0];
+  return leaf ? (leaf.id ?? leaf.field ?? null) : null;
+}
+
+function masterExpandColumnId<T>(api: DataGridApi<T>): string {
+  for (const [id, col] of api.getColumnsById()) {
+    const params = col.cellRendererParams;
+    if (params && typeof params === 'object' && 'masterDetail' in params) {
+      return id;
+    }
+  }
+  return '__masterDetailExpand';
 }

@@ -1,5 +1,5 @@
 import { computed, type Signal } from '@angular/core';
-import { isDataDisplayRow } from '../utils/row-display';
+import { countDisplayedDataRows, isDataDisplayRow } from '../utils/row-display';
 import { formatCellValue, getCellValue } from '../utils/cell-value';
 import { rowsToCsv } from '../utils/csv';
 import { selectRowAriaLabelOf } from './binder-template.helpers';
@@ -150,6 +150,10 @@ export class SelectionHost<T> {
   }
 
   getDisplayedRowCount(): number {
+    return countDisplayedDataRows(this.s.displayRows());
+  }
+
+  getDisplayRowCount(): number {
     return this.s.displayRows().length;
   }
 
