@@ -305,8 +305,8 @@ export class MasterDetailDefaultView<T = unknown, D = unknown> implements DataGr
   }
 }
 
-function firstDetailColumnId(
-  cfg: MasterDetailGridOptions<unknown> | null,
+function firstDetailColumnId<D>(
+  cfg: MasterDetailGridOptions<D> | null,
 ): string | null {
   if (!cfg?.columns?.length) {
     return null;
@@ -315,7 +315,7 @@ function firstDetailColumnId(
   return leaf ? (leaf.id ?? leaf.field ?? null) : null;
 }
 
-function masterExpandColumnId(api: DataGridApi<unknown>): string {
+function masterExpandColumnId<T>(api: DataGridApi<T>): string {
   for (const [id, col] of api.getColumnsById()) {
     const params = col.cellRendererParams;
     if (params && typeof params === 'object' && 'masterDetail' in params) {

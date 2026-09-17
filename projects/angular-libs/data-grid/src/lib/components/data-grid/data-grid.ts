@@ -22,7 +22,7 @@ import { FormField, type FieldTree } from '@angular/forms/signals';
 import { DataGridApi } from '../../api/grid-api';
 import type { DataGridEventMap } from '../../api/grid-events';
 import type { GridController } from '../../create-grid';
-import { focusRealmOf, type FocusCell } from '../../controllers/focus';
+import { type FocusCell } from '../../controllers/focus';
 import {
   DataGridCellDirective,
   DataGridContextMenuDirective,
@@ -78,6 +78,7 @@ import type {
   SelectionHost,
   ViewportHost,
 } from '../../hosts';
+import { handleGridEscape } from '../../a11y/grid-escape';
 import { DATA_GRID_NESTED_REALM } from '../../a11y/nested-realm';
 import {
   ariaBodyRowIndexOf,
@@ -85,11 +86,11 @@ import {
   ariaHeaderRowIndexOf,
   ariaRowCountOf,
   cellAriaSelectedOf,
+  detailRegionIdOf,
   headerRowCountOf,
+  isMasterDetailPluginRow,
   masterDetailAriaDetailsOf,
-  masterDetailRegionId,
   mergeCellClass,
-  pluginMasterRowId,
   resolveBaseCellClass,
 } from '../../hosts/binder-template.helpers';
 import type {
@@ -716,15 +717,8 @@ export class DataGrid<T = unknown> {
   masterAriaDetails(rowId: string | number): string | null {
     return masterDetailAriaDetailsOf(this.session.displayRows(), rowId);
   }
-
-  detailRegionId(item: { id: string; payload?: unknown }): string | null {
-    const masterId = pluginMasterRowId(item);
-    return masterId == null ? null : masterDetailRegionId(masterId);
-  }
-
-  isNestedDetailRow(item: { pluginKind?: string }): boolean {
-    return item.pluginKind === 'masterDetail';
-  }
+  detailRegionId = detailRegionIdOf;
+  isNestedDetailRow = isMasterDetailPluginRow;
 
   cellAriaSelected(
     rowId: string | number,
@@ -832,77 +826,32 @@ export class DataGrid<T = unknown> {
   }
 
   onEscapeKey(event?: Event): void {
-    if (event?.defaultPrevented) {
-      return;
-    }
-    if (this.focusIsInsideNestedGrid()) {
-      return;
-    }
-    const focus = this.session.kernel.focus.getFocus();
-    const hadEdit =
-      this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null;
-    if (hadEdit) {
-      this.editSyncHost.cancelActiveEdit();
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (this.menuHost.columnMenuColumnId() || this.menuHost.contextMenuState()?.source === 'header') {
-      this.menuHost.closeColumnMenu();
-      this.menuHost.closeContextMenu();
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (focus && focusRealmOf(focus) === 'floatingFilter') {
-      const filterEl = this.host.nativeElement.querySelector(
-        `[data-testid="al-dg-filter-${focus.columnId}"]`,
-      ) as HTMLElement | null;
-      const active = typeof document !== 'undefined' ? document.activeElement : null;
-      if (
-        filterEl &&
-        active instanceof HTMLElement &&
-        filterEl.contains(active) &&
-        active !== filterEl
-      ) {
-        filterEl.focus({ preventScroll: true });
-        (event as KeyboardEvent | undefined)?.preventDefault?.();
-        return;
-      }
-      this.session.kernel.focus.focusCell(
-        this.columnLayoutHost.hasColumnGroups() ? 1 : 0,
-        focus.columnId,
-        'header',
-      );
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (this.api.getCellRange()) {
-      this.api.clearCellRange();
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    const hadMenu = this.menuHost.contextMenuState() != null;
-    this.menuHost.closeContextMenu();
-    if (hadMenu) {
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-      return;
-    }
-    if (this.nestedRealm?.exitToMaster()) {
-      (event as KeyboardEvent | undefined)?.preventDefault?.();
-    }
-  }
-
-  private focusIsInsideNestedGrid(): boolean {
-    const active = typeof document !== 'undefined' ? document.activeElement : null;
-    if (!(active instanceof Node)) {
-      return false;
-    }
-    const nested = this.host.nativeElement.querySelectorAll(':scope al-data-grid');
-    for (const grid of nested) {
-      if (grid.contains(active)) {
-        return true;
-      }
-    }
-    return false;
+    handleGridEscape({
+      event,
+      host: this.host.nativeElement,
+      nestedRealm: this.nestedRealm,
+      focus: this.session.kernel.focus.getFocus(),
+      hadEdit:
+        this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null,
+      cancelEdit: () => this.editSyncHost.cancelActiveEdit(),
+      headerMenuOpen:
+        !!this.menuHost.columnMenuColumnId() ||
+        this.menuHost.contextMenuState()?.source === 'header',
+      closeMenus: () => {
+        this.menuHost.closeColumnMenu();
+        this.menuHost.closeContextMenu();
+      },
+      hadCellRange: !!this.api.getCellRange(),
+      clearCellRange: () => this.api.clearCellRange(),
+      contextMenuOpen: this.menuHost.contextMenuState() != null,
+      closeContextMenu: () => this.menuHost.closeContextMenu(),
+      focusHeader: (columnId) =>
+        this.session.kernel.focus.focusCell(
+          this.columnLayoutHost.hasColumnGroups() ? 1 : 0,
+          columnId,
+          'header',
+        ),
+    });
   }
 
   syncDomFocus(cell: FocusCell | null, opts?: { force?: boolean }): void {

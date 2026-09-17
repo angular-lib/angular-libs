@@ -256,12 +256,8 @@ export class ViewportHost<T> {
   }
 
   focusRow(rowId: string | number, columnId: string): boolean {
-    const index = this.pagedDisplayRows().findIndex(
-      (row) => row.kind === 'data' && row.rowId === rowId,
-    );
-    if (index < 0) {
-      return false;
-    }
+    const index = this.pagedDisplayRows().findIndex((row) => row.kind === 'data' && row.rowId === rowId);
+    if (index < 0) return false;
     this.s.kernel().focus.focusCell(index, columnId, 'body');
     return true;
   }

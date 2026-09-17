@@ -41,6 +41,15 @@ export function pluginMasterRowId(item: { id: string; payload?: unknown }): stri
   return null;
 }
 
+export function detailRegionIdOf(item: { id: string; payload?: unknown }): string | null {
+  const id = pluginMasterRowId(item);
+  return id == null ? null : masterDetailRegionId(id);
+}
+
+export function isMasterDetailPluginRow(item: { pluginKind?: string }): boolean {
+  return item.pluginKind === 'masterDetail';
+}
+
 export function columnWidthOf<T>(
   column: ResolvedColumn<T>,
   resolvedWidths: Record<string, number>,

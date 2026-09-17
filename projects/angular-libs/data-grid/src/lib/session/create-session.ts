@@ -493,7 +493,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     }
     const bag = masterDetailBag(cell.columnId);
     const md = bag?.masterDetail;
-    if (!md?.enterDetail || !md.isExpanded) {
+    if (!bag || !md?.enterDetail || !md.isExpanded) {
       return false;
     }
     if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
