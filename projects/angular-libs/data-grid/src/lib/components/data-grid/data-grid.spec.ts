@@ -19,7 +19,12 @@ import {
   reconcileHiddenColumnIds,
 } from '../../utils/column-layout';
 import { FocusController } from '../../controllers/focus';
-import { selectRowAriaLabelOf } from '../../hosts/binder-template.helpers';
+import {
+  masterDetailAriaDetailsOf,
+  masterDetailRegionId,
+  pluginMasterRowId,
+  selectRowAriaLabelOf,
+} from '../../hosts/binder-template.helpers';
 import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
 import { parseGridState, serializeGridState } from '../../utils/state';
@@ -203,6 +208,17 @@ describe('data-grid utils', () => {
     expect(selectRowAriaLabelOf('Select row', 0, 'Ada')).toBe('Select row Ada');
     expect(selectRowAriaLabelOf('Select row', 4, '  ')).toBe('Select row 5');
     expect(selectRowAriaLabelOf('Select row', 2)).toBe('Select row 3');
+    expect(masterDetailRegionId(1)).toBe('al-dg-detail-1');
+    expect(
+      masterDetailAriaDetailsOf(
+        [
+          { kind: 'data', id: 'd:1', rowId: 1, row: { id: 1 }, dataIndex: 0, level: 0 },
+          { kind: 'plugin', pluginKind: 'masterDetail', id: 'md:1' },
+        ],
+        1,
+      ),
+    ).toBe('al-dg-detail-1');
+    expect(pluginMasterRowId({ id: 'md:9', payload: { masterRowId: 9 } })).toBe('9');
   });
 
   it('normalizes dates and navigates focus', () => {
@@ -1249,16 +1265,92 @@ describe('DataGrid master-detail UI', () => {
     expect(milaToggle.getAttribute('aria-label')).toBe('Collapse detail');
   });
 
-  it('toggles master-detail with Enter on the expand column', async () => {
+  it('toggles master-detail with Space on the expand column', async () => {
     const { el, fixture } = await render();
     const api = fixture.componentInstance.grid.api()!;
     api.focusCell(0, '__masterDetailExpand');
     fixture.detectChanges();
     const gridEl = fixture.debugElement.query(By.directive(DataGrid)).nativeElement as HTMLElement;
-    gridEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    gridEl.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
     fixture.detectChanges();
     await fixture.whenStable();
     expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
+  });
+
+  it('enters the nested detail realm with Enter and exits with Escape', async () => {
+    const { el, fixture } = await render();
+    const api = fixture.componentInstance.grid.api()!;
+    expect(el.querySelector('[data-testid="al-dg-row-1"]')?.getAttribute('aria-details')).toBe(
+      'al-dg-detail-1',
+    );
+    expect(el.querySelector('#al-dg-detail-1')).toBeTruthy();
+    expect(api.getDisplayedRowCount()).toBe(3);
+    expect(api.getDisplayRowCount()).toBe(4);
+
+    api.focusCell(0, '__masterDetailExpand');
+    fixture.detectChanges();
+    const grids = fixture.debugElement.queryAll(By.directive(DataGrid));
+    const masterEl = grids[0]!.nativeElement as HTMLElement;
+    masterEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeTruthy();
+    const nested = grids[1]!.componentInstance as DataGrid<CallRecord>;
+    expect(nested.nestedRealm).toBeTruthy();
+    expect(el.querySelector('al-data-grid[data-al-dg-nested]')).toBeTruthy();
+    expect(nested.session.kernel.focus.getFocus()).toEqual({
+      rowIndex: 0,
+      columnId: 'callId',
+      realm: 'body',
+    });
+
+    const nestedEl = grids[1]!.nativeElement as HTMLElement;
+    nestedEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    fixture.detectChanges();
+    expect(api.getFocusedCell()).toEqual({
+      rowIndex: 0,
+      columnId: '__masterDetailExpand',
+      realm: 'body',
+    });
+  });
+
+  it('does not find nested detail cell values on the master', async () => {
+    @Component({
+      imports: [DataGrid],
+      template: `<al-data-grid [controller]="grid" [data]="rows()" [(findQuery)]="query" />`,
+    })
+    class FindMdHost {
+      readonly rows = signal(accounts);
+      readonly query = signal('555-0100');
+      readonly masterDetail = masterDetailPlugin<Account, CallRecord>({
+        getDetailRows: (row) => row.calls,
+        detailGrid: {
+          columns: [{ field: 'number', header: 'Number' }],
+          rowId: (row) => row.callId,
+        },
+        isOpenByDefault: (row) => row.id === 1,
+      });
+      readonly grid = createGrid<Account>({
+        columns: [this.masterDetail.expandColumn(), { field: 'name', header: 'Name' }],
+        rowId: (row) => row.id,
+        plugins: [findPlugin<Account>(), this.masterDetail],
+        viewport: { virtual: false, pagination: false },
+      });
+    }
+
+    await TestBed.configureTestingModule({ imports: [FindMdHost] }).compileComponents();
+    const fixture = TestBed.createComponent(FindMdHost);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    const api = fixture.componentInstance.grid.api()!;
+    expect(api.getFindMatches()).toEqual([]);
+    fixture.componentInstance.query.set('Mila');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(api.getFindMatches().some((m) => m.columnId === 'name')).toBe(true);
   });
 
   it('evicts nested state when the master leaves source data', async () => {

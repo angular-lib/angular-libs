@@ -12,6 +12,11 @@ export interface FindTextPart {
   match: boolean;
 }
 
+/**
+ * Master processed rows only. Nested master-detail cells are **Never** searched
+ * in 1.0 — each nested `<al-data-grid>` is a separate find realm (opt-in via
+ * its own `findPlugin` if the host adds one).
+ */
 export function collectFindMatches<T>(
   rows: readonly T[],
   columns: readonly ColumnDef<T>[],

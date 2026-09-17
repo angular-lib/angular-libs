@@ -3,6 +3,7 @@ import type {
   ColumnDef,
   ColumnOrGroupDef,
   DataGridApi,
+  DataGridNestedRealm,
   DataGridState,
   GridController,
   SelectionMode,
@@ -57,12 +58,18 @@ export interface MasterDetailPayload<T = unknown, D = unknown> {
   persistDetailState?: (api: DataGridApi<D> | null) => void;
   /** Consume a snapshot saved by {@link persistDetailState} (once). */
   takePersistedDetailState?: () => PersistedDetailGridState | null;
+  /** Default-view nested keyboard/SR realm (Enter / Escape handoff). */
+  registerNestedRealm?: (realm: DataGridNestedRealm | null) => void;
 }
 
 export interface MasterDetailPluginOptions<T = unknown, D = unknown> {
   /**
-   * Detail rows for a master row (sync).
+   * Detail rows for a master row — **synchronous only**.
    * Prefer host-owned data on the master row (AG `getDetailRowData` spirit).
+   *
+   * **1.0 Never:** lazy / async load-on-expand. With `serverSide: true`, embed
+   * `readonly D[]` on each payload. Custom `detailComponent` may fetch inside
+   * the panel; this callback stays sync.
    */
   getDetailRows: (row: T) => readonly D[];
   /**

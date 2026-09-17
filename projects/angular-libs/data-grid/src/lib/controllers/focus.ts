@@ -72,6 +72,11 @@ export interface FocusControllerOptions {
   onExtendRange?: (dRow: number, dCol: number) => boolean;
   /** Non-shift body navigation — clear any active cell range. */
   onClearRange?: () => void;
+  /**
+   * Enter on a group / master-detail expand cell when the row is already open.
+   * Return `true` to enter the nested widget instead of toggling.
+   */
+  onEnterWidget?: (rowIndex: number) => boolean;
 }
 
 export class FocusController {
@@ -356,8 +361,10 @@ export class FocusController {
           if (realm === 'body' && this.options.getRowCount() > 0 && this.focused) {
             // Clamp to first body row — do not bridge into header continuum.
             this.options.onClearRange?.();
+            const max = this.options.getRowCount() - 1;
+            const rowIndex = edgeNonSkipRow(this.options.isSkipRow, 0, 1, max);
             this.setFocus({
-              rowIndex: 0,
+              rowIndex,
               columnId: this.focused.columnId,
               realm: 'body',
             });
@@ -378,8 +385,10 @@ export class FocusController {
           const rowCount = this.options.getRowCount();
           if (realm === 'body' && rowCount > 0 && this.focused) {
             this.options.onClearRange?.();
+            const max = rowCount - 1;
+            const rowIndex = edgeNonSkipRow(this.options.isSkipRow, max, -1, max);
             this.setFocus({
-              rowIndex: rowCount - 1,
+              rowIndex,
               columnId: this.focused.columnId,
               realm: 'body',
             });
@@ -466,6 +475,9 @@ export class FocusController {
         }
         if (this.options.isGroupRow?.(this.focused.rowIndex)) {
           if (event.key === 'Enter') {
+            if (this.options.onEnterWidget?.(this.focused.rowIndex)) {
+              return true;
+            }
             this.options.onToggleGroup?.(this.focused.rowIndex);
             return true;
           }
@@ -513,6 +525,22 @@ export class FocusController {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+function edgeNonSkipRow(
+  isSkip: ((rowIndex: number) => boolean) | undefined,
+  start: number,
+  dir: 1 | -1,
+  max: number,
+): number {
+  let i = start;
+  while (i >= 0 && i <= max && isSkip?.(i)) {
+    i += dir;
+  }
+  if (i < 0 || i > max || isSkip?.(i)) {
+    return start;
+  }
+  return i;
 }
 
 function skipBodyRows(

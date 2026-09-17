@@ -35,6 +35,37 @@ describe('FocusController keyboard matrix (KEYBOARD.md)', () => {
       expect(focus.getFocus()?.rowIndex).toBe(0);
     });
 
+    it('Ctrl+Home / Ctrl+End skip plugin rows at the edges', () => {
+      const focus = createFocus({
+        getRowCount: () => 4,
+        isSkipRow: (i) => i === 0 || i === 3,
+      });
+      focus.focusCell(2, 'b');
+      expect(focus.handleKeydown(key('Home', { ctrlKey: true }))).toBe(true);
+      expect(focus.getFocus()?.rowIndex).toBe(1);
+      expect(focus.handleKeydown(key('End', { ctrlKey: true }))).toBe(true);
+      expect(focus.getFocus()?.rowIndex).toBe(2);
+    });
+
+    it('Enter on a group row prefers onEnterWidget when it handles', () => {
+      const entered: number[] = [];
+      const toggled: number[] = [];
+      const focus = createFocus({
+        isGroupRow: () => true,
+        onEnterWidget: (rowIndex) => {
+          entered.push(rowIndex);
+          return true;
+        },
+        onToggleGroup: (rowIndex) => {
+          toggled.push(rowIndex);
+        },
+      });
+      focus.focusCell(1, 'a');
+      expect(focus.handleKeydown(key('Enter'))).toBe(true);
+      expect(entered).toEqual([1]);
+      expect(toggled).toEqual([]);
+    });
+
     it('Arrow keys move focus', () => {
       const focus = createFocus();
       focus.focusCell(2, 'b');

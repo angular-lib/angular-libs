@@ -78,6 +78,7 @@ import type {
   SelectionHost,
   ViewportHost,
 } from '../../hosts';
+import { DATA_GRID_NESTED_REALM } from '../../a11y/nested-realm';
 import {
   ariaBodyRowIndexOf,
   ariaColIndexOf,
@@ -85,7 +86,10 @@ import {
   ariaRowCountOf,
   cellAriaSelectedOf,
   headerRowCountOf,
+  masterDetailAriaDetailsOf,
+  masterDetailRegionId,
   mergeCellClass,
+  pluginMasterRowId,
   resolveBaseCellClass,
 } from '../../hosts/binder-template.helpers';
 import type {
@@ -130,6 +134,7 @@ import type {
   host: {
     class: 'al-data-grid',
     '[attr.aria-busy]': 'loading() ? "true" : null',
+    '[attr.data-al-dg-nested]': 'nestedRealm ? "" : null',
     '(keydown)': 'onGridKeydown($event)',
     '(focusin)': 'onGridFocusIn($event)',
     '(document:pointerdown)': 'onDocumentPointerDown($event)',
@@ -139,6 +144,9 @@ import type {
   styleUrl: './data-grid.css',
 })
 export class DataGrid<T = unknown> {
+  /** Present when this instance is a nested master-detail widget. */
+  readonly nestedRealm = inject(DATA_GRID_NESTED_REALM, { optional: true });
+
   readonly data = input.required<readonly T[]>();
   /**
    * Required bootstrap from `createGrid()` — columns, plugins, selection, edit policy, optional rows.
@@ -705,6 +713,19 @@ export class DataGrid<T = unknown> {
     return ariaBodyRowIndexOf(this.headerRows(), displayIndex);
   }
 
+  masterAriaDetails(rowId: string | number): string | null {
+    return masterDetailAriaDetailsOf(this.session.displayRows(), rowId);
+  }
+
+  detailRegionId(item: { id: string; payload?: unknown }): string | null {
+    const masterId = pluginMasterRowId(item);
+    return masterId == null ? null : masterDetailRegionId(masterId);
+  }
+
+  isNestedDetailRow(item: { pluginKind?: string }): boolean {
+    return item.pluginKind === 'masterDetail';
+  }
+
   cellAriaSelected(
     rowId: string | number,
     displayIndex: number,
@@ -814,6 +835,9 @@ export class DataGrid<T = unknown> {
     if (event?.defaultPrevented) {
       return;
     }
+    if (this.focusIsInsideNestedGrid()) {
+      return;
+    }
     const focus = this.session.kernel.focus.getFocus();
     const hadEdit =
       this.editSyncHost.editingCell() != null || this.editSyncHost.rowEditMgr.editingId() != null;
@@ -860,7 +884,25 @@ export class DataGrid<T = unknown> {
     this.menuHost.closeContextMenu();
     if (hadMenu) {
       (event as KeyboardEvent | undefined)?.preventDefault?.();
+      return;
     }
+    if (this.nestedRealm?.exitToMaster()) {
+      (event as KeyboardEvent | undefined)?.preventDefault?.();
+    }
+  }
+
+  private focusIsInsideNestedGrid(): boolean {
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    if (!(active instanceof Node)) {
+      return false;
+    }
+    const nested = this.host.nativeElement.querySelectorAll(':scope al-data-grid');
+    for (const grid of nested) {
+      if (grid.contains(active)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   syncDomFocus(cell: FocusCell | null, opts?: { force?: boolean }): void {

@@ -6,6 +6,7 @@ import {
   type DataGridState,
   type GridController,
 } from '@angular-libs/data-grid';
+import type { DataGridNestedRealm } from '@angular-libs/data-grid';
 import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
 import {
   createMasterDetailAdapter,
@@ -14,6 +15,7 @@ import {
 import {
   buildMasterDetailDisplayRows,
   EMPTY_DETAIL_ROW_HEIGHT,
+  readSyncDetailRows,
 } from './master-detail.builder';
 import {
   createDetailGridController,
@@ -39,7 +41,11 @@ export type {
 export { MASTER_DETAIL_PLUGIN_KIND } from './master-detail.types';
 export type { MasterDetailAdapter } from './master-detail.adapter';
 export { createMasterDetailAdapter } from './master-detail.adapter';
-export { buildMasterDetailDisplayRows, EMPTY_DETAIL_ROW_HEIGHT } from './master-detail.builder';
+export {
+  buildMasterDetailDisplayRows,
+  EMPTY_DETAIL_ROW_HEIGHT,
+  readSyncDetailRows,
+} from './master-detail.builder';
 export {
   MasterDetailDefaultView,
   createDetailGridController,
@@ -51,6 +57,8 @@ export type MasterDetailPlugin<T = unknown, D = unknown> = DataGridPlugin<T> &
   MasterDetailAdapter & {
     /** Narrow expand column — prepend to your column defs (AG group cell spirit). */
     expandColumn(options?: MasterDetailExpandColumnOptions): ColumnDef<T>;
+    /** Enter the nested detail grid for an expanded master (cell-widget activate). */
+    enterDetail(rowId: string | number): boolean;
   };
 
 function resolveOpenByDefault<T>(
@@ -88,7 +96,7 @@ function resolveIsRowMaster<T, D>(
     return undefined;
   }
   const getDetailRows = options.getDetailRows;
-  return (row: T) => getDetailRows(row).length > 0;
+  return (row: T) => readSyncDetailRows(getDetailRows, row).length > 0;
 }
 
 /**
@@ -142,6 +150,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     selectedIds?: Array<string | number>;
   }
   const detailCache = new Map<string, CachedDetail>();
+  const nestedRealms = new Map<string, DataGridNestedRealm>();
 
   const evictStaleDetailCaches = (
     activeRows: readonly T[],
@@ -222,6 +231,9 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     collapse: (id) => adapter.collapse(id),
     expandAll: (ids) => adapter.expandAll(ids),
     collapseAll: (ids) => adapter.collapseAll(ids),
+    enterDetail(rowId) {
+      return nestedRealms.get(String(rowId))?.enter() ?? false;
+    },
 
     expandColumn(columnOptions: MasterDetailExpandColumnOptions = {}): ColumnDef<T> {
       return {
@@ -266,6 +278,14 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             obtainDetailController,
             persistDetailState,
             takePersistedDetailState,
+            registerNestedRealm: (masterRowId, realm) => {
+              const key = String(masterRowId);
+              if (realm) {
+                nestedRealms.set(key, realm);
+              } else {
+                nestedRealms.delete(key);
+              }
+            },
           });
         },
       });
@@ -277,6 +297,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
 
       return () => {
         detailCache.clear();
+        nestedRealms.clear();
         cleanView();
         cleanDisplay();
       };

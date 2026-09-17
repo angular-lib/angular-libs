@@ -39,6 +39,7 @@ export {
   isPluginDisplayRow,
   isPaginationSlotRow,
   countPaginationSlots,
+  countDisplayedDataRows,
   paginationSlotIndex,
   pageIndexForDisplayIndex,
   paginateDisplayRows,

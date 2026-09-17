@@ -1,4 +1,5 @@
 import {
+  countDisplayedDataRows,
   countPaginationSlots,
   pageIndexForDisplayIndex,
   paginateDisplayRows,
@@ -40,6 +41,7 @@ describe('pagination slot helpers', () => {
   it('does not count detail panels as page slots', () => {
     const rows = withDetail(people, [1]);
     expect(rows).toHaveLength(5);
+    expect(countDisplayedDataRows(rows)).toBe(4);
     expect(countPaginationSlots(rows)).toBe(4);
     expect(paginationSlotIndex(rows, 0)).toBe(0);
     expect(paginationSlotIndex(rows, 1)).toBe(0);

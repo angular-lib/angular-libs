@@ -55,11 +55,16 @@ export interface DataGridSelectionHost<T = unknown> {
   getSelectedIds(): Array<string | number>;
   setSelectedIds(ids: Array<string | number>): void;
   /**
-   * Display-row count (data + group + plugin rows).
-   * Status "N rows" uses {@link getProcessedRows} — not this — so detail
-   * panels are not counted as extra data rows.
+   * Visible **data** rows after filter/sort (excludes group headers and
+   * master-detail plugin shells). Status "N rows" still prefers
+   * {@link getProcessedRows} (same count when there are no groups).
    */
   getDisplayedRowCount(): number;
+  /**
+   * Full display-list length (data + group + plugin rows), including open
+   * detail shells. Use for paint/virtualization — not "how many records".
+   */
+  getDisplayRowCount(): number;
   getProcessedRows(): readonly T[];
   /** Bound source rows (`[data]`), including filtered-out. */
   getSourceRows(): readonly T[];
@@ -97,6 +102,8 @@ export interface DataGridEditingHost {
 /** Focus / viewport / display rows. */
 export interface DataGridViewportHost<T = unknown> {
   focusCell?(rowIndex: number, columnId: string): void;
+  /** Focus a body cell by data `rowId` on the current page/window. */
+  focusRow?(rowId: string | number, columnId: string): boolean;
   getFocusedCell?(): FocusCell | null;
   getPagedDisplayRows?(): readonly DisplayRow<T>[];
   resolveRowId?(row: T, index: number): string | number;
@@ -298,6 +305,11 @@ export class DataGridApi<T = unknown> {
     return this.host.getDisplayedRowCount();
   }
 
+  /** Data + group + plugin display rows (includes open detail shells). */
+  getDisplayRowCount(): number {
+    return this.host.getDisplayRowCount();
+  }
+
   getProcessedRows(): readonly T[] {
     return this.host.getProcessedRows();
   }
@@ -325,6 +337,11 @@ export class DataGridApi<T = unknown> {
 
   focusCell(rowIndex: number, columnId: string): void {
     this.host.focusCell?.(rowIndex, columnId);
+  }
+
+  /** Focus a body cell by data row id. Returns false when the row is not shown. */
+  focusRow(rowId: string | number, columnId: string): boolean {
+    return this.host.focusRow?.(rowId, columnId) ?? false;
   }
 
   /** Wave 4 lean column menu (pin / sort / autosize / hide). */

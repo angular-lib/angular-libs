@@ -297,6 +297,17 @@ export function countPaginationSlots<T>(rows: readonly DisplayRow<T>[]): number 
   return n;
 }
 
+/** Data rows only — honest `getDisplayedRowCount()` (excludes group / plugin). */
+export function countDisplayedDataRows<T>(rows: readonly DisplayRow<T>[]): number {
+  let n = 0;
+  for (const row of rows) {
+    if (row.kind === 'data') {
+      n++;
+    }
+  }
+  return n;
+}
+
 /**
  * Slot index for a display index. Plugin rows share the preceding slot row.
  */

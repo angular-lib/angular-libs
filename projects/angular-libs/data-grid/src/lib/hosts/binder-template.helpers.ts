@@ -6,12 +6,40 @@
 import { focusRealmOf, type FocusCell } from '../controllers/focus';
 import { cellInNormalizedRange, normalizeCellRange } from '../utils/cell-range';
 import { resolveCellClass } from '../utils/cell-value';
+import type { DisplayRow } from '../utils/row-display';
 import type {
   CellRange,
   ColumnDef,
   ResolvedColumn,
   SortState,
 } from '../components/data-grid/data-grid.types';
+
+export function masterDetailRegionId(rowId: string | number): string {
+  return `al-dg-detail-${String(rowId)}`;
+}
+
+export function masterDetailAriaDetailsOf<T>(
+  rows: readonly DisplayRow<T>[],
+  rowId: string | number,
+): string | null {
+  const id = `md:${String(rowId)}`;
+  const open = rows.some(
+    (row) => row.kind === 'plugin' && row.pluginKind === 'masterDetail' && row.id === id,
+  );
+  return open ? masterDetailRegionId(rowId) : null;
+}
+
+export function pluginMasterRowId(item: { id: string; payload?: unknown }): string | null {
+  const raw = item.payload;
+  if (raw && typeof raw === 'object' && 'masterRowId' in raw) {
+    const id = (raw as { masterRowId: string | number }).masterRowId;
+    return id == null ? null : String(id);
+  }
+  if (item.id.startsWith('md:')) {
+    return item.id.slice(3);
+  }
+  return null;
+}
 
 export function columnWidthOf<T>(
   column: ResolvedColumn<T>,

@@ -9,7 +9,7 @@ import {
   type MasterDetailPayload,
   type PersistedDetailGridState,
 } from './master-detail.types';
-import type { DataGridApi, GridController } from '@angular-libs/data-grid';
+import type { DataGridApi, DataGridNestedRealm, GridController } from '@angular-libs/data-grid';
 
 /** Compact height for an expanded master with no detail rows (default nested grid). */
 export const EMPTY_DETAIL_ROW_HEIGHT = 48;
@@ -20,6 +20,10 @@ export interface BuildMasterDetailRowsOptions<T, D = unknown> {
   /** Pure expand check (adapter + optional open-by-default). */
   isExpanded: (rowId: string | number, row: T) => boolean;
   getDetailRows: (row: T) => readonly D[];
+  registerNestedRealm?: (
+    masterRowId: string | number,
+    realm: DataGridNestedRealm | null,
+  ) => void;
   isRowMaster?: (row: T) => boolean;
   detailRowHeight: number;
   detailGrid?: MasterDetailGridOptions<D>;
@@ -53,6 +57,7 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
     rowId,
     isExpanded,
     getDetailRows,
+    registerNestedRealm,
     isRowMaster,
     detailRowHeight,
     detailGrid,
@@ -75,7 +80,7 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
       continue;
     }
 
-    const detailRows = getDetailRows(data.row);
+    const detailRows = readSyncDetailRows(getDetailRows, data.row);
     const payload: MasterDetailPayload<T, D> = {
       master: data.row,
       masterRowId: data.rowId,
@@ -90,6 +95,9 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
       takePersistedDetailState: takePersistedDetailState
         ? () => takePersistedDetailState(data.rowId)
         : undefined,
+      registerNestedRealm: registerNestedRealm
+        ? (realm) => registerNestedRealm(data.rowId, realm)
+        : undefined,
     };
     const empty = detailRows.length === 0;
     out.push({
@@ -103,4 +111,20 @@ export function buildMasterDetailDisplayRows<T, D = unknown>(
   }
 
   return out;
+}
+
+/** 1.0 contract: `getDetailRows` is synchronous. Promises are rejected, not awaited. */
+export function readSyncDetailRows<T, D>(
+  getDetailRows: (row: T) => readonly D[],
+  row: T,
+): readonly D[] {
+  const rows = getDetailRows(row) as readonly D[] | { then?: unknown };
+  if (rows != null && typeof (rows as { then?: unknown }).then === 'function') {
+    console.warn(
+      '@angular-libs/data-grid: getDetailRows must return a synchronous array. ' +
+        'Lazy/async load-on-expand is Never for 1.0 — embed detail rows on the master.',
+    );
+    return [];
+  }
+  return Array.isArray(rows) ? rows : [];
 }
