@@ -851,6 +851,7 @@ export class DataGrid<T = unknown> {
           columnId,
           'header',
         ),
+      clearOwnFocus: () => this.session.kernel.focus.setFocus(null),
     });
   }
 

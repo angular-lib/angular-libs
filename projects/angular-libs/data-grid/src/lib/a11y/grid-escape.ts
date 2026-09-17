@@ -32,6 +32,7 @@ export function handleGridEscape(ctx: {
   contextMenuOpen: boolean;
   closeContextMenu: () => void;
   focusHeader: (columnId: string) => void;
+  clearOwnFocus?: () => void;
 }): void {
   const event = ctx.event;
   if (event?.defaultPrevented || focusIsInsideNestedGrid(ctx.host)) {
@@ -72,6 +73,7 @@ export function handleGridEscape(ctx: {
     return;
   }
   if (ctx.nestedRealm?.exitToMaster()) {
+    ctx.clearOwnFocus?.();
     prevent(event);
   }
 }

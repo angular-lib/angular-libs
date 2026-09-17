@@ -1309,6 +1309,7 @@ describe('DataGrid master-detail UI', () => {
     const nestedEl = grids[1]!.nativeElement as HTMLElement;
     nestedEl.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.detectChanges();
+    expect(nested.session.kernel.focus.getFocus()).toBeNull();
     expect(api.getFocusedCell()).toEqual({
       rowIndex: 0,
       columnId: '__masterDetailExpand',
