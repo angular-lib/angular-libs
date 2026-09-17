@@ -48,6 +48,7 @@ import type {
   RowClickEvent,
   RowEditContext,
   RowReorderEvent,
+  SelectionChangeEvent,
   SelectionMode,
   SortState,
 } from '../components/data-grid/data-grid.types';
@@ -72,7 +73,7 @@ export interface CreateSessionOutputs<T> {
   rowEditStart: OutputEmitterRef<DataGridEventMap<T>['rowEditStart']>;
   rowEditCancel: OutputEmitterRef<DataGridEventMap<T>['rowEditCancel']>;
   rowClick: OutputEmitterRef<RowClickEvent<T>>;
-  selectionChange: OutputEmitterRef<Array<string | number>>;
+  selectionChange: OutputEmitterRef<SelectionChangeEvent<T>>;
   queryChange: OutputEmitterRef<DataGridQuery>;
   stateChange: OutputEmitterRef<DataGridState>;
   columnOrderChange: OutputEmitterRef<string[]>;
@@ -335,8 +336,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     copyEnabled: () => kernel.copyEnabled(),
     pagedDisplayRows: () => viewport.pagedDisplayRows(),
     getQuery,
-    publishSelectionChange: (next) =>
-      opts.publish('selectionChange', out.selectionChange, next),
+    publishSelectionChange: (payload) =>
+      opts.publish('selectionChange', out.selectionChange, payload),
     publishRowClick: (payload) => opts.publish('rowClick', out.rowClick, payload),
     notifyPlugins: notify,
     effectivePlugins,

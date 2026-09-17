@@ -5,11 +5,20 @@ describe('GridEventBus', () => {
   it('on delivers typed payloads and unsubscribes', () => {
     const bus = new GridEventBus<{ id: number }>();
     const seen: Array<string | number>[] = [];
-    const off = bus.on('selectionChange', (ids) => seen.push(ids));
+    const off = bus.on('selectionChange', (event) => seen.push(event.selectedIds));
 
-    bus.emit('selectionChange', [1, 2]);
+    bus.emit('selectionChange', {
+      selectedIds: [1, 2],
+      selected: [
+        { rowId: 1, row: { id: 1 }, rowIndex: 0 },
+        { rowId: 2, row: { id: 2 }, rowIndex: 1 },
+      ],
+    });
     off();
-    bus.emit('selectionChange', [3]);
+    bus.emit('selectionChange', {
+      selectedIds: [3],
+      selected: [{ rowId: 3, row: { id: 3 }, rowIndex: 2 }],
+    });
 
     expect(seen).toEqual([[1, 2]]);
   });

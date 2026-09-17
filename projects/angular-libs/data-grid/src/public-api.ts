@@ -114,6 +114,8 @@ export type {
   RowEditEvent,
   RowEditSchema,
   RowReorderEvent,
+  SelectedRow,
+  SelectionChangeEvent,
   SelectionMode,
   SideBarConfig,
   SideBarPanelId,

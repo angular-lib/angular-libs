@@ -117,6 +117,7 @@
   position: relative;
   min-height: 0;
   overscroll-behavior: contain;
+  overflow-anchor: none;
   scrollbar-gutter: stable;
 }
 
@@ -780,7 +781,7 @@
 }
 
 .al-data-grid__td--editable {
-  cursor: text;
+  cursor: default;
 }
 
 .al-data-grid__td--find-match {

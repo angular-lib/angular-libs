@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import {
   computeVirtualWindow,
+  isRowInScrollport,
   rowHeightAt,
   rowOffsetY,
   type VirtualWindow,
@@ -231,6 +232,18 @@ export class ViewportHost<T> {
       // `rowIndex` is already relative to `pagedDisplayRows`.
       return;
     }
+    const scroll = this.s.hostElement().querySelector(
+      '.al-data-grid__scroll',
+    ) as HTMLElement | null;
+    if (!scroll) {
+      return;
+    }
+    const thead = scroll.querySelector('.al-data-grid__thead') as HTMLElement | null;
+    const item = this.pagedDisplayRows()[rowIndex];
+    const rowEl = item ? this.displayRowElement(item) : null;
+    if (rowEl && isRowInScrollport(rowEl, scroll, thead)) {
+      return;
+    }
     if (!this.virtualEnabled()) {
       return;
     }
@@ -238,17 +251,23 @@ export class ViewportHost<T> {
     const defaultH = this.s.rowHeight();
     const top = rowOffsetY(rowIndex, defaultH, heights);
     const height = rowHeightAt(rowIndex, defaultH, heights);
-    const scroll = this.s.hostElement().querySelector(
-      '.al-data-grid__scroll',
-    ) as HTMLElement | null;
-    if (!scroll) {
-      return;
-    }
     if (top < scroll.scrollTop) {
       scroll.scrollTop = top;
     } else if (top + height > scroll.scrollTop + scroll.clientHeight) {
       scroll.scrollTop = top - scroll.clientHeight + height;
     }
+  }
+
+  private displayRowElement(item: DisplayRow<T>): HTMLElement | null {
+    const root = this.s.hostElement();
+    if (item.kind === 'data') {
+      const id = cssEscapeAttr(String(item.rowId));
+      return root.querySelector(`[data-testid="al-dg-row-${id}"]`);
+    }
+    if (item.kind === 'group') {
+      return root.querySelector(`[data-testid="al-dg-group-${item.id}"]`);
+    }
+    return root.querySelector(`[data-testid="al-dg-plugin-row-${item.id}"]`);
   }
 
   focusCell(rowIndex: number, columnId: string): void {

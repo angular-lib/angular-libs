@@ -8,6 +8,7 @@ import {
 import type {
   DataGridFilterState,
   DataGridState,
+  SelectionChangeEvent,
   SideBarConfig,
   SortState,
 } from '../components/data-grid/data-grid.types';
@@ -103,7 +104,7 @@ export interface DataGridPlugin<T = unknown> {
   onStateChange?(context: DataGridPluginContext<T>, state: DataGridState): void;
   onSelectionChange?(
     context: DataGridPluginContext<T>,
-    selectedIds: Array<string | number>,
+    selection: SelectionChangeEvent<T>,
   ): void;
   onSortChange?(context: DataGridPluginContext<T>, sorts: SortState[]): void;
   onFilterChange?(context: DataGridPluginContext<T>, filters: DataGridFilterState): void;

@@ -7,6 +7,7 @@ import type { SelectionDeps } from './binder-surface';
 import type {
   DataGridQuery,
   RowClickEvent,
+  SelectionChangeEvent,
 } from '../components/data-grid/data-grid.types';
 
 /** Owns row selection behavior + derived selection UI computeds. */
@@ -58,10 +59,7 @@ export class SelectionHost<T> {
     }
     const checked = (event.target as HTMLInputElement).checked;
     if (this.s.effectiveSelectionMode() === 'single') {
-      const next = checked ? [id] : [];
-      this.s.selectedIds.set(next);
-      this.s.publishSelectionChange(next);
-      this.s.notifyPlugins('onSelectionChange', next);
+      this.commitSelection(checked ? [id] : []);
       return;
     }
     const set = new Set(this.s.selectedIds());
@@ -70,27 +68,20 @@ export class SelectionHost<T> {
     } else {
       set.delete(id);
     }
-    const next = [...set];
-    this.s.selectedIds.set(next);
-    this.s.publishSelectionChange(next);
-    this.s.notifyPlugins('onSelectionChange', next);
+    this.commitSelection([...set]);
   }
 
   toggleSelectAll(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
     if (!checked) {
-      this.s.selectedIds.set([]);
-      this.s.publishSelectionChange([]);
-      this.s.notifyPlugins('onSelectionChange', []);
+      this.commitSelection([]);
       return;
     }
     const ids = this.visibleDataRowIds().filter((id) => {
       const row = this.findDataRowById(id);
       return !row || this.isRowSelectable(row, id);
     });
-    this.s.selectedIds.set(ids);
-    this.s.publishSelectionChange(ids);
-    this.s.notifyPlugins('onSelectionChange', ids);
+    this.commitSelection(ids);
   }
 
   onRowClick(row: T, rowId: string | number, rowIndex: number, event: MouseEvent): void {
@@ -143,10 +134,7 @@ export class SelectionHost<T> {
   }
 
   setSelectedIds(ids: Array<string | number>): void {
-    const next = [...ids];
-    this.s.selectedIds.set(next);
-    this.s.publishSelectionChange(next);
-    this.s.notifyPlugins('onSelectionChange', next);
+    this.commitSelection([...ids]);
   }
 
   getDisplayedRowCount(): number {
@@ -196,6 +184,38 @@ export class SelectionHost<T> {
       }
     }
     return null;
+  }
+
+  private commitSelection(ids: Array<string | number>): void {
+    this.s.selectedIds.set(ids);
+    const payload: SelectionChangeEvent<T> = {
+      selectedIds: ids,
+      selected: this.resolveSelected(ids),
+    };
+    this.s.publishSelectionChange(payload);
+    this.s.notifyPlugins('onSelectionChange', payload);
+  }
+
+  private resolveSelected(ids: Array<string | number>): SelectionChangeEvent<T>['selected'] {
+    const getId = this.s.effectiveRowId();
+    const processed = this.s.processedRows();
+    const indexById = new Map<string | number, number>();
+    for (let i = 0; i < processed.length; i++) {
+      indexById.set(getId(processed[i]!, i), i);
+    }
+    const selected: SelectionChangeEvent<T>['selected'] = [];
+    for (const rowId of ids) {
+      const row = this.findDataRowById(rowId);
+      if (row === null) {
+        continue;
+      }
+      selected.push({
+        rowId,
+        row,
+        rowIndex: indexById.get(rowId) ?? null,
+      });
+    }
+    return selected;
   }
 
   selectRowAriaLabel(row: T, dataIndex: number, selectRowAriaLabel: string): string {

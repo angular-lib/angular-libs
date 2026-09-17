@@ -28,6 +28,7 @@ import type {
   RowClickEvent,
   RowEditContext,
   RowReorderEvent,
+  SelectionChangeEvent,
   SelectionMode,
   SideBarConfig,
   SortState,
@@ -90,7 +91,7 @@ export type ColumnLayoutSurface<T> = ColumnLayoutDeps<T>;
 /** Lean deps for SelectionHost — host owns selection UI computeds. */
 export interface SelectionDeps<T> {
   selectedIds: HostWritable<Array<string | number>>;
-  selectionChange: OutputEmitterRef<Array<string | number>>;
+  selectionChange: OutputEmitterRef<SelectionChangeEvent<T>>;
   rowClick: OutputEmitterRef<RowClickEvent<T>>;
   effectiveSelectionMode(): SelectionMode;
   effectiveRowClickSelects(): boolean;
@@ -103,7 +104,7 @@ export interface SelectionDeps<T> {
   copyEnabled(): boolean;
   pagedDisplayRows(): readonly DisplayRow<T>[];
   getQuery(): DataGridQuery;
-  publishSelectionChange(next: Array<string | number>): void;
+  publishSelectionChange(payload: SelectionChangeEvent<T>): void;
   publishRowClick(payload: RowClickEvent<T>): void;
   notifyPlugins(
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
