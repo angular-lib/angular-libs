@@ -1,19 +1,21 @@
 import type {
   CellClickEvent,
   CellEditEvent,
+  ColumnOrderChangeEvent,
   DataGridContextMenuContext,
-  DataGridFilterState,
   DataGridQuery,
   DataGridState,
+  FilterChangeEvent,
   PasteEvent,
   RowClickEvent,
+  RowEditCancelEvent,
   RowEditContext,
   RowEditEvent,
   RowReorderEvent,
   SelectionChangeEvent,
-  SortState,
+  SortChangeEvent,
 } from '../components/data-grid/data-grid.types';
-import type { FindMatch } from '../utils/find';
+import type { FindMatchesChangeEvent } from '../utils/find';
 import type { DataGridApi } from './grid-api';
 
 /** Unsubscribe function returned by {@link GridEventBus.on} / {@link GridEventBus.onAny}. */
@@ -24,21 +26,21 @@ export type GridEventUnsubscribe = () => void;
  * Tool panels and plugins subscribe via {@link DataGridApi.events}.
  */
 export interface DataGridEventMap<T = unknown> {
-  sortChange: SortState[];
-  filterChange: DataGridFilterState;
+  sortChange: SortChangeEvent;
+  filterChange: FilterChangeEvent;
   cellEdit: CellEditEvent<T>;
   rowEdit: RowEditEvent<T>;
   rowEditStart: RowEditContext<T>;
-  rowEditCancel: { rowId: string | number };
+  rowEditCancel: RowEditCancelEvent<T>;
   cellClick: CellClickEvent<T>;
   rowClick: RowClickEvent<T>;
   selectionChange: SelectionChangeEvent<T>;
   queryChange: DataGridQuery;
   stateChange: DataGridState;
-  columnOrderChange: string[];
+  columnOrderChange: ColumnOrderChangeEvent;
   contextMenuOpened: DataGridContextMenuContext<T>;
   contextMenuClosed: undefined;
-  findMatchesChange: FindMatch[];
+  findMatchesChange: FindMatchesChangeEvent;
   rowReorder: RowReorderEvent<T>;
   paste: PasteEvent<T>;
   nearEnd: undefined;

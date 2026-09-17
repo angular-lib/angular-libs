@@ -31,6 +31,9 @@ import type {
   SelectionChangeEvent,
   SelectionMode,
   SideBarConfig,
+  ColumnOrderChangeEvent,
+  FilterChangeEvent,
+  SortChangeEvent,
   SortState,
 } from '../components/data-grid/data-grid.types';
 
@@ -72,9 +75,9 @@ export interface ColumnLayoutDeps<T> {
   processedRows(): readonly T[];
   data(): readonly T[];
   hostElement(): HTMLElement;
-  publishSort(sorts: SortState[]): void;
-  publishFilter(filters: DataGridFilterState): void;
-  publishColumnOrder(order: string[]): void;
+  publishSort(event: SortChangeEvent): void;
+  publishFilter(event: FilterChangeEvent): void;
+  publishColumnOrder(event: ColumnOrderChangeEvent): void;
   getStateExtras(): Pick<DataGridState, 'pageIndex' | 'activeSidePanel'>;
   applyStateExtras(state: Pick<DataGridState, 'pageIndex' | 'activeSidePanel'>): void;
   notifyPlugins(

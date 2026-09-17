@@ -17,6 +17,7 @@ import type {
   CreateRowFormFn,
   RowEditContext,
   RowEditEvent,
+  RowEditCancelEvent,
   RowEditSchema,
 } from '../components/data-grid/data-grid.types';
 import { cloneRowDraft, formFieldForColumn } from '../utils/row-edit';
@@ -33,7 +34,7 @@ export interface RowEditSessionHooks<T> {
   onDraft: (draft: T | null) => void;
   onStart: (ctx: RowEditContext<T>) => void;
   onCommit: (event: RowEditEvent<T>) => void;
-  onCancel: (payload: { rowId: string | number }) => void;
+  onCancel: (payload: RowEditCancelEvent<T>) => void;
 }
 
 export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
@@ -185,13 +186,14 @@ export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
   cancel(): void {
     const rowId = this.editingRowId();
     const original = this.editingOriginal();
+    const rowIndex = this.editingRowIndex();
     const tree = this.hooks.getHostForm();
     if (tree && original && !this.sessionOwnedForm) {
       (tree().value as WritableSignal<T>).set(cloneRowDraft(original));
     }
     this.destroy();
-    if (rowId != null) {
-      this.hooks.onCancel({ rowId });
+    if (rowId != null && original != null) {
+      this.hooks.onCancel({ rowId, row: original, rowIndex });
     }
   }
 

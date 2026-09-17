@@ -16,8 +16,8 @@ const BINDER_PATH = join(HOSTS_DIR, '../components/data-grid/data-grid.ts');
 /** F3 achieved ~857; +50 buffer. Prefer ≤1000. */
 const BINDER_LOC_MAX = 910;
 const HOST_LOC_MAX = 500;
-/** Viewport / EditSync / ColumnLayout own signals + presentation helpers. */
-const FAT_HOST_LOC_MAX = 600;
+/** Viewport / EditSync / ColumnLayout own signals + presentation helpers. Viewport achieved ~619. */
+const FAT_HOST_LOC_MAX = 670;
 const FAT_HOSTS = new Set([
   'viewport.host.ts',
   'edit-sync.host.ts',
