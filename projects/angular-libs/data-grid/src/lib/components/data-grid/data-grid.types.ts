@@ -270,6 +270,31 @@ export interface SelectionChangeEvent<T = unknown> {
   selected: SelectedRow<T>[];
 }
 
+/** `(sortChange)` payload — named object so later fields can be added without breaking callers. */
+export interface SortChangeEvent {
+  sorts: SortState[];
+}
+
+/** `(filterChange)` payload — column filter map, not the two-way `quickFilter` model. */
+export interface FilterChangeEvent {
+  filters: DataGridFilterState;
+}
+
+/** `(columnOrderChange)` payload — leaf column ids in display order. */
+export interface ColumnOrderChangeEvent {
+  columnOrder: string[];
+}
+
+/**
+ * `(rowEditCancel)` payload.
+ * `row` / `rowIndex` match {@link RowEditEvent} for the cancelled session.
+ */
+export interface RowEditCancelEvent<T = unknown> {
+  rowId: string | number;
+  row: T;
+  rowIndex: number;
+}
+
 /** Emitted when `rowDragPlugin` reorders displayed rows. */
 export interface RowReorderEvent<T = unknown> {
   fromIndex: number;

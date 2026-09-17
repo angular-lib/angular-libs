@@ -7,6 +7,12 @@ export interface FindMatch {
   columnId: string;
 }
 
+/** `(findMatchesChange)` payload — query plus the current match list. */
+export interface FindMatchesChangeEvent {
+  query: string;
+  matches: FindMatch[];
+}
+
 export interface FindTextPart {
   text: string;
   match: boolean;

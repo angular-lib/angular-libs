@@ -189,10 +189,10 @@ export class ColumnLayoutHost<T> {
     }
 
     this.sorts.set(sorts);
-    this.s.publishSort(sorts);
+    this.s.publishSort({ sorts });
     this.s.emitState();
     this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onSortChange', sorts);
+    this.s.notifyPlugins('onSortChange', { sorts });
   }
 
   /** Set / clear a single-column sort (lean menu). */
@@ -205,10 +205,10 @@ export class ColumnLayoutHost<T> {
       ? [{ columnId: column.id, direction }]
       : this.sorts().filter((entry) => entry.columnId !== column.id);
     this.sorts.set(sorts);
-    this.s.publishSort(sorts);
+    this.s.publishSort({ sorts });
     this.s.emitState();
     this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onSortChange', sorts);
+    this.s.notifyPlugins('onSortChange', { sorts });
   }
 
   setFilter(columnId: string, value: string): void {
@@ -217,10 +217,10 @@ export class ColumnLayoutHost<T> {
       delete next[columnId];
     }
     this.filters.set(next);
-    this.s.publishFilter(next);
+    this.s.publishFilter({ filters: next });
     this.s.emitState();
     this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onFilterChange', next);
+    this.s.notifyPlugins('onFilterChange', { filters: next });
   }
 
   setQuickFilter(value: string): void {
@@ -232,10 +232,10 @@ export class ColumnLayoutHost<T> {
   clearFilters(): void {
     this.filters.set({});
     this.s.quickFilter.set('');
-    this.s.publishFilter({});
+    this.s.publishFilter({ filters: {} });
     this.s.emitState();
     this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onFilterChange', {});
+    this.s.notifyPlugins('onFilterChange', { filters: {} });
   }
 
   getFilterModel(): DataGridFilterState {
@@ -244,10 +244,10 @@ export class ColumnLayoutHost<T> {
 
   setFilterModel(filters: DataGridFilterState): void {
     this.filters.set({ ...filters });
-    this.s.publishFilter(this.filters());
+    this.s.publishFilter({ filters: this.filters() });
     this.s.emitState();
     this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onFilterChange', this.filters());
+    this.s.notifyPlugins('onFilterChange', { filters: this.filters() });
   }
 
   getSortModel(): SortState[] {
@@ -256,10 +256,10 @@ export class ColumnLayoutHost<T> {
 
   setSortModel(sorts: SortState[]): void {
     this.sorts.set([...sorts]);
-    this.s.publishSort(this.sorts());
+    this.s.publishSort({ sorts: this.sorts() });
     this.s.emitState();
     this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onSortChange', this.sorts());
+    this.s.notifyPlugins('onSortChange', { sorts: this.sorts() });
   }
 
   getQuickFilter(): string {
@@ -326,7 +326,7 @@ export class ColumnLayoutHost<T> {
 
   applyColumnLayout(layout: ColumnLayout): void {
     this.columnLayout.set(layout);
-    this.s.publishColumnOrder(layout.order);
+    this.s.publishColumnOrder({ columnOrder: layout.order });
     this.s.emitState();
   }
 

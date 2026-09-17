@@ -6,11 +6,11 @@ import {
   type WritableSignal,
 } from '@angular/core';
 import type {
-  DataGridFilterState,
   DataGridState,
+  FilterChangeEvent,
   SelectionChangeEvent,
   SideBarConfig,
-  SortState,
+  SortChangeEvent,
 } from '../components/data-grid/data-grid.types';
 import type { DataGridApi } from '../api/grid-api';
 import type { GridCapabilities } from './capabilities';
@@ -106,8 +106,8 @@ export interface DataGridPlugin<T = unknown> {
     context: DataGridPluginContext<T>,
     selection: SelectionChangeEvent<T>,
   ): void;
-  onSortChange?(context: DataGridPluginContext<T>, sorts: SortState[]): void;
-  onFilterChange?(context: DataGridPluginContext<T>, filters: DataGridFilterState): void;
+  onSortChange?(context: DataGridPluginContext<T>, event: SortChangeEvent): void;
+  onFilterChange?(context: DataGridPluginContext<T>, event: FilterChangeEvent): void;
 }
 
 /**

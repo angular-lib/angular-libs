@@ -66,7 +66,6 @@ import {
   isDateColumn,
   resolveRowClass,
 } from '../../utils/cell-value';
-import { type FindMatch } from '../../utils/find';
 import {
   createDataGridSession,
   type GridSession,
@@ -94,30 +93,18 @@ import {
   resolveBaseCellClass,
 } from '../../hosts/binder-template.helpers';
 import type {
-  CellClickEvent,
-  CellEditEvent,
   CellEditorParams,
   CellRendererParams,
   ColumnDef,
   ColumnOrGroupDef,
   CreateRowFormFn,
-  DataGridContextMenuContext,
   DataGridContextMenuItems,
-  DataGridFilterState,
-  DataGridQuery,
-  DataGridState,
   EditMode,
-  PasteEvent,
   ResolvedColumn,
   RowClassFn,
-  RowClickEvent,
   RowEditContext,
-  RowEditEvent,
   RowEditSchema,
-  RowReorderEvent,
-  SelectionChangeEvent,
   SelectionMode,
-  SortState,
 } from './data-grid.types';
 
 @Component({
@@ -210,23 +197,23 @@ export class DataGrid<T = unknown> {
   /** Live draft model while a full-row edit is active. */
   readonly rowEditDraft = model<T | null>(null);
 
-  readonly sortChange = output<SortState[]>();
-  readonly filterChange = output<DataGridFilterState>();
-  readonly cellEdit = output<CellEditEvent<T>>();
-  readonly rowEdit = output<RowEditEvent<T>>();
-  readonly rowEditStart = output<RowEditContext<T>>();
-  readonly rowEditCancel = output<{ rowId: string | number }>();
-  readonly cellClick = output<CellClickEvent<T>>();
-  readonly rowClick = output<RowClickEvent<T>>();
-  readonly selectionChange = output<SelectionChangeEvent<T>>();
-  readonly queryChange = output<DataGridQuery>();
-  readonly stateChange = output<DataGridState>();
-  readonly columnOrderChange = output<string[]>();
-  readonly contextMenuOpened = output<DataGridContextMenuContext<T>>();
+  readonly sortChange = output<DataGridEventMap<T>['sortChange']>();
+  readonly filterChange = output<DataGridEventMap<T>['filterChange']>();
+  readonly cellEdit = output<DataGridEventMap<T>['cellEdit']>();
+  readonly rowEdit = output<DataGridEventMap<T>['rowEdit']>();
+  readonly rowEditStart = output<DataGridEventMap<T>['rowEditStart']>();
+  readonly rowEditCancel = output<DataGridEventMap<T>['rowEditCancel']>();
+  readonly cellClick = output<DataGridEventMap<T>['cellClick']>();
+  readonly rowClick = output<DataGridEventMap<T>['rowClick']>();
+  readonly selectionChange = output<DataGridEventMap<T>['selectionChange']>();
+  readonly queryChange = output<DataGridEventMap<T>['queryChange']>();
+  readonly stateChange = output<DataGridEventMap<T>['stateChange']>();
+  readonly columnOrderChange = output<DataGridEventMap<T>['columnOrderChange']>();
+  readonly contextMenuOpened = output<DataGridEventMap<T>['contextMenuOpened']>();
   readonly contextMenuClosed = output<void>();
-  readonly findMatchesChange = output<FindMatch[]>();
-  readonly rowReorder = output<RowReorderEvent<T>>();
-  readonly paste = output<PasteEvent<T>>();
+  readonly findMatchesChange = output<DataGridEventMap<T>['findMatchesChange']>();
+  readonly rowReorder = output<DataGridEventMap<T>['rowReorder']>();
+  readonly paste = output<DataGridEventMap<T>['paste']>();
   /** Fired by `infiniteScrollPlugin` when the viewport nears the bottom. */
   readonly nearEnd = output<void>();
   /** Fires once with the imperative API (AG-style `api`). */

@@ -29,10 +29,37 @@ describe('GridEventBus', () => {
     bus.onAny((name) => log.push(name));
 
     bus.emit('nearEnd', undefined);
-    bus.emit('sortChange', []);
+    bus.emit('sortChange', { sorts: [] });
     bus.emit('nearEnd', undefined);
 
     expect(log).toEqual(['nearEnd', 'sortChange', 'nearEnd']);
+  });
+
+  it('wraps sort, filter, column order, find, and row-edit-cancel as named objects', () => {
+    const bus = new GridEventBus<{ id: number }>();
+    const payloads: unknown[] = [];
+    bus.on('sortChange', (event) => payloads.push(event));
+    bus.on('filterChange', (event) => payloads.push(event));
+    bus.on('columnOrderChange', (event) => payloads.push(event));
+    bus.on('findMatchesChange', (event) => payloads.push(event));
+    bus.on('rowEditCancel', (event) => payloads.push(event));
+
+    bus.emit('sortChange', { sorts: [{ columnId: 'name', direction: 'asc' }] });
+    bus.emit('filterChange', { filters: { name: 'Ada' } });
+    bus.emit('columnOrderChange', { columnOrder: ['name', 'age'] });
+    bus.emit('findMatchesChange', {
+      query: 'ada',
+      matches: [{ rowId: 1, rowIndex: 0, columnId: 'name' }],
+    });
+    bus.emit('rowEditCancel', { rowId: 1, row: { id: 1 }, rowIndex: 0 });
+
+    expect(payloads).toEqual([
+      { sorts: [{ columnId: 'name', direction: 'asc' }] },
+      { filters: { name: 'Ada' } },
+      { columnOrder: ['name', 'age'] },
+      { query: 'ada', matches: [{ rowId: 1, rowIndex: 0, columnId: 'name' }] },
+      { rowId: 1, row: { id: 1 }, rowIndex: 0 },
+    ]);
   });
 
   it('isolates listener failures', () => {

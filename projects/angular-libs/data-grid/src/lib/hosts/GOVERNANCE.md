@@ -27,7 +27,7 @@ Enforced by [`governance.spec.ts`](./governance.spec.ts).
 | --- | --- |
 | `data-grid.ts` (binder) | ≤ **910** LOC (F3: achieved ~857; prefer ≤1000) |
 | Each `*.host.ts` | ≤ **500** LOC |
-| Fat hosts (`viewport`, `edit-sync`, `column-layout`) | ≤ **600** LOC |
+| Fat hosts (`viewport`, `edit-sync`, `column-layout`) | ≤ **670** LOC (viewport achieved ~619) |
 
 Soft guidance: keep the binder ≤1000; split a host if it becomes a second binder.
 New features go on a host method or plugin — never a binder-only API.

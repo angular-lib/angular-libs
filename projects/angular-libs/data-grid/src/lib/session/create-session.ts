@@ -39,7 +39,6 @@ import type {
   CreateRowFormFn,
   DataGridContextMenuContext,
   DataGridContextMenuItems,
-  DataGridFilterState,
   DataGridQuery,
   DataGridState,
   EditMode,
@@ -50,9 +49,7 @@ import type {
   RowReorderEvent,
   SelectionChangeEvent,
   SelectionMode,
-  SortState,
 } from '../components/data-grid/data-grid.types';
-import type { FindMatch } from '../utils/find';
 import type { ResolvedEditInteraction } from '../editing/edit-interaction';
 
 export interface CreateSessionModels<T> {
@@ -66,8 +63,8 @@ export interface CreateSessionModels<T> {
 }
 
 export interface CreateSessionOutputs<T> {
-  sortChange: OutputEmitterRef<SortState[]>;
-  filterChange: OutputEmitterRef<DataGridFilterState>;
+  sortChange: OutputEmitterRef<DataGridEventMap<T>['sortChange']>;
+  filterChange: OutputEmitterRef<DataGridEventMap<T>['filterChange']>;
   cellEdit: OutputEmitterRef<DataGridEventMap<T>['cellEdit']>;
   rowEdit: OutputEmitterRef<DataGridEventMap<T>['rowEdit']>;
   rowEditStart: OutputEmitterRef<DataGridEventMap<T>['rowEditStart']>;
@@ -76,10 +73,10 @@ export interface CreateSessionOutputs<T> {
   selectionChange: OutputEmitterRef<SelectionChangeEvent<T>>;
   queryChange: OutputEmitterRef<DataGridQuery>;
   stateChange: OutputEmitterRef<DataGridState>;
-  columnOrderChange: OutputEmitterRef<string[]>;
+  columnOrderChange: OutputEmitterRef<DataGridEventMap<T>['columnOrderChange']>;
   contextMenuOpened: OutputEmitterRef<DataGridContextMenuContext<T>>;
   contextMenuClosed: OutputEmitterRef<void>;
-  findMatchesChange: OutputEmitterRef<FindMatch[]>;
+  findMatchesChange: OutputEmitterRef<DataGridEventMap<T>['findMatchesChange']>;
   rowReorder: OutputEmitterRef<RowReorderEvent<T>>;
   nearEnd: OutputEmitterRef<void>;
   paste: OutputEmitterRef<PasteEvent<T>>;
@@ -272,10 +269,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     processedRows: () => processedRows(),
     data: () => opts.data(),
     hostElement: opts.hostElement,
-    publishSort: (sorts) => opts.publish('sortChange', out.sortChange, sorts),
-    publishFilter: (filters) => opts.publish('filterChange', out.filterChange, filters),
-    publishColumnOrder: (order) =>
-      opts.publish('columnOrderChange', out.columnOrderChange, order),
+    publishSort: (event) => opts.publish('sortChange', out.sortChange, event),
+    publishFilter: (event) => opts.publish('filterChange', out.filterChange, event),
+    publishColumnOrder: (event) =>
+      opts.publish('columnOrderChange', out.columnOrderChange, event),
     getStateExtras: () => ({
       pageIndex: viewport.pageIndex(),
       activeSidePanel: viewport.activeSidePanel(),
@@ -317,7 +314,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     emitQueryIfServer,
     publishNearEnd: () => opts.publish('nearEnd', out.nearEnd, undefined),
     publishFindMatches: (matches) =>
-      opts.publish('findMatchesChange', out.findMatchesChange, matches),
+      opts.publish('findMatchesChange', out.findMatchesChange, {
+        query: models.findQuery(),
+        matches,
+      }),
     publishRowReorder: (payload) => opts.publish('rowReorder', out.rowReorder, payload),
   });
 

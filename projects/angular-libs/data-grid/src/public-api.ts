@@ -96,6 +96,7 @@ export type {
   ColumnGroupDef,
   ColumnOrGroupDef,
   ColumnPin,
+  ColumnOrderChangeEvent,
   CreateRowFormFn,
   DataGridContextMenuContext,
   DataGridContextMenuItem,
@@ -104,18 +105,21 @@ export type {
   DataGridQuery,
   DataGridState,
   EditMode,
+  FilterChangeEvent,
   CellRange,
   FillEvent,
   PasteEvent,
   ResolvedColumn,
   RowClassFn,
   RowClickEvent,
+  RowEditCancelEvent,
   RowEditContext,
   RowEditEvent,
   RowEditSchema,
   RowReorderEvent,
   SelectedRow,
   SelectionChangeEvent,
+  SortChangeEvent,
   SelectionMode,
   SideBarConfig,
   SideBarPanelId,
@@ -127,7 +131,7 @@ export type {
 export { rowsToCsv, downloadCsv } from './lib/utils/csv';
 export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
-export type { FindMatch, FindTextPart } from './lib/utils/find';
+export type { FindMatch, FindMatchesChangeEvent, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';
 export { applyCellEdit, applyRowEdit, writeCellValue, mergeRowsById } from './lib/utils/apply-edit';
 export {
