@@ -1,17 +1,15 @@
 # Event Bus
 
-A type-safe, RxJS-free event bus powered entirely by Angular Signals
+A typed, signal-based event bus service for Angular. No RxJS.
 
 [StackBlitz playground](https://stackblitz.com/edit/angular-libs-event-bus?file=src%2Fmain.ts)
 
-## Features
-
-- ✅ **Strongly Typed**: Full type-safety for event payloads out of the box.
-- 🚀 **Signal-Based**: Built on Angular Signals for a modern, reactive architecture. Angular 20+
-- 📡 **Flexible Subscriptions**: Listen via callbacks (`on`) or reactive signals (`onToSignal`).
-- 🌀 **Async Resource Mapping**: Reactively map events to async operations with `onToResource()`. Integrates directly with Angular's modern Resource API, providing native loading status, error signals, and auto-abort cancellation.
-- 🔄 **Event Transformation**: Map payloads directly within subscription options.
-- 🧹 **Smart Cleanup**: Automatic memory management via `DestroyRef`, custom signals, or termination events.
+- ✅ **Strongly typed**: payloads, keys, tuples, middleware options and projections are all checked against your event map.
+- 🚀 **Signal-based**: `onToSignal`, `combineLatestToSignal` and projections return signals. Angular 20+.
+- 🌀 **Async resources**: `onToResource()` maps events to Angular's Resource API, with loading/error state and abort.
+- 🧩 **Middleware**: logger, debounce and cross-tab sync built in, or write your own.
+- ↩️ **Projections with undo**: derive state from events, with snapshot undo/redo.
+- 🧹 **Automatic cleanup**: `on()` stops with the component or service that called it.
 
 ## Installation
 
@@ -19,246 +17,257 @@ A type-safe, RxJS-free event bus powered entirely by Angular Signals
 ng add @angular-libs/event-bus
 ```
 
-## Getting Started
+## Getting started
 
-_(Note: `ng add` generates this setup for you automatically!)_
+_(`ng add` generates this for you.)_
 
-```typescript
+```ts
 // 1. Define your events
 export interface AppEventMap {
-  "user:login": { userId: string; username: string };
-  "theme:changed": "light" | "dark";
+  'user:login': { userId: string; name: string };
+  'user:logout': void;
+  'theme:changed': 'light' | 'dark';
 }
 
 // 2. Create the service
-@Injectable({ providedIn: "root" })
+@Injectable({ providedIn: 'root' })
 export class AppEventBus extends ALEventBus<AppEventMap> {}
 ```
 
-```typescript
-// 3. Usage inside a component
-@Component({ ... })
-export class ExampleComponent {
-  private eventBus = inject(AppEventBus);
+```ts
+// 3. Use it
+@Component({ template: `Hello {{ user()?.name ?? 'guest' }}` })
+export class HeaderComponent {
+  private bus = inject(AppEventBus);
 
-  // Listen as a Signal
-  loginState = this.eventBus.onToSignal('user:login');
+  user = this.bus.onToSignal('user:login');
 
   constructor() {
-    // Listen with a callback - automatically contextually cleaned up!
-    this.eventBus.on('user:login', {
-      callback: (event) => console.log('Logged in:', event.payload.username)
-    });
+    // Stops automatically when the component is destroyed.
+    this.bus.on('user:logout', () => this.router.navigate(['/']));
   }
 
-  // Emit
   login() {
-    this.eventBus.emit('user:login', { userId: '123', username: 'john_doe' });
+    this.bus.emit('user:login', { userId: '42', name: 'Ada' });
   }
 }
 ```
 
 ## API
 
-- `emit(key, payload, options?)`: Emits an event with a given key, payload, and optional metadata `options` (e.g. `headers`). Argument positions are always fixed - the payload is never confused with `options`, even if it happens to look like `{ headers: ... }`. For `void`-typed events, `payload` can be omitted entirely (`emit(key)`), or pass `undefined` explicitly if you also need to supply `options` (`emit(key, undefined, options)`).
-- `on(key, options)`: Subscribes to an event with a callback. The callback receives a BusEvent object ({ key, payload, timestamp }). It automatically context-resolves `DestroyRef` and unsubscribes when the enclosing component/service injection context is destroyed (to bypass this and keep a manual registration, set `unsubscribeOn` to `'manual'`). Returns an unsubscribe function.
-- `once(key, options)`: Subscribes for a single emission; the subscription is removed after the first call.
-- `onToSignal(key, options?)`: Returns a Signal that emits the event payload (or the transformed payload). If the event has never emitted, it returns `options.defaultValue` (or `undefined` if not specified).
-- `onToResource(key, options)`: Returns an Angular `ResourceRef` that triggers an asynchronous loader whenever the event is emitted. Under the hood, it hooks into Angular's modern Resource API, providing native `.value()`, `.isLoading()`, `.error()`, and automatic `options.defaultValue` support.
-- `latest(key)`: Returns the latest BusEvent for a given key (includes payload and timestamp) or `undefined`.
-- `combineLatestToSignal(sources)`: Returns a Signal of the latest transformed payloads. `sources` is `{ key, transform? }[]` (not a string array).
-- `combineLatest({ sources, callback })`: Subscribes to combined latest values and calls the callback with an array of BusEvent objects (one per source). Returns an unsubscribe function.
-- `unsubscribe(key)`: Unsubscribe/destroy all subscriptions for a specific event key.
-- `unsubscribeAll()`: Unsubscribe/destroy all subscriptions registered with the event bus (tears down all internal effects).
-- `resetEvent(key)`: Resets the stored payload for a single event so it behaves as if it has never emitted. This does NOT remove subscriptions — it only clears the latest cached value.
-- `resetAllEvents()`: Resets the stored payloads for all events so they behave as if they have never emitted. This does NOT remove subscriptions.
+### Emitting
 
-## Plugins & Extensibility
+```ts
+bus.emit('user:login', { userId: '42', name: 'Ada' });
+bus.emit('user:logout');                                    // void events need no payload
+bus.emit('user:logout', undefined, { headers: { reason: 'timeout' } });
+```
 
-`@angular-libs/event-bus` features a robust, functional plugin architecture that allows intercepted observation, payload modification, and custom lifecycle additions (e.g., cross-tab sync, debouncing, time-travel). To register plugins in your event bus subclass, invoke `registerPlugin`:
+Arguments are always `(key, payload, options?)`. Emits are synchronous; an emit from inside a handler is delivered after the current event, in order. Emitting inside `effect()`/`computed()` never makes them depend on signals read by handlers.
 
-```typescript
+### Listening
+
+```ts
+bus.on('user:login', (user, event) => console.log(user.name, event.timestamp));
+bus.on(['cart:add', 'cart:clear'], (_, event) => track(event.key)); // several keys
+bus.once('app:ready', () => init());
+
+// Stop early:
+const stop = bus.on('theme:changed', apply, { unsubscribeOn: 'manual' });
+stop();
+```
+
+The handler gets the payload and the full event (`{ key, payload, headers, origin, timestamp }`). Errors thrown by a handler, or promises it rejects, are logged and never affect other handlers.
+
+**Cleanup.** Called in an injection context (constructor, field initializer), `on()` stops when that component/directive/service is destroyed. `unsubscribeOn` adds another way to stop:
+
+| `unsubscribeOn` | Stops when |
+|:--|:--|
+| _(omitted)_ | the surrounding injection context is destroyed |
+| `'user:logout'` or `['a', 'b']` | one of these events is emitted (or the context is destroyed) |
+| an `AbortSignal` | it aborts (or the context is destroyed) |
+| a `DestroyRef` | it is destroyed (or the context is destroyed) |
+| `'manual'` | only when you call the returned function |
+
+Outside an injection context without `unsubscribeOn`, a dev-mode warning reminds you to stop the subscription.
+
+### Signals
+
+```ts
+user = bus.onToSignal('user:login');                                    // Signal<User | undefined>
+name = bus.onToSignal('user:login', { transform: (u) => u.name, defaultValue: 'guest' }); // Signal<string>
+session = bus.combineLatestToSignal(['user:login', 'theme:changed']);   // Signal<[User, Theme] | undefined>
+```
+
+`onToSignal` starts with the latest payload already emitted and follows new ones. Like any signal it compares by value, so the same payload twice does not notify twice — use `on()` or a projection when every occurrence matters.
+
+`combineLatest(keys, handler)` is the callback version: it runs whenever one of the keys is emitted, once all have been emitted at least once.
+
+### Async resources
+
+```ts
+profile = bus.onToResource('user:login', {
+  transform: (user) => user.userId,           // optional; the loader's params
+  loader: ({ params: userId, abortSignal, event }) =>
+    fetch(`/api/users/${userId}`, { signal: abortSignal }).then((r) => r.json() as Promise<Profile>),
+  defaultValue: guestProfile,                 // optional
+});
+
+// profile.value(), profile.status(), profile.isLoading(), profile.error(), profile.reload()
+```
+
+Loads every time the event is emitted — even with an identical payload — and aborts the previous load. Idle until the first event, and again after `resetEvent('user:login')`. Needs an injection context, or pass `injector`.
+
+### Reading and resetting
+
+- `latest(key)`: the latest event (`{ key, payload, headers, origin, timestamp }`) or `undefined`.
+- `resetEvent(key)` / `resetAllEvents()`: forget the latest payload, so signals return to their default and resources to idle. Handlers and projections keep running.
+- `unsubscribe(key)` / `unsubscribeAll()`: stop every handler of a key / of the bus. Mostly for tests.
+
+## Projections (state + undo)
+
+A projection folds events into state. Declare it as a field of your bus; every emitted event runs its reducer (identical payloads count too).
+
+```ts
 @Injectable({ providedIn: 'root' })
-export class AppEventBus extends ALEventBus<AppEventMap, AppHeaders> {
-  // 1. Property-stored Active Plugin (exposes public controls)
-  history = this.registerPlugin(historyPlugin({ keys: ['chat:message'] }));
+export class AppEventBus extends ALEventBus<AppEventMap> {
+  cart = this.projection({ items: [] as Item[] }, {
+    'cart:add': (s, item) => ({ items: [...s.items, item] }),
+    'cart:remove': (s, { sku }) => ({ items: s.items.filter((i) => i.sku !== sku) }),
+    'cart:clear': () => ({ items: [] }),
+  }, { undo: true });                       // or { undo: { limit: 100 } }
+}
 
+// anywhere
+bus.cart.state();                           // Signal<{ items: Item[] }>
+bus.cart.undo();  bus.cart.redo();
+bus.cart.canUndo(); bus.cart.canRedo();     // signals — safe in OnPush/zoneless templates
+bus.cart.clearHistory(); bus.cart.reset();
+```
+
+Undo restores the whole previous state, whichever event produced it. Return the same state object from a reducer to mean "no change" (no history entry).
+
+## Middleware
+
+Add middleware in your bus constructor with `use()`. It runs in order, before handlers.
+
+```ts
+@Injectable({ providedIn: 'root' })
+export class AppEventBus extends ALEventBus<AppEventMap> {
   constructor() {
     super();
-
-    // 2. Passive Interceptor Plugins
-    this.registerPlugin(loggerPlugin());
-    this.registerPlugin(crossTabSyncPlugin());
-    this.registerPlugin(debouncePlugin([
-      { key: 'input:search-typed', delay: 300 }
-    ]));
+    this.use(
+      withLogger(),                                            // dev only by default
+      withDebounce(['search:typed', 'window:resized'], 300),
+      withCrossTabSync({ channel: 'my-app', keys: ['user:logout', 'cart:add'] }),
+    );
   }
 }
 ```
 
-### Built-in Plugins
+| Middleware | Description |
+|:--|:--|
+| `withLogger({ enabled?, filter? })` | Logs each event as a collapsed console group. `enabled` defaults to `isDevMode()`. |
+| `withDebounce(keys, ms)` | Delivers only the latest of each key after `ms` of quiet. |
+| `withCrossTabSync({ channel, keys? })` | Mirrors events and resets to other tabs via `BroadcastChannel`. Received events have `origin: 'remote'` and are never sent back — even combined with debounce. Payloads must be structured-cloneable. No-op during SSR. |
+| `withBubbling()` | For a bus provided in a component: also delivers its events to the parent (e.g. root) instance. |
+| `withMiddleware(factory)` | Your own middleware. |
 
-The package ships with four high-profile, plug-and-play functional factories:
+Keys in middleware options are checked against your event map.
 
-| Plugin | Type | Options | Description |
-|:---|:---:|:---|:---|
-| **`loggerPlugin`** | Passive | `{ enabled?: boolean, theme?: { headerColor?: string, payloadColor?: string } }` | Console-groups emissions. Default `enabled` is `isDevMode()` (silent in production unless you pass `true`). |
-| **`debouncePlugin`** | Passive | `DebounceRule[]` | Intercepts rapid event cascades (like typing or window resizes) and buffers dispatches with a strict custom millisecond delay. |
-| **`crossTabSyncPlugin`** | Passive | `{ keys?: string[], channelName?: string }` | Synchronizes specified events across browser tabs in real time using the highly optimized `BroadcastChannel` API. |
-| **`historyPlugin`** | Active | `{ limit?: number, keys?: string[] }` | Timeline undo/redo via `.undo()`, `.redo()`, `.canUndo()`, `.canRedo()`. Undo re-emits the previous stack entry’s key/payload — it is **not** a full multi-key state restore. Prefer `keys: [...]` when tracking related editor events, or treat the stack as a command log. |
+### Custom middleware
 
----
+A middleware passes an event on (`next(event)`), changes it (`next({ ...event, payload })`), drops it (doesn't call `next`), or defers it (calls `next` later — it continues from the same point, so later middleware sees it once). The factory runs in the bus's injection context, so it can `inject()`. `event.key` narrows `event.payload`.
 
-## Global Typed Headers
+```ts
+this.use(
+  withMiddleware(() => {
+    const analytics = inject(Analytics);
+    return {
+      handle(event, next) {
+        next(event);
+        if (event.key === 'user:login') analytics.identify(event.payload.userId);
+      },
+    };
+  }),
+);
+```
 
-The event bus supports type-safe metadata headers on emissions and plugin pipelines by supplying a second type parameter:
+Optional hooks: `onReset(key, origin)` and `destroy()`. A middleware that throws is logged and the event continues unchanged.
 
-```typescript
-interface CustomHeaders {
-  origin?: 'server' | 'user' | 'extension';
+## Scoped buses
+
+Provide the bus in a component to give that subtree its own instance, destroyed with it:
+
+```ts
+@Component({ providers: [WizardEventBus] })
+export class WizardComponent {}
+```
+
+Its constructor (and `use(...)`) runs for that instance too. Add `withBubbling()` if the root instance should also see the subtree's events.
+
+## Typed headers
+
+```ts
+interface AppHeaders {
   traceId?: string;
 }
 
 @Injectable({ providedIn: 'root' })
-export class AppEventBus extends ALEventBus<AppEventMap, CustomHeaders> {}
+export class AppEventBus extends ALEventBus<AppEventMap, AppHeaders> {}
 
-// Strictly typed emission matching CustomHeaders:
-eventBus.emit('theme:changed', 'dark', {
-  headers: { origin: 'user', traceId: 'tx_abc123' }
-});
-
-// Access anywhere on subscriber events:
-eventBus.on('theme:changed', {
-  callback: (e) => console.log('Tx log:', e.headers?.traceId),
-});
+bus.emit('theme:changed', 'dark', { headers: { traceId: 'tx_1' } });
+bus.on('theme:changed', (_, e) => console.log(e.headers?.traceId));
 ```
 
-## RxJS Integration
+## Testing
 
-If parts of your application rely heavily on RxJS (e.g., state management, complex debouncing, or routing pipelines), you can easily bridge the signal-based event bus to an Observable. Since the core library is strictly RxJS-free, we recommend adding this simple integration pattern directly in your application's typed service:
+Each `TestBed` gets fresh root services, so bus state does not leak between tests.
 
-```typescript
-import { Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
-import { ALEventBus } from '@angular-libs/event-bus';
-import { AppEventMap } from './app.event-bus.models'; // your custom event types
+```ts
+const bus = TestBed.inject(AppEventBus);
+const theme = bus.onToSignal('theme:changed');
+bus.emit('theme:changed', 'dark');
+expect(theme()).toBe('dark');
+```
 
-@Injectable({ providedIn: 'root' })
-export class AppEventBus extends ALEventBus<AppEventMap> {
-  /**
-   * Returns an Observable of the selected event's payload for integration with RxJS streams.
-   * Subscription and tear-down are fully bound to RxJS leaf-subscribers automatically.
-   *
-   * @example
-   * ```typescript
-   * private eventBus = inject(AppEventBus);
-   *
-   * // Perfect for rate-limiting search inputs with standard RxJS operators!
-   * searchResults$ = this.eventBus.on$('search:query').pipe(
-   *   debounceTime(300),
-   *   distinctUntilChanged(),
-   *   switchMap(query => this.apiService.search(query))
-   * );
-   * ```
-   */
-  on$<K extends keyof AppEventMap>(key: K): Observable<AppEventMap[K]> {
-    return new Observable<AppEventMap[K]>((subscriber) => {
-      const unsubscribe = this.on(key, {
-        callback: (event) => subscriber.next(event.payload),
-      });
-      return () => unsubscribe();
-    });
-  }
+## RxJS interop
+
+```ts
+on$<K extends EventKey<AppEventMap>>(key: K): Observable<AppEventMap[K]> {
+  return new Observable((subscriber) => this.on(key, (payload) => subscriber.next(payload), { unsubscribeOn: 'manual' }));
 }
 ```
+
+## Migrating from 0.2
+
+| 0.2 | 0.3 |
+|:--|:--|
+| `bus.on(key, { callback: (e) => …e.payload, transform, unsubscribeOn })` | `bus.on(key, (payload, e) => …, { unsubscribeOn })` |
+| `bus.once(key, { callback })` | `bus.once(key, handler)` |
+| `combineLatestToSignal([{ key: 'a', transform }, { key: 'b' }])` | `combineLatestToSignal(['a', 'b'])` + `computed()` |
+| `combineLatest({ sources, callback })` | `combineLatest(['a', 'b'], ([a, b]) => …)` |
+| `this.registerPlugin(loggerPlugin())` | `this.use(withLogger())` |
+| `debouncePlugin([{ key, delay }])` | `withDebounce(key, delay)` |
+| `crossTabSyncPlugin({ keys, channelName })` | `withCrossTabSync({ keys, channel })` (channel is required) |
+| `history = this.registerPlugin(historyPlugin({ keys }))` | `history = this.projection(initial, reducers, { undo: true })` |
+| `createEventBusHooks(AppEventBus)` | removed |
+| `ALEventBusPlugin` hooks | `Middleware` (`handle`, `onReset`, `destroy`) |
+
+`emit`, `onToSignal`, `onToResource`, `latest`, `resetEvent`, `resetAllEvents`, `unsubscribe` and `unsubscribeAll` keep their signatures.
 
 <details>
 <summary>🤖 <b>AI & Copilot Instructions</b></summary>
 <br>
 
-If you are an AI coding assistant, please follow these rules when generating code that uses `@angular-libs/event-bus`:
+When generating code that uses `@angular-libs/event-bus`:
 
-1. **No RxJS**: This library is strictly Signal-based. Do NOT use `Subject`, `BehaviorSubject`, or `Observable` for the event bus. Use `onToSignal` (or `combineLatestToSignal`).
-2. **Setup**: Always extend `ALEventBus<YourAppEventMap>` and provide it in the root (`@Injectable({ providedIn: 'root' })`). Do not use the base class directly without a type map.
-3. **Injection**: Prefer Angular's `inject(YourAppEventBus)` over relying on constructor injection.
-4. **Reactivity**: Prefer `onToSignal('event')` when binding state to a template to stay aligned with Angular's reactive Signal architecture. Use `{ defaultValue }` when a template binding expects a defined initial value.
-5. **Cleanup**: Calling `on()` inside a component or service constructor/field initializer automatically handles unsubscription. If calling callback-based `on()` subscriptions outside an injection context, ensure you either manually invoke the returned unsubscribe function, or pass custom terminating triggers (like event keys: `unsubscribeOn: 'user:logout'`) to prevent memory leaks.
-6. **Types**: Do not map payloads to `any`. Let TypeScript infer the payload type based on the defined `EventMap`.
-7. **Transformations**: Instead of manually mapping values later, use the `transform` property in the options object to map payloads directly (e.g., `this.eventBus.onToSignal('event', { transform: (p) => p.id })`).
-8. **Combining Events**: Use `combineLatestToSignal([{ key: 'event1' }, { key: 'event2' }])` to create a single signal that reacts to multiple events.
-9. **Synchronous Reads**: To get the current state imperatively without subscribing, use `latest('event')` instead of manually tracking emitted values in local variables.
-11. **Async Fetching / Loading**: For data fetching triggered by events, prefer the `onToResource` API. This couples the event stream directly to Angular's native modern Async `resource` structure with built-in loading, error signals, auto-abort cancellation, and `defaultValue` options.
-12. **Testing**: In unit tests, remember to call `resetAllEvents()` in your `beforeEach` blocks to prevent state pollution across tests since the service retains the latest payloads.
-
-**Reference Example:**
-
-```typescript
-// 1. Define Map & Service
-export interface AppEventMap {
-  "item:added": { id: string; name: string };
-  "cart:cleared": void;
-}
-@Injectable({ providedIn: "root" })
-export class AppEventBus extends ALEventBus<AppEventMap> {}
-
-// 2. Usage in Component
-@Component({ template: `<div>{{ latestItemId() || "No item" }}</div>` })
-export class CartComponent {
-  private eventBus = inject(AppEventBus);
-
-  // Good: Signal usage with transformation
-  latestItemId = this.eventBus.onToSignal("item:added", {
-    transform: (payload) => payload.id,
-  });
-
-  // Good: Callback usage (automatically unsubscribes when CartComponent is destroyed!)
-  constructor() {
-    this.eventBus.on("cart:cleared", {
-      callback: () => console.log("Cart was cleared!"),
-    });
-  }
-
-  addItem() {
-    this.eventBus.emit("item:added", { id: "1", name: "Apple" }); // Strictly typed!
-  }
-}
-```
-
-**Advanced Patterns Example:**
-
-```typescript
-@Component({ template: `...` })
-export class AdvancedComponent {
-  private eventBus = inject(AppEventBus);
-
-  // 1. Combine multiple events into a single Signal
-  // Prevents AI from importing RxJS `combineLatest`
-  dashboardState = this.eventBus.combineLatestToSignal([{ key: "item:added" }, { key: "cart:cleared" }]);
-
-  // 2. One-time execution (no DestroyRef needed!)
-  waitForFirstItem() {
-    this.eventBus.once("item:added", {
-      callback: (e) => console.log("First item added:", e.payload),
-    });
-  }
-
-  // 3. Auto-terminate listener on another event
-  logItemsUntilCartCleared() {
-    this.eventBus.on("item:added", {
-      callback: (e) => console.log("Added:", e.payload),
-      unsubscribeOn: "cart:cleared", // Automatically unsubscribes when this event is emitted
-    });
-  }
-
-  // 4. Async resource fetching with modern Resource API & defaultValue
-  userDataResource = this.eventBus.onToResource("user:login", {
-    defaultValue: { profileUrl: 'assets/default-avatar.png', role: 'guest' },
-    loader: async ({ params }) => {
-      const resp = await fetch(`/api/users/${params.userId}`);
-      return resp.json();
-    }
-  });
-}
-```
+1. Define events in one `AppEventMap` interface and extend `ALEventBus<AppEventMap>` in an `@Injectable({ providedIn: 'root' })` service. Inject it with `inject(AppEventBus)`.
+2. Emit with `bus.emit(key, payload)`; omit the payload for `void` events.
+3. React with `bus.on(key, (payload, event) => …)` in a constructor or field initializer — it cleans up automatically. Outside an injection context pass `{ unsubscribeOn }`.
+4. Bind state with `bus.onToSignal(key, { transform, defaultValue })` and `bus.combineLatestToSignal([...keys])`; derive with `computed()`. Do not use RxJS subjects.
+5. Load data on events with `bus.onToResource(key, { transform, loader })`.
+6. Use `this.projection(initial, reducers, { undo })` inside the bus class for state built from several events, counters or undo/redo.
+7. Add middleware in the bus constructor: `this.use(withLogger(), withDebounce(...), withCrossTabSync(...))`.
 
 </details>

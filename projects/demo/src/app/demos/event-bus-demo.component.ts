@@ -1,27 +1,49 @@
 import { Component, inject, Injectable, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ALEventBus } from '@angular-libs/event-bus';
-import { debouncePlugin, historyPlugin, loggerPlugin, crossTabSyncPlugin } from '@angular-libs/event-bus';
+import { ALEventBus, withCrossTabSync, withDebounce, withLogger } from '@angular-libs/event-bus';
+
+interface ChatMessage {
+  username: string;
+  text: string;
+}
+interface SystemAlert {
+  priority: 'low' | 'high';
+  text: string;
+}
 
 interface DemoEventMap {
-  'chat:message': { username: string; text: string };
-  'system:notification': { priority: 'low' | 'high'; text: string };
+  'chat:message': ChatMessage;
+  'system:notification': SystemAlert;
   'action:clear': void;
   'input:keystroke': { text: string };
 }
 
 @Injectable({ providedIn: 'root' })
 export class DemoEventBus extends ALEventBus<DemoEventMap> {
-  // Register active undo/redo history plugin
-  history = this.registerPlugin(historyPlugin({ keys: ['chat:message', 'system:notification'] }));
+  // Latest chat + alert as one undoable state.
+  feed = this.projection<{ chat?: ChatMessage; alert?: SystemAlert }>(
+    {},
+    {
+      'chat:message': (s, chat) => ({ ...s, chat }),
+      'system:notification': (s, alert) => ({ ...s, alert }),
+      'action:clear': () => ({}),
+    },
+    { undo: true },
+  );
+
+  // Every message counts, even identical ones.
+  transcript = this.projection<string[]>([], {
+    'chat:message': (lines, m) => [...lines, m.text],
+    'action:clear': () => [],
+  });
 
   constructor() {
     super();
-
-    // Register passive plugins
-    this.registerPlugin(loggerPlugin());
-    this.registerPlugin(crossTabSyncPlugin({ keys: ['chat:message'] }));
-    this.registerPlugin(debouncePlugin([{ key: 'input:keystroke', delay: 400 }]));
+    this.use(
+      withLogger(),
+      withDebounce('input:keystroke', 400),
+      withCrossTabSync({ channel: 'angular-libs-demo', keys: ['chat:message'] }),
+    );
   }
 }
 
@@ -49,10 +71,10 @@ interface LogEntry {
           <!-- HISTORY UNDO/REDO PANEL -->
           <div class="widget-card history-controls">
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <h3>↩️ History Controls (historyPlugin)</h3>
+              <h3>↩️ History Controls (projection with undo)</h3>
               <div style="display: flex; gap: 8px;">
                 <button
-                  [disabled]="!hasUndo"
+                  [disabled]="!eventBus.feed.canUndo()"
                   (click)="undo()"
                   class="btn btn-secondary-outline btn-xs"
                   style="padding: 6px 12px;"
@@ -60,7 +82,7 @@ interface LogEntry {
                   ⏪ Undo
                 </button>
                 <button
-                  [disabled]="!hasRedo"
+                  [disabled]="!eventBus.feed.canRedo()"
                   (click)="redo()"
                   class="btn btn-secondary-outline btn-xs"
                   style="padding: 6px 12px;"
@@ -70,7 +92,7 @@ interface LogEntry {
               </div>
             </div>
             <p class="sub-caption" style="margin-top: 4px; margin-bottom: 0;">
-              Supports traveling backwards/forwards across chat and system notification alerts.
+              Undo restores the whole previous state, across chat messages and alerts.
             </p>
           </div>
 
@@ -107,7 +129,7 @@ interface LogEntry {
 
             <!-- Debounced Keystroke sub-form -->
             <div class="form-sub-panel">
-              <h4>⏱️ Debounced Input Event (debouncePlugin)</h4>
+              <h4>⏱️ Debounced Input Event (withDebounce)</h4>
               <div class="inputs-row">
                 <input
                   type="text"
@@ -227,38 +249,36 @@ interface LogEntry {
           </div>
 
           <div class="widget-card">
-            <h3>🔗 State Bindings (onToSignal)</h3>
+            <h3>🔗 State Bindings (projection)</h3>
             <div class="grid-2" style="margin-bottom: 20px;">
               <div class="binding-item">
                 <span class="label">Chat</span>
-                @if (chatSignal()) {
-                  <strong>{{ chatSignal()?.username }}</strong
-                  >: {{ chatSignal()?.text }}
+                @if (eventBus.feed.state().chat; as chat) {
+                  <strong>{{ chat.username }}</strong>: {{ chat.text }}
                 } @else {
                   <span class="placeholder">No emission</span>
                 }
               </div>
               <div class="binding-item">
                 <span class="label">Alert</span>
-                @if (notifySignal()) {
-                  <strong>[{{ notifySignal()?.priority | uppercase }}]</strong>:
-                  {{ notifySignal()?.text }}
+                @if (eventBus.feed.state().alert; as alert) {
+                  <strong>[{{ alert.priority | uppercase }}]</strong>: {{ alert.text }}
                 } @else {
                   <span class="placeholder">No emission</span>
                 }
               </div>
             </div>
             <div class="binding-item" style="margin-top: 12px;">
-              <span class="label">Transformed Array Default (NoInfer Proof)</span>
+              <span class="label">Transcript (projection counts every message)</span>
               <strong>Values:</strong>
-              @for (text of chatHistorySignal(); track $index) {
+              @for (text of eventBus.transcript.state(); track $index) {
                 <span
                   class="badge"
                   style="background-color: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.8rem; margin-right: 4px; color: #0284c7;"
                   >"{{ text }}"</span
                 >
               } @empty {
-                <span class="placeholder">Empty array literal default works!</span>
+                <span class="placeholder">No messages yet</span>
               }
             </div>
           </div>
@@ -280,8 +300,8 @@ interface LogEntry {
                 <code>onToResource()</code>.
               </li>
               <li>
-                🔄 <strong>Transformations:</strong> Pipe and map payloads during subscription
-                setups.
+                🔄 <strong>Middleware:</strong> logger, debounce and cross-tab sync via
+                <code>use()</code>.
               </li>
               <li>
                 🧹 <strong>Auto-Cleanup:</strong> Automated lifecycle disposal tracking via
@@ -607,7 +627,7 @@ interface LogEntry {
   ],
 })
 export class EventBusDemoComponent {
-  private eventBus = inject(DemoEventBus);
+  eventBus = inject(DemoEventBus);
 
   logs = signal<LogEntry[]>([]);
   private logId = 0;
@@ -616,30 +636,18 @@ export class EventBusDemoComponent {
   keystrokeInput = signal('');
   debouncedKeystroke = this.eventBus.onToSignal('input:keystroke');
 
-  chatSignal = this.eventBus.onToSignal('chat:message');
-  notifySignal = this.eventBus.onToSignal('system:notification');
-  chatHistorySignal = this.eventBus.onToSignal('chat:message', {
-    transform: (p) => [p.text],
-    defaultValue: [],
+  private chatSignal = this.eventBus.onToSignal('chat:message');
+  private latestPair = this.eventBus.combineLatestToSignal(['chat:message', 'system:notification']);
+  combinedState = computed(() => {
+    const pair = this.latestPair();
+    if (!pair) return undefined;
+    const [chat, alert] = pair;
+    return [`${chat.username}: ${chat.text}`, `[${alert.priority.toUpperCase()}] ${alert.text}`] as const;
   });
 
-  combinedState = this.eventBus.combineLatestToSignal([
-    {
-      key: 'chat:message',
-      transform: (p: { username: string; text: string }) => `${p.username}: ${p.text}`,
-    },
-    {
-      key: 'system:notification',
-      transform: (p: { priority: 'low' | 'high'; text: string }) =>
-        `[${p.priority.toUpperCase()}] ${p.text}`,
-    },
-  ]);
-
-  // Extract the username of the last chat message reactively to show the load status
   lastChatUser = computed(() => this.chatSignal()?.username || 'user');
 
-  // Trigger an asynchronous resource loading whenever 'chat:message' is emitted!
-  // Maps perfectly via ALEventBus `.onToResource()` which utilizes Angular's native Resource API
+  // Loads a profile on every chat message; a newer message aborts the previous load.
   avatarLoader = this.eventBus.onToResource('chat:message', {
     defaultValue: { user: '', score: 0, rank: '' },
     transform: (payload) => payload.username,
@@ -664,43 +672,26 @@ export class EventBusDemoComponent {
   });
 
   constructor() {
-    this.eventBus.on('chat:message', {
-      callback: (e) => this.pushLog(e.key, `@${e.payload.username}: ${e.payload.text}`),
+    this.eventBus.on('chat:message', (m, e) => this.pushLog(e.key, `@${m.username}: ${m.text}`));
+    this.eventBus.on('system:notification', (a, e) =>
+      this.pushLog(e.key, `[${a.priority.toUpperCase()}] ${a.text}`),
+    );
+    this.eventBus.on('input:keystroke', (k, e) =>
+      this.pushLog(e.key, `Keystroke captured: "${k.text}"`),
+    );
+    this.eventBus.on('action:clear', (_, e) => {
+      this.pushLog(e.key, 'SYSTEM STATE FLUSHED');
+      this.eventBus.resetAllEvents();
     });
-
-    this.eventBus.on('system:notification', {
-      callback: (e) =>
-        this.pushLog(e.key, `[${e.payload.priority.toUpperCase()}] ${e.payload.text}`),
-    });
-
-    this.eventBus.on('input:keystroke', {
-      callback: (e) => this.pushLog(e.key, `Keystroke captured: "${e.payload.text}"`),
-    });
-
-    this.eventBus.on('action:clear', {
-      callback: () => {
-        this.pushLog('action:clear', 'SYSTEM STATE FLUSHED');
-        this.eventBus.resetAllEvents();
-      },
-    });
-  }
-
-  // Undo/Redo trigger helpers
-  get hasUndo() {
-    return this.eventBus.history.canUndo();
-  }
-
-  get hasRedo() {
-    return this.eventBus.history.canRedo();
   }
 
   undo() {
-    this.eventBus.history.undo();
+    this.eventBus.feed.undo();
     this.pushLog('system:history', 'History Action: UNDO executed');
   }
 
   redo() {
-    this.eventBus.history.redo();
+    this.eventBus.feed.redo();
     this.pushLog('system:history', 'History Action: REDO executed');
   }
 
