@@ -117,6 +117,54 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(received.length).toBe(2); // Should have increased because we bypassed contextual destruction!
   });
 
+  it('should still auto-unsubscribe on context destroy when unsubscribeOn is an event key', () => {
+    const received: string[] = [];
+
+    const fixture = TestBed.createComponent(MockComponent);
+    runInInjectionContext(fixture.debugElement.injector, () => {
+      eventBus.on('theme:changed', {
+        callback: (event) => { received.push(event.payload); },
+        unsubscribeOn: 'simple:event',
+      });
+    });
+
+    eventBus.emit('theme:changed', 'dark');
+    fixture.destroy();
+    eventBus.emit('theme:changed', 'light');
+    eventBus.emit('simple:event');
+    eventBus.emit('theme:changed', 'dark');
+
+    expect(received).toEqual(['dark']);
+  });
+
+  it('should unsubscribe on the terminator event while the injection context is still alive', () => {
+    const received: string[] = [];
+
+    const fixture = TestBed.createComponent(MockComponent);
+    runInInjectionContext(fixture.debugElement.injector, () => {
+      eventBus.on('theme:changed', {
+        callback: (event) => { received.push(event.payload); },
+        unsubscribeOn: ['simple:event'],
+      });
+    });
+
+    eventBus.emit('theme:changed', 'dark');
+    eventBus.emit('simple:event');
+    eventBus.emit('theme:changed', 'light');
+
+    expect(received).toEqual(['dark']);
+    fixture.destroy();
+  });
+
+  it('should not warn about leaks for key-based unsubscribeOn outside an injection context', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    eventBus.on('theme:changed', { callback: () => {}, unsubscribeOn: 'simple:event' });
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
   it('should support customized typed headers globally', () => {
     interface CustomHeaders {
       traceId: string;

@@ -734,22 +734,33 @@ export class ALEventBus<
       );
     }
 
-    const finalUnsubscribeOn = unsubscribeOn === 'manual'
-      ? undefined
-      : (unsubscribeOn ?? contextDestroyRef ?? undefined);
+    if (unsubscribeOn !== 'manual') {
+      const explicitDestroyRef =
+        typeof (unsubscribeOn as any)?.onDestroy === 'function' ? (unsubscribeOn as DestroyRef) : null;
+      const terminatorKeys =
+        unsubscribeOn && !explicitDestroyRef
+          ? (Array.isArray(unsubscribeOn) ? unsubscribeOn : [unsubscribeOn as string])
+          : [];
+      // Terminator keys add to the surrounding context's DestroyRef rather than replacing it, so a
+      // component that subscribes with `unsubscribeOn: 'some:event'` still cleans up when destroyed.
+      const destroyRef = explicitDestroyRef ?? contextDestroyRef;
+      const cleanups: (() => void)[] = [];
 
-    if (finalUnsubscribeOn) {
-      if (typeof (finalUnsubscribeOn as any).onDestroy === 'function') {
-        const cleanupDestroy = (finalUnsubscribeOn as DestroyRef).onDestroy(unsubscribe);
+      if (destroyRef) {
+        const cleanupDestroy = destroyRef.onDestroy(unsubscribe);
         if (typeof cleanupDestroy === 'function') {
-          cleanupTracker = cleanupDestroy;
+          cleanups.push(cleanupDestroy);
         }
-      } else {
-        const keys = Array.isArray(finalUnsubscribeOn) ? finalUnsubscribeOn : [finalUnsubscribeOn];
-        const cancelSubs = keys.map((k) =>
-          this.on(k as any, { callback: () => unsubscribe() }),
+      }
+      if (terminatorKeys.length > 0) {
+        // Terminator subscriptions are owned by this one and torn down with it.
+        const cancelSubs = terminatorKeys.map((k) =>
+          this.on(k as any, { callback: () => unsubscribe(), unsubscribeOn: 'manual' }),
         );
-        cleanupTracker = () => cancelSubs.forEach((unsub) => unsub());
+        cleanups.push(() => cancelSubs.forEach((unsub) => unsub()));
+      }
+      if (cleanups.length > 0) {
+        cleanupTracker = () => cleanups.forEach((cleanup) => cleanup());
       }
     }
 
