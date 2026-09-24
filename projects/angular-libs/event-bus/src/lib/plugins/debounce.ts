@@ -1,4 +1,4 @@
-import { EventBusFeature, EventKey } from '../event-bus.models';
+import { EventBusPlugin, EventKey } from '../event-bus.models';
 
 /**
  * Holds back the given events until none has been emitted for `ms` milliseconds, then delivers the
@@ -12,7 +12,7 @@ import { EventBusFeature, EventKey } from '../event-bus.models';
 export function withDebounce<TEventMap extends object>(
   keys: EventKey<TEventMap> | readonly EventKey<TEventMap>[],
   ms: number,
-): EventBusFeature<TEventMap, any> {
+): EventBusPlugin<TEventMap, any> {
   const debounced = new Set<string>(Array.isArray(keys) ? keys : [keys as string]);
   return () => {
     const timers = new Map<string, ReturnType<typeof setTimeout>>();

@@ -1,10 +1,10 @@
 // Compile-time checks. An unused `@ts-expect-error` fails the build, so every line is verified.
 import { Injectable, ResourceRef, Signal } from '@angular/core';
 import { ALEventBus } from './event-bus';
-import { withCrossTabSync } from './middleware/cross-tab-sync';
-import { withMiddleware } from './middleware/custom';
-import { withDebounce } from './middleware/debounce';
-import { withLogger } from './middleware/logger';
+import { withCrossTabSync } from './plugins/cross-tab-sync';
+import { definePlugin } from './plugins/define-plugin';
+import { withDebounce } from './plugins/debounce';
+import { withLogger } from './plugins/logger';
 import { TestEventBus, TestEventMap } from './testing/test-bus';
 
 @Injectable()
@@ -18,7 +18,7 @@ class TypedBus extends ALEventBus<TestEventMap, { traceId?: string }> {
       withLogger({ filter: (e) => e.key !== 'search:typed' }),
       withDebounce('search:typed', 300),
       withCrossTabSync({ channel: 'app', keys: ['user:logout'] }),
-      withMiddleware(() => ({
+      definePlugin(() => ({
         handle(event, next) {
           // `key` narrows the payload.
           if (event.key === 'user:login') { const id: string = event.payload.userId; void id; }
@@ -26,7 +26,15 @@ class TypedBus extends ALEventBus<TestEventMap, { traceId?: string }> {
         },
       })),
     );
-    // @ts-expect-error unknown key in middleware options
+    const api: { flush(): number } = this.use(definePlugin<TestEventMap, { traceId?: string }, { flush(): number }>(() => ({
+      onAfterEmit: (event) => { if (event.key === 'count:changed') { const n: number = event.payload; void n; } },
+      onSubscribe: (key) => { const k: keyof TestEventMap = key; void k; },
+      api: { flush: () => 1 },
+    })));
+    void api;
+    const nothing: void = this.use(withLogger(), withDebounce('search:typed', 1));
+    void nothing;
+    // @ts-expect-error unknown key in plugin options
     this.use(withDebounce('search:typo', 300));
     // @ts-expect-error unknown key in cross-tab keys
     this.use(withCrossTabSync({ channel: 'app', keys: ['user:logot'] }));

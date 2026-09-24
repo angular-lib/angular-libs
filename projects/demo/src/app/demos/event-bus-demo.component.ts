@@ -300,7 +300,7 @@ interface LogEntry {
                 <code>onToResource()</code>.
               </li>
               <li>
-                🔄 <strong>Middleware:</strong> logger, debounce and cross-tab sync via
+                🔄 <strong>Plugins:</strong> logger, debounce and cross-tab sync via
                 <code>use()</code>.
               </li>
               <li>

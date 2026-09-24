@@ -17,10 +17,10 @@ import {
   BusEvent,
   EmitArgs,
   EmitOptions,
-  EventBusFeature,
+  EventBusPlugin,
   EventKey,
-  Middleware,
   OnOptions,
+  PluginHooks,
   Projection,
   ProjectionOptions,
   ProjectionReducers,
@@ -76,51 +76,53 @@ type AnyListener = (event: AnyEvent) => void;
 @Injectable({ providedIn: 'root' })
 export class ALEventBus<TEventMap extends object, THeaders extends object = Record<string, unknown>> {
   readonly #injector = inject(Injector);
-  readonly #listeners = new Map<string, Set<AnyListener>>();
+  /** Listeners per key. The value is the subscription id for `on()` subscriptions, `null` for internal ones. */
+  readonly #listeners = new Map<string, Map<AnyListener, string | null>>();
   readonly #latest = new Map<string, WritableSignal<AnyEvent | undefined>>();
-  readonly #middleware: Middleware<TEventMap, THeaders>[] = [];
+  readonly #plugins: PluginHooks<TEventMap, THeaders, unknown>[] = [];
   readonly #queue: AnyEvent[] = [];
   #pipeline: (event: AnyEvent) => void = (event) => this.#deliver(event);
   #delivering = false;
   #destroyed = false;
+  #subscriptionCount = 0;
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
       this.#destroyed = true;
-      for (const m of this.#middleware) {
-        try {
-          m.destroy?.();
-        } catch (error) {
-          console.error('[ALEventBus] Middleware destroy() threw.', error);
-        }
-      }
+      this.#runHook('destroy', (plugin) => plugin.destroy?.());
       this.#listeners.clear();
       this.#queue.length = 0;
     });
   }
 
   /**
-   * Adds middleware and other features, in order. Call it from your subclass constructor.
+   * Adds plugins, in order. Call it from your subclass constructor or a field initializer.
+   * With a single plugin, returns the `api` it exposes.
    *
    * @example
    * ```ts
-   * constructor() {
-   *   super();
-   *   this.use(withLogger(), withCrossTabSync({ channel: 'my-app', keys: ['user:logout'] }));
+   * export class AppEventBus extends ALEventBus<AppEventMap> {
+   *   analytics = this.use(analyticsPlugin()); // its api, e.g. analytics.flush()
+   *
+   *   constructor() {
+   *     super();
+   *     this.use(withLogger(), withCrossTabSync({ channel: 'my-app', keys: ['user:logout'] }));
+   *   }
    * }
    * ```
    */
-  protected use(...features: EventBusFeature<TEventMap, THeaders>[]): void {
-    runInInjectionContext(this.#injector, () => {
-      for (const feature of features) {
-        const middleware = feature(this);
-        if (middleware) this.#middleware.push(middleware);
-      }
-    });
-    this.#pipeline = this.#middleware.reduceRight<(event: AnyEvent) => void>(
-      (next, m) => (event) => runMiddleware(m, event, next),
+  protected use<TApi>(plugin: EventBusPlugin<TEventMap, THeaders, TApi>): TApi;
+  protected use(...plugins: EventBusPlugin<TEventMap, THeaders, any>[]): void;
+  protected use(...plugins: EventBusPlugin<TEventMap, THeaders, any>[]): unknown {
+    const added = runInInjectionContext(this.#injector, () =>
+      plugins.map((plugin) => plugin(this) ?? {}),
+    );
+    this.#plugins.push(...added);
+    this.#pipeline = this.#plugins.reduceRight<(event: AnyEvent) => void>(
+      (next, plugin) => (plugin.handle ? (event) => runHandle(plugin, event, next) : next),
       (event) => this.#deliver(event),
     );
+    return added.length === 1 ? added[0].api : undefined;
   }
 
   /**
@@ -143,7 +145,7 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
       origin: options?.origin ?? 'local',
       timestamp: Date.now(),
     };
-    // Middleware and handlers are side effects: never let them become dependencies of a caller's
+    // Plugins and handlers are side effects: never let them become dependencies of a caller's
     // `computed` or `effect`.
     untracked(() => this.#pipeline(event));
   }
@@ -215,14 +217,15 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
 
     const call = handler as (payload: unknown, event: AnyEvent) => unknown;
     for (const k of keys) {
-      cleanups.push(
-        this.#subscribe(k, (event) => {
-          const result = call(event.payload, event);
-          if (result instanceof Promise) {
-            result.catch((error) => console.error(`[ALEventBus] Async handler for "${event.key}" rejected.`, error));
-          }
-        }),
-      );
+      const subscriptionId = `${k}#${++this.#subscriptionCount}`;
+      const listener: AnyListener = (event) => {
+        const result = call(event.payload, event);
+        if (result instanceof Promise) {
+          result.catch((error) => console.error(`[ALEventBus] Async handler for "${event.key}" rejected.`, error));
+        }
+      };
+      cleanups.push(this.#subscribe(k, listener, subscriptionId));
+      this.#runHook('onSubscribe', (plugin) => plugin.onSubscribe?.(k as EventKey<TEventMap>, subscriptionId));
     }
     return stop;
   }
@@ -393,19 +396,38 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
 
   /** Stops every handler of `key` across the app, including projections. Prefer the function returned by `on()`. */
   unsubscribe<K extends EventKey<TEventMap>>(key: K): void {
+    const listeners = this.#listeners.get(key);
     this.#listeners.delete(key);
+    listeners?.forEach((id) => id && this.#notifyUnsubscribe(key, id));
   }
 
   /** Stops every handler, including projections. Mostly useful in tests. */
   unsubscribeAll(): void {
-    this.#listeners.clear();
+    [...this.#listeners.keys()].forEach((key) => this.unsubscribe(key as EventKey<TEventMap>));
   }
 
-  #subscribe(key: string, listener: AnyListener): () => void {
+  #subscribe(key: string, listener: AnyListener, subscriptionId: string | null = null): () => void {
     let listeners = this.#listeners.get(key);
-    if (!listeners) this.#listeners.set(key, (listeners = new Set()));
-    listeners.add(listener);
-    return () => this.#listeners.get(key)?.delete(listener);
+    if (!listeners) this.#listeners.set(key, (listeners = new Map()));
+    listeners.set(listener, subscriptionId);
+    return () => {
+      // Already gone after unsubscribe(key) / unsubscribeAll(), which notified plugins themselves.
+      if (this.#listeners.get(key)?.delete(listener) && subscriptionId) this.#notifyUnsubscribe(key, subscriptionId);
+    };
+  }
+
+  #notifyUnsubscribe(key: string, subscriptionId: string): void {
+    this.#runHook('onUnsubscribe', (plugin) => plugin.onUnsubscribe?.(key as EventKey<TEventMap>, subscriptionId));
+  }
+
+  #runHook(name: string, run: (plugin: PluginHooks<TEventMap, THeaders, unknown>) => void): void {
+    for (const plugin of this.#plugins) {
+      try {
+        run(plugin);
+      } catch (error) {
+        console.error(`[ALEventBus] Plugin ${name}() threw.`, error);
+      }
+    }
   }
 
   #latestSignal(key: string): WritableSignal<AnyEvent | undefined> {
@@ -415,13 +437,7 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
   }
 
   #notifyReset(key: EventKey<TEventMap> | undefined, origin: string): void {
-    for (const m of this.#middleware) {
-      try {
-        m.onReset?.(key, origin);
-      } catch (error) {
-        console.error('[ALEventBus] Middleware onReset() threw.', error);
-      }
-    }
+    this.#runHook('onReset', (plugin) => plugin.onReset?.(key, origin));
   }
 
   #deliver(event: AnyEvent): void {
@@ -435,15 +451,14 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
         while (this.#queue.length > 0) {
           const next = this.#queue.shift()!;
           this.#latestSignal(next.key).set(next);
-          const listeners = this.#listeners.get(next.key);
-          if (!listeners) continue;
-          for (const listener of [...listeners]) {
+          for (const listener of [...(this.#listeners.get(next.key)?.keys() ?? [])]) {
             try {
               listener(next);
             } catch (error) {
               console.error(`[ALEventBus] Handler for "${next.key}" threw.`, error);
             }
           }
+          this.#runHook('onAfterEmit', (plugin) => plugin.onAfterEmit?.(next as never));
         }
       });
     } finally {
@@ -454,16 +469,16 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
   }
 }
 
-function runMiddleware(middleware: Middleware<any, any>, event: AnyEvent, next: (event: AnyEvent) => void): void {
+function runHandle(plugin: PluginHooks<any, any, unknown>, event: AnyEvent, next: (event: AnyEvent) => void): void {
   let passed = false;
   try {
-    middleware.handle(event as never, (e) => {
+    plugin.handle!(event as never, (e) => {
       passed = true;
       next(e);
     });
   } catch (error) {
-    console.error(`[ALEventBus] Middleware threw for "${event.key}"; passing the event on unchanged.`, error);
-    // Fail open: a broken logger or analytics middleware must not swallow events.
+    console.error(`[ALEventBus] Plugin handle() threw for "${event.key}"; passing the event on unchanged.`, error);
+    // Fail open: a broken logger or analytics plugin must not swallow events.
     if (!passed) next(event);
   }
 }
