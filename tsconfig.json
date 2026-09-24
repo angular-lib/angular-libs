@@ -15,6 +15,9 @@
         "./projects/angular-libs/data-grid/src/internals-api.ts"
       ],
       "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
+      "@angular-libs/dialog/testing": [
+        "./projects/angular-libs/dialog/testing/src/public-api.ts"
+      ],
       "@angular-libs/event-bus": ["./projects/angular-libs/event-bus/src/public-api.ts"],
       "@angular-libs/form": ["./projects/angular-libs/form/src/public-api.ts"],
       "@angular-libs/shortcut": ["./projects/angular-libs/shortcut/src/public-api.ts"],

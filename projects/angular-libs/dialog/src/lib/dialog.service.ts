@@ -194,10 +194,10 @@ export class DialogService {
   ): Promise<DialogOutcome<TResult>> {
     const component = 'component' in definition ? definition.component : await loadLazy(definition);
     const [inputs, options] = args;
-    const ref = this.openInternal<TComponent, TResult>(
+    // Through open() so testing wrappers see the call.
+    const ref = this.open<TComponent, TResult>(
       component,
       resolveDefinitionOptions(definition, inputs, options),
-      { intent: 'open' },
     );
     return ref.outcome;
   }

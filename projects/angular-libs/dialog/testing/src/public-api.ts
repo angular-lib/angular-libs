@@ -4,4 +4,4 @@ export {
   provideDialogTesting,
   wrapDialogServiceForTesting,
 } from './lib/dialog-testing';
-export type { DialogOpenCall } from './lib/dialog-testing';
+export type { DialogOpenCall, DialogRunCall } from './lib/dialog-testing';
