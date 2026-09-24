@@ -1,7 +1,5 @@
-export {
-  DialogTestingController,
-  patchDialogElement,
-  provideDialogTesting,
-  wrapDialogServiceForTesting,
-} from './lib/dialog-testing';
-export type { DialogOpenCall, DialogRunCall } from './lib/dialog-testing';
+/*
+ * Public API Surface of @angular-libs/dialog/testing
+ */
+
+export { DialogTestingController, patchDom, provideDialogTesting } from './lib/dialog-testing';

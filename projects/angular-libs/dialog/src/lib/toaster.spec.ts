@@ -1,14 +1,21 @@
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideDialog } from './provide-dialog';
+import { patchDom } from '@angular-libs/dialog/testing';
+import { DialogService } from './dialog.service';
 import { Toaster } from './toaster';
+import { provideDialog } from './types';
 
-function toasts(position = 'bottom-right'): HTMLElement[] {
-  return Array.from(document.querySelectorAll(`.al-toaster-${position} .al-toast:not(.al-toast-leaving)`));
-}
+@Component({ template: '<p>modal</p>' })
+class Modal {}
+
+const visible = (position = 'bottom-right') =>
+  [...document.querySelectorAll(`.al-toaster-${position} .al-toast:not(.al-toast-leaving)`)] as HTMLElement[];
+const text = (toast: Element) => toast.querySelector('.al-toast-message')!.textContent;
 
 describe('Toaster', () => {
   let toaster: Toaster;
 
+  beforeAll(patchDom);
   beforeEach(() => {
     vi.useFakeTimers();
     TestBed.configureTestingModule({
@@ -16,121 +23,97 @@ describe('Toaster', () => {
     });
     toaster = TestBed.inject(Toaster);
   });
-
   afterEach(() => {
     TestBed.resetTestingModule();
     vi.useRealTimers();
-    document.querySelectorAll('.al-toaster, .al-toaster-announcer').forEach((el) => el.remove());
   });
 
-  it('renders one region per corner with text content (no HTML)', () => {
+  it('renders text (never HTML) in a region per corner', () => {
     toaster.show('<b>Saved</b>', { title: 'Done' });
     toaster.show('Top', { position: 'top-left' });
-
-    const [toast] = toasts();
-    expect(toast.querySelector('.al-toast-message')!.textContent).toBe('<b>Saved</b>');
+    const [toast] = visible();
+    expect(text(toast)).toBe('<b>Saved</b>');
     expect(toast.querySelector('b')).toBeNull();
-    expect(toast.querySelector('.al-toast-title')!.textContent).toBe('Done');
     expect(toast.querySelector('.al-toast-close')!.getAttribute('aria-label')).toBe('Lukk');
     expect(document.querySelectorAll('.al-toaster')).toHaveLength(2);
-    expect(document.querySelector('.al-toaster')!.getAttribute('aria-label')).toBe('Notifications');
   });
 
-  it('auto-dismisses after the duration and resolves the reason', async () => {
-    const handle = toaster.show('Bye', { duration: 1000 });
+  it('auto-dismisses, and resolves `dismissed`', async () => {
+    const toast = toaster.show('Bye', { duration: 1000 });
     vi.advanceTimersByTime(999);
-    expect(toasts()).toHaveLength(1);
+    expect(visible()).toHaveLength(1);
     vi.advanceTimersByTime(1);
-    await expect(handle.dismissed).resolves.toBe('timeout');
-    expect(toasts()).toHaveLength(0);
+    await toast.dismissed;
+    expect(visible()).toHaveLength(0);
   });
 
-  it('queues beyond maxVisible and shows the next one when a slot frees up', () => {
+  it('queues beyond maxVisible', () => {
     const first = toaster.show('1', { duration: 0 });
     toaster.show('2', { duration: 0 });
     toaster.show('3', { duration: 0 });
-    expect(toasts().map((t) => t.textContent)).toEqual([
-      expect.stringContaining('1'),
-      expect.stringContaining('2'),
-    ]);
+    expect(visible().map(text)).toEqual(['1', '2']);
     first.dismiss();
-    expect(toasts().map((t) => t.querySelector('.al-toast-message')!.textContent)).toEqual(['2', '3']);
+    expect(visible().map(text)).toEqual(['2', '3']);
   });
 
-  it('pauses the timer while hovered', () => {
-    toaster.show('Hover me', { duration: 1000 });
+  it('pauses while hovered', () => {
+    toaster.show('Hover', { duration: 1000 });
     const region = document.querySelector('.al-toaster')!;
     vi.advanceTimersByTime(600);
     region.dispatchEvent(new Event('pointerenter'));
     vi.advanceTimersByTime(5000);
-    expect(toasts()).toHaveLength(1);
+    expect(visible()).toHaveLength(1);
     region.dispatchEvent(new Event('pointerleave'));
-    vi.advanceTimersByTime(399);
-    expect(toasts()).toHaveLength(1);
-    vi.advanceTimersByTime(1);
-    expect(toasts()).toHaveLength(0);
+    vi.advanceTimersByTime(400);
+    expect(visible()).toHaveLength(0);
   });
 
-  it('runs the action and dismisses', async () => {
+  it('runs an action, and Escape dismisses the focused toast', async () => {
     const undo = vi.fn();
-    const handle = toaster.show('Archived', { action: { label: 'Angre', onClick: undo } });
-    toasts()[0].querySelector<HTMLButtonElement>('.al-toast-action')!.click();
+    const archived = toaster.show('Archived', { action: { label: 'Undo', onClick: undo } });
+    visible()[0].querySelector<HTMLButtonElement>('.al-toast-action')!.click();
     expect(undo).toHaveBeenCalledOnce();
-    await expect(handle.dismissed).resolves.toBe('action');
+    await archived.dismissed;
+
+    const other = toaster.show('Esc');
+    visible()[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await other.dismissed;
   });
 
-  it('Escape dismisses the focused toast', async () => {
-    const handle = toaster.show('Esc');
-    const close = toasts()[0].querySelector<HTMLButtonElement>('.al-toast-close')!;
-    close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    await expect(handle.dismissed).resolves.toBe('escape');
-  });
-
-  it('promise() moves from loading to success', async () => {
-    let resolve!: (v: number) => void;
-    const work = new Promise<number>((r) => (resolve = r));
-    const result = toaster.promise(work, {
+  it('promise() goes from loading to success and returns the work', async () => {
+    let resolve!: (n: number) => void;
+    const result = toaster.promise(new Promise<number>((r) => (resolve = r)), {
       loading: 'Saving…',
       success: (n) => `Saved ${n}`,
       error: 'Failed',
     });
-
-    expect(toasts()[0].classList.contains('al-toast-loading')).toBe(true);
-    vi.advanceTimersByTime(60_000);
-    expect(toasts()).toHaveLength(1); // loading never times out
-
+    expect(visible()[0].classList).toContain('al-toast-loading');
+    vi.advanceTimersByTime(60_000); // loading never times out
     resolve(3);
     await expect(result).resolves.toBe(3);
-    const [toast] = toasts();
-    expect(toast.classList.contains('al-toast-success')).toBe(true);
-    expect(toast.textContent).toContain('Saved 3');
+    expect(visible()[0].classList).toContain('al-toast-success');
+    expect(text(visible()[0])).toBe('Saved 3');
   });
 
-  it('promise() shows the error and still rejects for the caller', async () => {
-    const result = toaster.promise(Promise.reject(new Error('x')), {
-      loading: 'Saving…',
-      success: 'Saved',
-      error: (e) => `Failed: ${(e as Error).message}`,
-    });
-    await expect(result).rejects.toThrow('x');
-    await Promise.resolve();
-    expect(toasts()[0].classList.contains('al-toast-error')).toBe(true);
-    expect(toasts()[0].textContent).toContain('Failed: x');
-  });
-
-  it('announces through persistent live regions; errors are assertive', () => {
+  it('announces through persistent live regions; errors assertively', () => {
     toaster.show('Saved', { title: 'Done' });
     vi.advanceTimersByTime(100);
-    const polite = document.querySelector('.al-toaster-announcer[aria-live="polite"]')!;
-    expect(polite.textContent).toBe('Done. Saved');
-
+    expect(document.querySelector('[aria-live="polite"]')!.textContent).toBe('Done. Saved');
     toaster.error('Offline');
     vi.advanceTimersByTime(100);
-    const assertive = document.querySelector('.al-toaster-announcer[aria-live="assertive"]')!;
-    expect(assertive.textContent).toBe('Offline');
+    expect(document.querySelector('[aria-live="assertive"]')!.textContent).toBe('Offline');
   });
 
-  it('removes regions when the injector is destroyed', () => {
+  it('moves into the topmost modal so toasts stay clickable, and back out', async () => {
+    toaster.show('x', { duration: 0 });
+    const region = document.querySelector('.al-toaster')!;
+    const ref = TestBed.inject(DialogService).open(Modal);
+    expect(region.parentElement).toBe(ref.element);
+    await ref.close();
+    expect(region.parentElement).toBe(document.body);
+  });
+
+  it('cleans up when the injector is destroyed', () => {
     toaster.show('x');
     TestBed.resetTestingModule();
     expect(document.querySelector('.al-toaster')).toBeNull();

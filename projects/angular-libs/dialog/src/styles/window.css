@@ -1,109 +1,126 @@
-/* Window features — drag, dock/taskbar, tile snapping. Import with core.css for dialog.window(). */
+/* @angular-libs/dialog/window — floating windows, dock, tile grid. Use together with core.css. */
 
 :root {
-  --al-dock-bg: rgba(255, 255, 255, 0.4);
-  --al-dock-backdrop-filter: blur(12px);
-  --al-dock-border: 1px solid rgba(15, 23, 42, 0.08);
-  --al-dock-padding: 10px 18px;
-  --al-dock-border-radius: 18px;
-  --al-dock-box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
-  --al-dock-gap: 16px;
+  --al-window-dock-bg: rgb(255 255 255 / 45%);
+  --al-window-preview-width: 160px;
+  --al-window-preview-height: 100px;
 }
 
-.al-dialog-taskbar {
+@media (prefers-color-scheme: dark) {
+  :root {
+    --al-window-dock-bg: rgb(30 30 30 / 55%);
+  }
+}
+
+.al-dialog-window {
   position: fixed;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  flex-direction: row;
-  gap: var(--al-dock-gap);
-  z-index: 10000;
-  pointer-events: none;
-  background: var(--al-dock-bg);
-  backdrop-filter: var(--al-dock-backdrop-filter);
-  -webkit-backdrop-filter: var(--al-dock-backdrop-filter);
-  border: var(--al-dock-border);
-  padding: var(--al-dock-padding);
-  border-radius: var(--al-dock-border-radius);
-  box-shadow: var(--al-dock-box-shadow);
-  transition: transform 0.4s cubic-bezier(0.25, 1, 0.25, 1), opacity 0.3s ease;
-  opacity: 1;
+  inset: auto;
+  margin: 0;
+  min-width: 200px;
+  min-height: 80px;
+  max-width: 100vw;
+  max-height: 100dvh;
+  --al-enter: 0 0;
 }
 
-.al-dialog-taskbar.al-autohide {
-  transform: translate(-50%, calc(100% - 6px));
-  opacity: 0.1;
-}
-
-.al-dialog-taskbar.al-autohide:hover {
-  transform: translateX(-50%);
-  opacity: 1;
-}
-
-.al-dialog-taskbar.al-autohide::before {
-  content: '';
-  position: absolute;
-  top: -24px;
-  left: 0;
-  right: 0;
-  bottom: -32px;
-  pointer-events: auto;
-}
-
-.al-dialog-taskbar dialog.al-dialog.al-dialog-minimized {
-  position: relative !important;
-  inset: auto !important;
-  bottom: auto !important;
-  left: auto !important;
-}
-
-.al-tile-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 100000;
-  background: rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  box-sizing: border-box;
-  opacity: 0;
-  transition: opacity 0.25s cubic-bezier(0.25, 1, 0.5, 1);
+.al-dialog-window .al-window-header {
+  cursor: grab;
   user-select: none;
+}
+
+.al-dialog-window.al-window-dragging,
+.al-dialog-window.al-window-dragging .al-window-header {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.al-dialog-window:not(:has(.al-window-header, [alWindowHandle])) {
   touch-action: none;
 }
 
-.al-tile-overlay.al-visible {
-  opacity: 1;
+.al-dialog-window[data-mode='maximized'] {
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  border-radius: 0;
+  resize: none !important;
+}
+
+/* Minimized: a scaled, click-to-restore preview. */
+.al-dialog-window[data-mode='minimized'] {
+  width: var(--al-window-preview-width) !important;
+  height: var(--al-window-preview-height) !important;
+  min-width: 0;
+  min-height: 0;
+  inset: auto auto 24px 24px !important;
+  resize: none !important;
+  cursor: pointer;
+}
+
+.al-dialog-window[data-mode='minimized'] > * {
+  width: 400%;
+  height: 400%;
+  transform: scale(0.25);
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.al-window-dock {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  z-index: 10000;
+  display: flex;
+  gap: 12px;
+  padding: 10px 16px;
+  translate: -50% 0;
+  border: var(--al-dialog-border);
+  border-radius: 16px;
+  background: var(--al-window-dock-bg);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--al-dialog-shadow);
+  transition: translate 0.3s ease, opacity 0.3s ease;
+}
+
+.al-window-dock .al-dialog-window[data-mode='minimized'] {
+  position: relative;
+  inset: auto !important;
+}
+
+.al-window-dock-autohide:not(:hover, :focus-within) {
+  translate: -50% calc(100% - 6px);
+  opacity: 0.3;
+}
+
+.al-tile-overlay {
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  padding: 8px;
+  border: 0;
+  background: rgb(0 0 0 / 10%);
+  backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  touch-action: none;
+  user-select: none;
 }
 
 .al-tile-grid {
   display: grid;
+  gap: 8px;
   width: 100%;
   height: 100%;
-  box-sizing: border-box;
 }
 
-.al-tile-cell {
-  background: rgba(0, 0, 0, 0.1);
-  border: 2px solid rgba(0, 0, 0, 0.1);
+.al-tile-grid > div {
+  border: 2px solid rgb(0 0 0 / 10%);
   border-radius: 12px;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
-  box-sizing: border-box;
+  background: rgb(0 0 0 / 8%);
   cursor: pointer;
 }
 
-.al-tile-cell.al-selected {
-  background: rgba(0, 125, 255, 0.2) !important;
-  border: 2px solid rgba(0, 125, 255, 0.3) !important;
-  box-shadow: 0 0 8px rgba(0, 125, 255, 0.2) !important;
-}
-
-/* Draggable Plugin Styles */
-.al-dialog-draggable {
-  touch-action: none;
-}
-
-.al-dialog-drag-handle {
-  cursor: move;
-  user-select: none;
+.al-tile-grid > div.al-selected {
+  border-color: color-mix(in srgb, var(--al-dialog-accent) 50%, transparent);
+  background: color-mix(in srgb, var(--al-dialog-accent) 20%, transparent);
 }

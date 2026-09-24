@@ -1,7 +1,7 @@
 {
   "name": "@angular-libs/dialog",
   "version": "0.1.0",
-  "description": "Intent-based Angular dialogs on native HTML <dialog> — modal, window, confirm, popover, toast.",
+  "description": "Angular dialogs, popovers, toasts and windows on native <dialog>, the Popover API and CSS anchor positioning.",
   "author": "angular-lib",
   "license": "MIT",
   "publishConfig": {
@@ -20,13 +20,11 @@
     "angular",
     "dialog",
     "modal",
-    "window",
-    "native",
-    "html5",
     "popover",
     "toast",
-    "draggable",
-    "dock"
+    "window",
+    "native",
+    "anchor-positioning"
   ],
   "peerDependencies": {
     "@angular/common": ">=19",

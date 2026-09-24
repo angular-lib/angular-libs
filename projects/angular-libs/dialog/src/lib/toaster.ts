@@ -1,444 +1,277 @@
-import { DestroyRef, Injectable, inject } from '@angular/core';
-import { DialogService } from './dialog.service';
-import { resolveDialogStrings, type ToastPosition } from './dialog.types';
+import { DOCUMENT, DestroyRef, Injectable, inject } from '@angular/core';
+import { ɵonModalStackChange, ɵtopModal } from './al-dialog';
+import { ɵanimationsDone } from './dialog-ref';
+import { DIALOG_CONFIG, injectDialogStrings } from './types';
 
 export type ToastTone = 'info' | 'success' | 'warning' | 'error' | 'loading';
+export type ToastPosition =
+  | 'top-left'
+  | 'top-center'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-center'
+  | 'bottom-right';
 
-export type ToasterPosition = ToastPosition | 'top-center' | 'bottom-center';
-
-export interface ToastAction {
-  label: string;
-  /** Runs on click; the toast is dismissed afterwards. */
-  onClick: () => void;
-}
-
-export interface ToasterOptions {
+export interface ToastOptions {
   title?: string;
   tone?: ToastTone;
-  /** Milliseconds before auto-dismiss. `0` keeps it until dismissed. `loading` never auto-dismisses. */
+  /** ms before auto-dismiss; `0` keeps it. `loading` toasts never time out. */
   duration?: number;
-  position?: ToasterPosition;
-  /** One action button, e.g. "Undo". */
-  action?: ToastAction;
-  /** Show the close button. Default `true`. */
+  position?: ToastPosition;
+  /** One action button, e.g. "Undo". The toast is dismissed after it runs. */
+  action?: { label: string; onClick: () => void };
+  /** Show the × button. Default `true`. */
   dismissible?: boolean;
 }
 
-/** Global defaults via `provideDialog({ toaster: { … } })`. */
+/** `provideDialog({ toaster: { … } })` */
 export interface ToasterConfig {
-  position?: ToasterPosition;
-  /** Default auto-dismiss in ms. Default `5000`. */
+  /** Default `bottom-right`. */
+  position?: ToastPosition;
+  /** Default `5000`. */
   duration?: number;
-  /** Toasts shown per corner at once; the rest wait in a queue. Default `3`. */
+  /** Shown per corner; the rest wait. Default `3`. */
   maxVisible?: number;
 }
 
-export type ToastDismissReason = 'timeout' | 'close' | 'action' | 'swipe' | 'escape' | 'manual';
-
-export interface ToastHandle {
-  readonly id: number;
+export interface ToastRef {
   /** Resolves when the toast is dismissed. */
-  readonly dismissed: Promise<ToastDismissReason>;
+  readonly dismissed: Promise<void>;
   dismiss(): void;
-  /** Replace message and/or options; restarts the timer. */
-  update(message: string, options?: ToasterOptions): void;
+  /** Replaces message and options; restarts the timer. */
+  update(message: string, options?: ToastOptions): void;
 }
 
-export interface ToastPromiseMessages<T> {
-  loading: string;
-  success: string | ((value: T) => string);
-  error: string | ((error: unknown) => string);
-}
-
-const DEFAULT_DURATION = 5000;
-const DEFAULT_MAX_VISIBLE = 3;
-const SWIPE_DISMISS_PX = 80;
-const LEAVE_MS = 200;
-
-interface ToastRecord {
-  id: number;
+interface Toast {
   message: string;
-  options: ToasterOptions;
-  position: ToasterPosition;
-  el: HTMLLIElement | null;
-  timer: ReturnType<typeof setTimeout> | null;
+  options: ToastOptions;
+  position: ToastPosition;
+  el?: HTMLLIElement;
+  timer?: ReturnType<typeof setTimeout>;
   remaining: number;
   startedAt: number;
-  resolve: (reason: ToastDismissReason) => void;
-  done: boolean;
+  done: () => void;
 }
 
 /**
- * Notifications: one region per corner in the top layer, a queue, pause on
- * hover / focus / hidden tab, actions ("Undo"), swipe and Escape to dismiss,
- * and screen-reader announcements through a persistent live region.
+ * Notifications in one top-layer region per corner. Paused while hovered or focused,
+ * Escape dismisses the focused toast, and screen readers are told through a persistent
+ * live region (errors assertively). While a modal is open, toasts live inside it so
+ * they stay clickable.
  *
  * @example
  * ```ts
- * const toaster = inject(Toaster);
  * toaster.success('Saved');
- * toaster.show('Message archived', { action: { label: 'Undo', onClick: undo } });
- * await toaster.promise(save(), { loading: 'Saving…', success: 'Saved', error: 'Could not save' });
+ * toaster.show('Archived', { action: { label: 'Undo', onClick: undo } });
+ * await toaster.promise(save(), { loading: 'Saving…', success: 'Saved', error: 'Failed' });
  * ```
  */
 @Injectable({ providedIn: 'root' })
 export class Toaster {
-  private readonly service = inject(DialogService);
-  private readonly toasts: ToastRecord[] = [];
-  private readonly regions = new Map<ToasterPosition, HTMLElement>();
-  private announcers: { polite: HTMLElement; assertive: HTMLElement } | null = null;
-  private announceTimer: ReturnType<typeof setTimeout> | null = null;
-  private nextId = 0;
+  private readonly document = inject(DOCUMENT);
+  private readonly config = inject(DIALOG_CONFIG).toaster ?? {};
+  private readonly strings = injectDialogStrings();
+  private readonly toasts: Toast[] = [];
+  private readonly regions = new Map<ToastPosition, HTMLElement>();
+  private readonly announcer = {
+    polite: null as HTMLElement | null,
+    assertive: null as HTMLElement | null,
+  };
 
   constructor() {
-    if (typeof document === 'undefined') return;
-    document.addEventListener('visibilitychange', this.onVisibilityChange);
+    const stopFollowingModals = ɵonModalStackChange(() => this.regions.forEach((r) => this.mount(r)));
     inject(DestroyRef).onDestroy(() => {
-      document.removeEventListener('visibilitychange', this.onVisibilityChange);
-      for (const toast of this.toasts) this.clearTimer(toast);
-      this.regions.forEach((region) => region.remove());
-      this.announcers?.polite.remove();
-      this.announcers?.assertive.remove();
-      if (this.announceTimer) clearTimeout(this.announceTimer);
+      stopFollowingModals();
+      this.toasts.forEach((t) => clearTimeout(t.timer));
+      this.regions.forEach((r) => r.remove());
+      this.announcer.polite?.remove();
+      this.announcer.assertive?.remove();
     });
   }
 
-  show(message: string, options: ToasterOptions = {}): ToastHandle {
-    let resolve!: (reason: ToastDismissReason) => void;
-    const dismissed = new Promise<ToastDismissReason>((res) => (resolve = res));
-    const toast: ToastRecord = {
-      id: ++this.nextId,
+  show(message: string, options: ToastOptions = {}): ToastRef {
+    let done!: () => void;
+    const dismissed = new Promise<void>((resolve) => (done = resolve));
+    const toast: Toast = {
       message,
       options,
-      position: options.position ?? this.config().position ?? 'bottom-right',
-      el: null,
-      timer: null,
+      position: options.position ?? this.config.position ?? 'bottom-right',
       remaining: 0,
       startedAt: 0,
-      resolve,
-      done: false,
+      done,
     };
     this.toasts.push(toast);
     this.flush(toast.position);
-
     return {
-      id: toast.id,
       dismissed,
-      dismiss: () => this.dismiss(toast, 'manual'),
-      update: (nextMessage, nextOptions) => this.update(toast, nextMessage, nextOptions),
+      dismiss: () => this.dismiss(toast),
+      update: (next, nextOptions = {}) => {
+        toast.message = next;
+        toast.options = { ...toast.options, ...nextOptions };
+        if (toast.el) this.render(toast);
+      },
     };
   }
 
-  success(message: string, options: Omit<ToasterOptions, 'tone'> = {}): ToastHandle {
+  success(message: string, options?: ToastOptions): ToastRef {
     return this.show(message, { ...options, tone: 'success' });
   }
 
-  error(message: string, options: Omit<ToasterOptions, 'tone'> = {}): ToastHandle {
+  error(message: string, options?: ToastOptions): ToastRef {
     return this.show(message, { ...options, tone: 'error' });
   }
 
-  /**
-   * Shows a loading toast, then turns it into success or error. Returns the
-   * original promise, so errors still reach the caller.
-   */
+  /** Loading toast that turns into success or error. Returns `work` unchanged. */
   promise<T>(
-    work: Promise<T> | (() => Promise<T>),
-    messages: ToastPromiseMessages<T>,
-    options: Omit<ToasterOptions, 'tone'> = {},
+    work: Promise<T>,
+    messages: { loading: string; success: string | ((value: T) => string); error: string | ((error: unknown) => string) },
+    options?: ToastOptions,
   ): Promise<T> {
-    const handle = this.show(messages.loading, { ...options, tone: 'loading' });
-    const pending = typeof work === 'function' ? work() : work;
-    pending.then(
-      (value) =>
-        handle.update(pick(messages.success, value), { ...options, tone: 'success' }),
-      (error) => handle.update(pick(messages.error, error), { ...options, tone: 'error' }),
+    const toast = this.show(messages.loading, { ...options, tone: 'loading' });
+    const text = <A>(m: string | ((a: A) => string), a: A) => (typeof m === 'function' ? m(a) : m);
+    work.then(
+      (value) => toast.update(text(messages.success, value), { tone: 'success' }),
+      (error) => toast.update(text(messages.error, error), { tone: 'error' }),
     );
-    return pending;
+    return work;
   }
 
   dismissAll(): void {
-    [...this.toasts].forEach((toast) => this.dismiss(toast, 'manual'));
+    [...this.toasts].forEach((t) => this.dismiss(t));
   }
 
-  private config(): ToasterConfig {
-    return this.service.config().toaster ?? {};
-  }
-
-  private strings() {
-    return resolveDialogStrings(this.service.config().strings) ?? {};
-  }
-
-  /** Renders queued toasts while the corner has room. */
-  private flush(position: ToasterPosition): void {
-    if (typeof document === 'undefined') return;
-    const max = this.config().maxVisible ?? DEFAULT_MAX_VISIBLE;
+  /** Renders waiting toasts while the corner has room. */
+  private flush(position: ToastPosition): void {
+    if (!this.document.defaultView) return;
     const inCorner = this.toasts.filter((t) => t.position === position);
-    let visible = inCorner.filter((t) => t.el).length;
+    let free = (this.config.maxVisible ?? 3) - inCorner.filter((t) => t.el).length;
     for (const toast of inCorner) {
-      if (visible >= max) break;
+      if (free <= 0) break;
       if (toast.el) continue;
+      toast.el = this.document.createElement('li');
+      const list = this.region(position).firstElementChild!;
+      // Newest toast sits closest to the screen edge.
+      if (position.startsWith('top')) list.prepend(toast.el);
+      else list.append(toast.el);
       this.render(toast);
-      visible++;
+      free--;
     }
   }
 
-  private render(toast: ToastRecord): void {
-    const region = this.region(toast.position);
-    const list = region.firstElementChild as HTMLOListElement;
-    const el = document.createElement('li');
-    el.className = 'al-toast';
-    el.dataset['alToastId'] = String(toast.id);
-    el.tabIndex = -1;
-    toast.el = el;
-    this.fill(toast);
-
-    // Newest toast sits closest to the screen edge.
-    if (toast.position.startsWith('top')) list.prepend(el);
-    else list.append(el);
-
-    this.bindSwipe(toast);
-    raiseInTopLayer(region);
-    this.announce(toast);
-    this.startTimer(toast, this.durationOf(toast));
-  }
-
-  private fill(toast: ToastRecord): void {
-    const el = toast.el!;
+  private render(toast: Toast): void {
     const { title, tone = 'info', action, dismissible = true } = toast.options;
+    const el = toast.el!;
     el.className = `al-toast al-toast-${tone}`;
-    el.replaceChildren();
-
-    const icon = document.createElement('span');
-    icon.className = 'al-toast-icon';
-    icon.setAttribute('aria-hidden', 'true');
-    el.append(icon);
-
-    const text = document.createElement('div');
-    text.className = 'al-toast-text';
-    if (title) {
-      const titleEl = document.createElement('strong');
-      titleEl.className = 'al-toast-title';
-      titleEl.textContent = title;
-      text.append(titleEl);
-    }
-    const messageEl = document.createElement('p');
-    messageEl.className = 'al-toast-message';
-    messageEl.textContent = toast.message;
-    text.append(messageEl);
-    el.append(text);
-
-    if (action) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'al-toast-action';
-      button.textContent = action.label;
-      button.addEventListener('click', () => {
-        action.onClick();
-        this.dismiss(toast, 'action');
-      });
-      el.append(button);
-    }
-
+    el.tabIndex = -1;
+    el.replaceChildren(
+      this.node('span', 'al-toast-icon'),
+      this.node('div', 'al-toast-text', title && this.node('strong', 'al-toast-title', title), this.node('p', 'al-toast-message', toast.message)),
+    );
+    if (action) el.append(this.button('al-toast-action', action.label, () => (action.onClick(), this.dismiss(toast))));
     if (dismissible) {
-      const close = document.createElement('button');
-      close.type = 'button';
-      close.className = 'al-toast-close';
-      close.setAttribute('aria-label', this.strings().close ?? 'Close');
-      close.textContent = '×';
-      close.addEventListener('click', () => this.dismiss(toast, 'close'));
+      const close = this.button('al-toast-close', '×', () => this.dismiss(toast));
+      close.setAttribute('aria-label', this.strings().close);
       el.append(close);
     }
-  }
-
-  private update(toast: ToastRecord, message: string, options: ToasterOptions = {}): void {
-    if (toast.done) return;
-    toast.message = message;
-    toast.options = { ...toast.options, ...options };
-    if (!toast.el) return; // still queued — renders with the new content later
-    this.fill(toast);
     this.announce(toast);
-    this.startTimer(toast, this.durationOf(toast));
+    clearTimeout(toast.timer);
+    toast.timer = undefined;
+    toast.remaining = tone === 'loading' ? 0 : (toast.options.duration ?? this.config.duration ?? 5000);
+    this.resume(toast);
   }
 
-  private dismiss(toast: ToastRecord, reason: ToastDismissReason): void {
-    if (toast.done) return;
-    toast.done = true;
-    this.clearTimer(toast);
-    this.toasts.splice(this.toasts.indexOf(toast), 1);
-    toast.resolve(reason);
-
+  private dismiss(toast: Toast): void {
+    const index = this.toasts.indexOf(toast);
+    if (index === -1) return;
+    this.toasts.splice(index, 1);
+    clearTimeout(toast.timer);
+    toast.done();
     const el = toast.el;
     if (el) {
-      const hadFocus = el.contains(document.activeElement);
       el.classList.add('al-toast-leaving');
-      setTimeout(() => {
-        el.remove();
-        if (hadFocus) this.focusNeighbour(toast.position);
-      }, prefersReducedMotion() ? 0 : LEAVE_MS);
+      void ɵanimationsDone(el).then(() => el.remove());
     }
     this.flush(toast.position);
   }
 
-  private durationOf(toast: ToastRecord): number {
-    if (toast.options.tone === 'loading') return 0;
-    return toast.options.duration ?? this.config().duration ?? DEFAULT_DURATION;
-  }
-
-  private startTimer(toast: ToastRecord, ms: number): void {
-    this.clearTimer(toast);
-    toast.remaining = ms;
-    if (ms > 0 && !this.isPaused(toast.position)) this.resumeTimer(toast);
-  }
-
-  private resumeTimer(toast: ToastRecord): void {
-    if (toast.timer || toast.remaining <= 0 || toast.done) return;
+  private resume(toast: Toast): void {
+    const paused = this.regions.get(toast.position)?.matches(':hover, :focus-within');
+    if (toast.remaining <= 0 || paused || toast.timer) return;
     toast.startedAt = Date.now();
-    toast.timer = setTimeout(() => {
-      toast.timer = null;
-      this.dismiss(toast, 'timeout');
-    }, toast.remaining);
+    toast.timer = setTimeout(() => this.dismiss(toast), toast.remaining);
   }
 
-  private pauseTimer(toast: ToastRecord): void {
-    if (!toast.timer) return;
-    clearTimeout(toast.timer);
-    toast.timer = null;
-    toast.remaining = Math.max(0, toast.remaining - (Date.now() - toast.startedAt));
-  }
-
-  private clearTimer(toast: ToastRecord): void {
-    if (toast.timer) clearTimeout(toast.timer);
-    toast.timer = null;
-  }
-
-  private isPaused(position: ToasterPosition): boolean {
-    if (typeof document !== 'undefined' && document.hidden) return true;
-    return this.regions.get(position)?.dataset['alPaused'] === 'true';
-  }
-
-  private setPaused(position: ToasterPosition, paused: boolean): void {
-    const region = this.regions.get(position);
-    if (!region) return;
-    region.dataset['alPaused'] = String(paused);
+  private pause(position: ToastPosition): void {
     for (const toast of this.toasts) {
-      if (toast.position !== position || !toast.el) continue;
-      if (paused || document.hidden) this.pauseTimer(toast);
-      else this.resumeTimer(toast);
+      if (toast.position !== position || !toast.timer) continue;
+      clearTimeout(toast.timer);
+      toast.timer = undefined;
+      toast.remaining -= Date.now() - toast.startedAt;
     }
   }
 
-  private readonly onVisibilityChange = (): void => {
-    this.regions.forEach((region, position) =>
-      this.setPaused(position, region.dataset['alPaused'] === 'true'),
-    );
-  };
-
-  private region(position: ToasterPosition): HTMLElement {
+  private region(position: ToastPosition): HTMLElement {
     let region = this.regions.get(position);
     if (region) return region;
-
-    region = document.createElement('section');
+    region = this.document.createElement('section');
     region.className = `al-toaster al-toaster-${position}`;
-    region.setAttribute('popover', 'manual');
-    region.setAttribute('aria-label', this.strings().notifications ?? 'Notifications');
-    region.append(document.createElement('ol'));
-
-    let hovered = false;
-    let focused = false;
-    const sync = () => this.setPaused(position, hovered || focused);
-    region.addEventListener('pointerenter', () => ((hovered = true), sync()));
-    region.addEventListener('pointerleave', () => ((hovered = false), sync()));
-    region.addEventListener('focusin', () => ((focused = true), sync()));
-    region.addEventListener('focusout', (e) => {
-      focused = region!.contains(e.relatedTarget as Node | null);
-      sync();
-    });
+    region.popover = 'manual';
+    region.setAttribute('aria-label', this.strings().notifications);
+    region.append(this.document.createElement('ol'));
+    const resumeAll = () => {
+      if (!region!.matches(':hover, :focus-within')) {
+        this.toasts.filter((t) => t.position === position && t.el).forEach((t) => this.resume(t));
+      }
+    };
+    region.addEventListener('pointerenter', () => this.pause(position));
+    region.addEventListener('focusin', () => this.pause(position));
+    region.addEventListener('pointerleave', () => setTimeout(resumeAll));
+    region.addEventListener('focusout', () => setTimeout(resumeAll));
     region.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
-      const el = (e.target as HTMLElement).closest<HTMLElement>('.al-toast');
+      const el = (e.target as Element).closest('.al-toast');
       const toast = this.toasts.find((t) => t.el === el);
-      if (toast) {
-        e.stopPropagation();
-        this.dismiss(toast, 'escape');
+      if (e.key === 'Escape' && toast) {
+        e.preventDefault(); // keeps a surrounding modal open
+        this.dismiss(toast);
       }
     });
-
-    document.body.append(region);
     this.regions.set(position, region);
+    this.mount(region);
     return region;
   }
 
-  private bindSwipe(toast: ToastRecord): void {
-    const el = toast.el!;
-    let start: { id: number; x: number } | null = null;
-    el.addEventListener('pointerdown', (e) => {
-      if ((e.target as HTMLElement).closest('button')) return;
-      start = { id: e.pointerId, x: e.clientX };
-      el.setPointerCapture?.(e.pointerId);
-    });
-    el.addEventListener('pointermove', (e) => {
-      if (start?.id !== e.pointerId) return;
-      el.style.setProperty('--al-toast-swipe', `${e.clientX - start.x}px`);
-    });
-    const end = (e: PointerEvent) => {
-      if (start?.id !== e.pointerId) return;
-      const dx = e.clientX - start.x;
-      start = null;
-      el.style.removeProperty('--al-toast-swipe');
-      if (Math.abs(dx) >= SWIPE_DISMISS_PX) this.dismiss(toast, 'swipe');
-    };
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
+  /** Into the topmost modal (else the rest of the page is inert) or `<body>`, shown on top. */
+  private mount(region: HTMLElement): void {
+    const host = ɵtopModal() ?? this.document.body;
+    if (region.parentElement === host) return;
+    host.append(region);
+    region.showPopover?.();
   }
 
-  private focusNeighbour(position: ToasterPosition): void {
-    const next = this.toasts.find((t) => t.position === position && t.el);
-    next?.el?.focus();
+  private announce(toast: Toast): void {
+    const kind = toast.options.tone === 'error' ? 'assertive' : 'polite';
+    let live = this.announcer[kind];
+    if (!live) {
+      live = this.announcer[kind] = this.document.body.appendChild(this.node('div', 'al-toaster-announcer'));
+      live.setAttribute('aria-live', kind);
+      live.setAttribute('aria-atomic', 'true');
+    }
+    live.textContent = '';
+    // A moment later so screen readers treat it as a change.
+    setTimeout(() => (live.textContent = [toast.options.title, toast.message].filter(Boolean).join('. ')), 100);
   }
 
-  /** Announces via a persistent live region; errors are assertive. */
-  private announce(toast: ToastRecord): void {
-    if (toast.options.tone === 'loading' && toast.el?.dataset['alAnnounced']) return;
-    toast.el?.setAttribute('data-al-announced', 'true');
-    const announcers = (this.announcers ??= {
-      polite: createAnnouncer('polite'),
-      assertive: createAnnouncer('assertive'),
-    });
-    const target = toast.options.tone === 'error' ? announcers.assertive : announcers.polite;
-    const text = [toast.options.title, toast.message].filter(Boolean).join('. ');
-    target.textContent = '';
-    if (this.announceTimer) clearTimeout(this.announceTimer);
-    // A short delay makes screen readers treat the text as a change.
-    this.announceTimer = setTimeout(() => (target.textContent = text), 100);
+  private node(tag: string, className: string, ...children: Array<Node | string | undefined | ''>): HTMLElement {
+    const el = this.document.createElement(tag);
+    el.className = className;
+    el.append(...children.filter((c): c is Node | string => !!c));
+    return el;
   }
-}
 
-function pick<T>(value: string | ((arg: T) => string), arg: T): string {
-  return typeof value === 'function' ? value(arg) : value;
-}
-
-function createAnnouncer(politeness: 'polite' | 'assertive'): HTMLElement {
-  const el = document.createElement('div');
-  el.className = 'al-toaster-announcer';
-  el.setAttribute('aria-live', politeness);
-  el.setAttribute('aria-atomic', 'true');
-  document.body.append(el);
-  return el;
-}
-
-/**
- * Re-show so the region sits above dialogs opened after it. Skipped while focus is
- * inside — hiding would blur e.g. a focused "Undo" button.
- */
-function raiseInTopLayer(region: HTMLElement): void {
-  if (typeof region.showPopover !== 'function') return;
-  if (region.matches(':popover-open')) {
-    if (region.contains(document.activeElement)) return;
-    region.hidePopover();
+  private button(className: string, label: string, onClick: () => void): HTMLButtonElement {
+    const button = this.node('button', className, label) as HTMLButtonElement;
+    button.type = 'button';
+    button.addEventListener('click', onClick);
+    return button;
   }
-  region.showPopover();
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 }

@@ -1,347 +1,188 @@
-import { Component } from '@angular/core';
+import { Component, ErrorHandler, input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { patchDom } from '@angular-libs/dialog/testing';
 import { DialogService } from './dialog.service';
-import { resolveDismissFlags } from './dialog.types';
+import { injectDialog } from './inject-dialog';
+import { DialogParts } from './parts';
+import { provideDialog } from './types';
+import type { DialogOutcome } from './dialog-ref';
+
+interface User {
+  name: string;
+}
 
 @Component({
-  selector: 'test-cmp',
-  standalone: true,
-  template: '<div>Test content</div>',
+  selector: 'test-edit-user',
+  imports: [DialogParts],
+  template: `<al-dialog-header>Edit {{ user().name }}</al-dialog-header><input autofocus />`,
 })
-class TestComponent {}
+class EditUser {
+  readonly user = input.required<User>();
+  readonly note = input<string>();
+  readonly dialog = injectDialog<User>();
+  dirty = false;
+  allowDiscard = false;
+  work: () => Promise<User> = async () => this.user();
 
-describe('DialogService Global Configuration', () => {
-  beforeAll(() => {
-    HTMLDialogElement.prototype.show = vi.fn();
-    HTMLDialogElement.prototype.showModal = vi.fn();
-    HTMLDialogElement.prototype.close = vi.fn();
+  constructor() {
+    this.dialog.guard(() => !this.dirty || this.allowDiscard);
+  }
+
+  readonly save = this.dialog.action(() => this.work());
+}
+
+@Component({ selector: 'test-plain', template: '<p>plain</p>' })
+class Plain {}
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+const assertType = <T extends true>() => {};
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+}
+
+describe('DialogService', () => {
+  let dialog: DialogService;
+  const ada: User = { name: 'Ada' };
+
+  beforeAll(patchDom);
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [provideDialog({ defaults: { mobile: 'sheet' } })] });
+    dialog = TestBed.inject(DialogService);
   });
+  afterEach(() => dialog.closeAll());
 
-  it('should use default configurations off signal initializations', () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
+  it('renders the component with typed inputs and infers the result', async () => {
+    const ref = dialog.open(EditUser, { user: ada, note: 'hi' }, { size: 'lg', panelClass: 'mine extra' });
+    assertType<Equal<Awaited<typeof ref.closed>, DialogOutcome<User>>>();
 
-    const service = TestBed.inject(DialogService);
-    const ref = service.open(TestComponent);
+    const el = ref.element as HTMLDialogElement;
+    expect(el.open).toBe(true);
+    expect(el.classList).toContain('al-dialog-lg');
+    expect(el.classList).toContain('al-dialog-mobile-sheet'); // from provideDialog defaults
+    expect(el.classList).toContain('extra');
+    expect(ref.componentInstance.note()).toBe('hi');
+    expect(el.textContent).toContain('Edit Ada');
+    expect(dialog.openDialogs()).toEqual([ref]);
 
-    try {
-      expect(ref.options.width).toBeUndefined();
-      expect(ref.options.disableClose).toBeUndefined();
-    } finally {
-      ref.close();
-    }
-  });
-
-  it('should apply global configuration values when updated via updateConfig() before opening', () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-
-    const service = TestBed.inject(DialogService);
-    service.updateConfig({
-      width: '500px',
-      disableClose: true,
-    });
-
-    const ref = service.open(TestComponent);
-
-    try {
-      expect(ref.options.width).toBe('500px');
-      expect(ref.options.disableClose).toBe(true);
-    } finally {
-      ref.close();
-    }
-  });
-
-  it('should allow options passed to open() to override global config signal values', () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-
-    const service = TestBed.inject(DialogService);
-    service.updateConfig({
-      width: '500px',
-      disableClose: true,
-    });
-
-    // Explicit options override global values
-    const ref = service.open(TestComponent, {
-      width: '300px',
-      disableClose: false,
-    });
-
-    try {
-      expect(ref.options.width).toBe('300px');
-      expect(ref.options.disableClose).toBe(false);
-    } finally {
-      ref.close();
-    }
-  });
-
-  it('should support dynamic runtime configurations via updateConfig', () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-
-    const service = TestBed.inject(DialogService);
-    
-    // Dynamically update the configuration
-    service.updateConfig({
-      width: '600px',
-      disableClose: true,
-    });
-
-    const ref = service.open(TestComponent);
-
-    try {
-      expect(ref.options.width).toBe('600px');
-      expect(ref.options.disableClose).toBe(true);
-    } finally {
-      ref.close();
-    }
-  });
-
-  it('should deduplicate plugins with matching ids, prioritizing local options over global configs', () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-
-    const service = TestBed.inject(DialogService);
-    
-    const globalPlugin = {
-      id: 'test-plugin',
-      setup: vi.fn(),
+    // Type-only checks, never run.
+    const typeChecks = () => {
+      // @ts-expect-error — unknown input
+      dialog.open(EditUser, { usr: ada });
+      // @ts-expect-error — wrong input type
+      dialog.open(EditUser, { user: 'Ada' });
+      dialog.open(Plain); // no inputs needed
     };
-    const localPlugin = {
-      id: 'test-plugin',
-      setup: vi.fn(),
-    };
-
-    service.updateConfig({
-      plugins: [globalPlugin],
-    });
-
-    const ref = service.open(TestComponent, {
-      plugins: [localPlugin],
-    });
-
-    try {
-      const plugins = ref.options.plugins || [];
-      const testPlugins = plugins.filter(p => p.id === 'test-plugin');
-      expect(testPlugins.length).toBe(1);
-      expect(testPlugins[0]).toBe(localPlugin);
-    } finally {
-      ref.close();
-    }
+    void typeChecks;
   });
 
-  it('should remove the global fullscreenchange listener when the service is destroyed', () => {
-    const addSpy = vi.spyOn(document, 'addEventListener');
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
-
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-    TestBed.inject(DialogService);
-
-    expect(addSpy).toHaveBeenCalledWith('fullscreenchange', expect.any(Function));
-    const registeredHandler = addSpy.mock.calls.find((call) => call[0] === 'fullscreenchange')?.[1];
-
-    TestBed.resetTestingModule();
-
-    expect(removeSpy).toHaveBeenCalledWith('fullscreenchange', registeredHandler);
-  });
-});
-
-describe('resolveDismissFlags', () => {
-  it('defaults both on when nothing is set', () => {
-    expect(resolveDismissFlags({})).toEqual({ closeOnEscape: true, closeOnBackdrop: true });
+  it('uses a custom size as CSS width', () => {
+    const ref = dialog.open(Plain, {}, { size: '720px' });
+    expect(ref.element.style.width).toBe('720px');
   });
 
-  it('turns both off when disableClose is true', () => {
-    expect(resolveDismissFlags({ disableClose: true })).toEqual({
-      closeOnEscape: false,
-      closeOnBackdrop: false,
-    });
+  it('closes with a value (ok) or without one (dismissed)', async () => {
+    const saved = dialog.open(EditUser, { user: ada });
+    await saved.close({ name: 'Grace' });
+    expect(await saved.closed).toEqual({ ok: true, value: { name: 'Grace' }, source: 'manual' });
+    expect(saved.element.isConnected).toBe(false);
+    expect(dialog.openDialogs()).toEqual([]);
+
+    const dismissed = dialog.open(EditUser, { user: ada });
+    dismissed.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(await dismissed.closed).toEqual({ ok: false, source: 'escape' });
   });
 
-  it('lets explicit flags override disableClose', () => {
-    expect(resolveDismissFlags({ disableClose: true, closeOnEscape: true })).toEqual({
-      closeOnEscape: true,
-      closeOnBackdrop: false,
-    });
-    expect(resolveDismissFlags({ disableClose: true, closeOnBackdrop: true })).toEqual({
-      closeOnEscape: false,
-      closeOnBackdrop: true,
-    });
+  it('guards run for dismissals only', async () => {
+    const ref = dialog.open(EditUser, { user: ada });
+    ref.componentInstance.dirty = true;
+    expect(await ref.close(undefined, 'backdrop')).toBe(false);
+    expect((ref.element as HTMLDialogElement).open).toBe(true);
+    expect(await ref.close(ada)).toBe(true);
   });
 
-  it('honors independent Esc-only and backdrop-only settings', () => {
-    expect(resolveDismissFlags({ closeOnEscape: true, closeOnBackdrop: false })).toEqual({
-      closeOnEscape: true,
-      closeOnBackdrop: false,
+  it('a throwing guard keeps the dialog open and is reported', async () => {
+    const errors = TestBed.inject(ErrorHandler);
+    const spy = vi.spyOn(errors, 'handleError').mockImplementation(() => {});
+    const ref = dialog.open(Plain);
+    ref.addCloseGuard(() => {
+      throw new Error('boom');
     });
-    expect(resolveDismissFlags({ closeOnEscape: false, closeOnBackdrop: true })).toEqual({
-      closeOnEscape: false,
-      closeOnBackdrop: true,
-    });
-  });
-});
-
-describe('DialogService dismiss listeners', () => {
-  beforeAll(() => {
-    HTMLDialogElement.prototype.show = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
-      this.open = true;
-    });
-    HTMLDialogElement.prototype.showModal = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
-      this.open = true;
-    });
-    HTMLDialogElement.prototype.close = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
-      this.open = false;
-      this.dispatchEvent(new Event('close'));
-    });
+    expect(await ref.close()).toBe(false);
+    expect(spy).toHaveBeenCalledWith(new Error('boom'));
   });
 
-  afterEach(() => {
-    document.querySelectorAll('dialog.al-dialog').forEach((el) => el.remove());
-  });
+  it('action: busy blocks closing, failure keeps it open, success closes with the value', async () => {
+    const ref = dialog.open(EditUser, { user: ada });
+    const edit = ref.componentInstance;
+    const work = deferred<User>();
+    edit.work = () => work.promise;
 
-  function dispatchBackdropClick(el: HTMLDialogElement): void {
-    const opts: MouseEventInit = { clientX: 200, clientY: 200, bubbles: true };
-    el.dispatchEvent(new MouseEvent('mousedown', opts));
-    el.dispatchEvent(new MouseEvent('click', opts));
-  }
-
-  function dispatchEscape(el: HTMLDialogElement): void {
-    el.dispatchEvent(new Event('cancel', { cancelable: true }));
-  }
-
-  async function flush(): Promise<void> {
+    const running = edit.save();
     await Promise.resolve();
-    await Promise.resolve();
-  }
+    expect(ref.busy()).toBe(true);
+    expect(ref.element.getAttribute('aria-busy')).toBe('true');
+    expect(await ref.close(undefined, 'escape')).toBe(false);
 
-  it('both-on: Escape and backdrop each close the dialog', async () => {
-    TestBed.configureTestingModule({ providers: [DialogService] });
-    const service = TestBed.inject(DialogService);
+    work.resolve({ name: 'Saved' });
+    await running;
+    expect(await ref.closed).toEqual({ ok: true, value: { name: 'Saved' }, source: 'action' });
 
-    const escRef = service.open(TestComponent);
-    dispatchEscape(escRef.dialogEl);
-    await expect(escRef.closed).resolves.toEqual({ result: undefined, source: 'escape' });
-
-    const backdropRef = service.open(TestComponent);
-    dispatchBackdropClick(backdropRef.dialogEl);
-    await expect(backdropRef.closed).resolves.toEqual({ result: undefined, source: 'backdrop' });
+    const failing = dialog.open(EditUser, { user: ada });
+    failing.componentInstance.work = () => Promise.reject(new Error('offline'));
+    failing.componentInstance.dirty = true; // a failed save must not trigger the guard either
+    await failing.componentInstance.save();
+    expect((failing.componentInstance.save.error() as Error).message).toBe('offline');
+    expect((failing.element as HTMLDialogElement).open).toBe(true);
+    expect(failing.busy()).toBe(false);
   });
 
-  it('Esc-only: Escape closes, backdrop does not', async () => {
-    TestBed.configureTestingModule({ providers: [DialogService] });
-    const service = TestBed.inject(DialogService);
-    const ref = service.open(TestComponent, { closeOnEscape: true, closeOnBackdrop: false });
+  it('labels the dialog from the header part, unless ariaLabel is given', () => {
+    const titled = dialog.open(EditUser, { user: ada });
+    const title = titled.element.querySelector('.al-dialog-title')!;
+    expect(titled.element.getAttribute('aria-labelledby')).toBe(title.id);
 
-    dispatchBackdropClick(ref.dialogEl);
-    await flush();
-    expect(ref.dialogEl.open).toBe(true);
-
-    dispatchEscape(ref.dialogEl);
-    await expect(ref.closed).resolves.toEqual({ result: undefined, source: 'escape' });
+    const labelled = dialog.open(EditUser, { user: ada }, { ariaLabel: 'Custom' });
+    expect(labelled.element.hasAttribute('aria-labelledby')).toBe(false);
   });
 
-  it('backdrop-only: backdrop closes, Escape does not', async () => {
-    TestBed.configureTestingModule({ providers: [DialogService] });
-    const service = TestBed.inject(DialogService);
-    const ref = service.open(TestComponent, { closeOnEscape: false, closeOnBackdrop: true });
-
-    dispatchEscape(ref.dialogEl);
-    await flush();
-    expect(ref.dialogEl.open).toBe(true);
-
-    dispatchBackdropClick(ref.dialogEl);
-    await expect(ref.closed).resolves.toEqual({ result: undefined, source: 'backdrop' });
-  });
-
-  it('both-off via disableClose: neither Escape nor backdrop closes', async () => {
-    TestBed.configureTestingModule({ providers: [DialogService] });
-    const service = TestBed.inject(DialogService);
-    const ref = service.open(TestComponent, { disableClose: true });
-
-    dispatchEscape(ref.dialogEl);
-    dispatchBackdropClick(ref.dialogEl);
-    await flush();
-    expect(ref.dialogEl.open).toBe(true);
-
-    await ref.close();
-  });
-
-  it('applies hasBackdrop, backdropClass, and fullscreenBelow classes', () => {
-    TestBed.configureTestingModule({ providers: [DialogService] });
-    const service = TestBed.inject(DialogService);
-    const ref = service.open(TestComponent, {
-      hasBackdrop: false,
-      backdropClass: 'my-dim',
-      fullscreenBelow: 'md',
+  it('confirm resolves true / false, runs onConfirm with retry, and uses alertdialog', async () => {
+    let attempts = 0;
+    const pending = dialog.confirm({
+      title: 'Delete?',
+      tone: 'danger',
+      errorText: (e) => `Failed: ${(e as Error).message}`,
+      onConfirm: async () => {
+        if (++attempts === 1) throw new Error('offline');
+      },
     });
+    const [ref] = dialog.openDialogs();
+    TestBed.tick();
+    expect(ref.element.getAttribute('role')).toBe('alertdialog');
+    const confirmButton = ref.element.querySelector<HTMLButtonElement>('.al-btn-danger')!;
+    confirmButton.click();
+    await vi.waitFor(() => {
+      TestBed.tick();
+      expect(ref.element.querySelector('.al-dialog-error')?.textContent).toContain('Failed: offline');
+    });
+    confirmButton.click();
+    await expect(pending).resolves.toBe(true);
+    expect(attempts).toBe(2);
 
-    try {
-      expect(ref.dialogEl.classList.contains('al-dialog-no-backdrop')).toBe(true);
-      expect(ref.dialogEl.classList.contains('my-dim')).toBe(true);
-      expect(ref.dialogEl.classList.contains('al-dialog-fullscreen-below-md')).toBe(true);
-    } finally {
-      void ref.close();
-    }
-  });
-});
-
-describe('DialogService Dialog Hierarchy (parent/child dialogs)', () => {
-  beforeAll(() => {
-    HTMLDialogElement.prototype.show = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
-      this.open = true;
-    });
-    HTMLDialogElement.prototype.showModal = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
-      this.open = true;
-    });
-    HTMLDialogElement.prototype.close = vi.fn().mockImplementation(function (this: HTMLDialogElement) {
-      this.open = false;
-      this.dispatchEvent(new Event('close'));
-    });
+    const cancelled = dialog.confirm({ title: 'Sure?' });
+    TestBed.tick();
+    dialog.openDialogs()[0].element.querySelector<HTMLButtonElement>('.al-btn-secondary')!.click();
+    await expect(cancelled).resolves.toBe(false);
   });
 
-  it('should cascade-close nested child dialogs when the parent closes', async () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-    const service = TestBed.inject(DialogService);
-
-    const parentRef = service.open(TestComponent);
-    const childRef = service.open(TestComponent, { parent: parentRef, modal: false });
-    const grandchildRef = service.open(TestComponent, { parent: childRef, modal: false });
-
-    expect(parentRef.children).toContain(childRef);
-    expect(childRef.children).toContain(grandchildRef);
-
-    await parentRef.close();
-
-    expect(parentRef.dialogEl.open).toBe(false);
-    expect(childRef.dialogEl.open).toBe(false);
-    expect(grandchildRef.dialogEl.open).toBe(false);
-    expect(childRef.closeSource).toBe('parent-closed');
-    expect(grandchildRef.closeSource).toBe('parent-closed');
-  });
-
-  it('should detach a child from its parent once the child itself closes', async () => {
-    TestBed.configureTestingModule({
-      providers: [DialogService],
-    });
-    const service = TestBed.inject(DialogService);
-
-    const parentRef = service.open(TestComponent);
-    const childRef = service.open(TestComponent, { parent: parentRef, modal: false });
-
-    await childRef.close();
-
-    expect(parentRef.children).not.toContain(childRef);
-
-    await parentRef.close();
+  it('alert has a single button', async () => {
+    const pending = dialog.alert({ title: 'Saved', message: 'All good' });
+    const [ref] = dialog.openDialogs();
+    TestBed.tick();
+    expect(ref.element.querySelectorAll('al-dialog-footer button')).toHaveLength(1);
+    ref.element.querySelector<HTMLButtonElement>('al-dialog-footer button')!.click();
+    await expect(pending).resolves.toBeUndefined();
   });
 });

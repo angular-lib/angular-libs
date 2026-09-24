@@ -1,181 +1,80 @@
-import {
-  Injectable,
-  inject,
-  provideEnvironmentInitializer,
-  type EnvironmentProviders,
-  type Provider,
-  type Type,
-} from '@angular/core';
-import {
-  DialogService,
-  isDialogDefinition,
-  provideDialog,
-  type AnyDialogDefinition,
-  type DialogOptions,
-  type DialogOutcome,
-  type DialogRef,
-} from '@angular-libs/dialog';
+import { Injectable, type Provider, type Type } from '@angular/core';
+import { ɵDIALOG_INTERCEPTOR, type DialogOutcome } from '@angular-libs/dialog';
 
-export interface DialogOpenCall {
-  component: Type<unknown>;
-  options?: DialogOptions;
-}
+type Stub = DialogOutcome<any> | ((inputs: any) => DialogOutcome<any>);
 
-export interface DialogRunCall {
-  definition: AnyDialogDefinition<any, any, any>;
-  inputs?: object;
-  /** `true` when a {@link DialogTestingController.stub} answered without rendering. */
-  stubbed: boolean;
-}
-
-type StubAnswer<R> = DialogOutcome<R> | ((inputs: any) => DialogOutcome<R> | Promise<DialogOutcome<R>>);
-
+/** Answers `dialog.open(component)` for stubbed components without rendering them. */
 @Injectable()
 export class DialogTestingController {
-  readonly openCalls: DialogOpenCall[] = [];
-  readonly runCalls: DialogRunCall[] = [];
-  private refs: DialogRef<any, any>[] = [];
-  private readonly stubs = new Map<object, StubAnswer<any>>();
-
-  /** @internal */
-  _track(ref: DialogRef<any, any>, component: Type<unknown>, options?: DialogOptions): void {
-    this.openCalls.push({ component, options });
-    this.refs.push(ref);
-  }
-
-  /** @internal */
-  _stubFor(definition: object): StubAnswer<any> | undefined {
-    return this.stubs.get(definition);
-  }
+  /** Every `open()` call, stubbed or not. */
+  readonly calls: Array<{ component: Type<unknown>; inputs: object | undefined }> = [];
+  private readonly stubs = new Map<Type<unknown>, Stub>();
 
   /**
-   * Answer `dialog.run(definition, …)` without rendering the component.
-   *
    * @example
    * ```ts
-   * controller.stub(EditUserDialog, { ok: true, value: user, source: 'manual' });
-   * controller.stub(ConfirmDelete, (inputs) => ({ ok: inputs.id !== 1, … }));
+   * controller.stub(EditUserComponent, { ok: true, value: user, source: 'manual' });
+   * controller.stub(ConfirmDelete, (inputs) => ({ ok: false, source: 'escape' }));
    * ```
    */
-  stub<R>(definition: AnyDialogDefinition<any, R, any>, answer: StubAnswer<R>): void {
-    this.stubs.set(definition, answer);
+  stub<C>(component: Type<C>, answer: Stub): void {
+    this.stubs.set(component, answer);
   }
 
-  get last(): DialogRef<any, any> | undefined {
-    return this.refs[this.refs.length - 1];
+  /** @internal */
+  intercept(component: Type<unknown>, inputs: object | undefined): DialogOutcome<unknown> | undefined {
+    this.calls.push({ component, inputs });
+    const stub = this.stubs.get(component);
+    return typeof stub === 'function' ? stub(inputs ?? {}) : stub;
   }
-
-  async flushClose(result?: unknown, source: string = 'manual'): Promise<void> {
-    const ref = this.last;
-    if (!ref) return;
-    await ref.close(result, source);
-  }
-
-  async closeAll(): Promise<void> {
-    await Promise.all([...this.refs].map((r) => r.close(undefined, 'manual')));
-  }
-
-  reset(): void {
-    this.openCalls.length = 0;
-    this.runCalls.length = 0;
-    this.refs = [];
-    this.stubs.clear();
-  }
-}
-
-export function patchDialogElement(): void {
-  if (typeof HTMLDialogElement === 'undefined') return;
-  const proto = HTMLDialogElement.prototype;
-
-  proto.show = function (this: HTMLDialogElement) {
-    this.setAttribute('open', '');
-  };
-  proto.showModal = function (this: HTMLDialogElement) {
-    this.setAttribute('open', '');
-  };
-  proto.close = function (this: HTMLDialogElement) {
-    this.removeAttribute('open');
-    this.dispatchEvent(new Event('close'));
-  };
 }
 
 /**
- * Test providers: patched `<dialog>`, a fresh {@link DialogService}, and a
- * {@link DialogTestingController} that already tracks every open / run call.
+ * Makes `<dialog>` and popovers work in jsdom and records / stubs `open()` calls.
+ *
+ * ```ts
+ * TestBed.configureTestingModule({ providers: provideDialogTesting() });
+ * ```
  */
-export function provideDialogTesting(
-  config: Parameters<typeof provideDialog>[0] = {},
-): Array<Provider | EnvironmentProviders> {
-  patchDialogElement();
+export function provideDialogTesting(): Provider[] {
+  patchDom();
   return [
-    provideDialog(config),
     DialogTestingController,
-    DialogService,
-    provideEnvironmentInitializer(() =>
-      wrapDialogServiceForTesting(inject(DialogService), inject(DialogTestingController)),
-    ),
+    {
+      provide: ɵDIALOG_INTERCEPTOR,
+      deps: [DialogTestingController],
+      useFactory: (c: DialogTestingController) => c.intercept.bind(c),
+    },
   ];
 }
 
-const wrapped = new WeakSet<DialogService>();
+/** jsdom lacks `showModal()`, `show()`, `close()` and the Popover API; this adds minimal versions. */
+export function patchDom(): void {
+  if (typeof HTMLDialogElement === 'undefined') return;
+  const dialog = HTMLDialogElement.prototype;
+  dialog.show = function (this: HTMLDialogElement) {
+    this.open = true;
+  };
+  dialog.showModal = dialog.show;
+  dialog.close = function (this: HTMLDialogElement) {
+    if (!this.open) return;
+    this.open = false;
+    this.dispatchEvent(new Event('close'));
+  };
 
-/**
- * Routes a service's open calls through `controller`. {@link provideDialogTesting}
- * already does this; calling it again is a no-op.
- */
-export function wrapDialogServiceForTesting(
-  service: DialogService,
-  controller: DialogTestingController,
-): DialogService {
-  if (wrapped.has(service)) return service;
-  wrapped.add(service);
-
-  const originalOpen = service.open.bind(service) as (...args: any[]) => DialogRef<any, any>;
-  const originalRun = service.run.bind(service) as (...args: any[]) => Promise<DialogOutcome<any>>;
-  const originalWindow = service.window.bind(service);
-  const originalPopover = service.popover.bind(service);
-  const originalToast = service.toast.bind(service);
-
-  service.open = ((target: any, ...rest: any[]) => {
-    const ref = originalOpen(target, ...rest);
-    if (isDialogDefinition(target)) {
-      const [inputs, options] = rest;
-      controller._track(ref, (target as { component: Type<unknown> }).component, {
-        ...options,
-        inputs,
-      });
-    } else {
-      controller._track(ref, target, rest[0]);
-    }
-    return ref;
-  }) as typeof service.open;
-
-  service.run = (async (definition: AnyDialogDefinition<any, any, any>, ...rest: any[]) => {
-    const [inputs] = rest;
-    const stub = controller._stubFor(definition);
-    controller.runCalls.push({ definition, inputs, stubbed: !!stub });
-    if (stub) return typeof stub === 'function' ? stub(inputs ?? {}) : stub;
-    // run() opens through service.open, which is tracked above.
-    return originalRun(definition, ...rest);
-  }) as typeof service.run;
-
-  service.window = ((component: Type<any>, options?: any) => {
-    const ref = originalWindow(component, options);
-    controller._track(ref, component, options);
-    return ref;
-  }) as typeof service.window;
-
-  service.popover = ((component: Type<any>, options: any) => {
-    const ref = originalPopover(component, options);
-    controller._track(ref, component, options);
-    return ref;
-  }) as typeof service.popover;
-
-  service.toast = ((message: string, options?: any) => {
-    const ref = originalToast(message, options);
-    controller._track(ref, (ref.component as object)?.constructor as Type<unknown>, options);
-    return ref;
-  }) as typeof service.toast;
-
-  return service;
+  const el = HTMLElement.prototype as HTMLElement & { ɵpopoverOpen?: boolean };
+  if (typeof el.showPopover === 'function') return;
+  const toggle = (target: HTMLElement & { ɵpopoverOpen?: boolean }, open: boolean) => {
+    if (!!target.ɵpopoverOpen === open) return;
+    const init = { oldState: open ? 'closed' : 'open', newState: open ? 'open' : 'closed' };
+    target.dispatchEvent(Object.assign(new Event('beforetoggle'), init));
+    target.ɵpopoverOpen = open;
+    target.dispatchEvent(Object.assign(new Event('toggle'), init));
+  };
+  el.showPopover = function (this: HTMLElement) {
+    toggle(this, true);
+  };
+  el.hidePopover = function (this: HTMLElement) {
+    toggle(this, false);
+  };
 }

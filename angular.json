@@ -54,7 +54,7 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/angular-libs/dialog/tsconfig.spec.json",
-            "include": ["**/*.spec.ts", "../testing/**/*.spec.ts"]
+            "include": ["**/*.spec.ts", "../testing/**/*.spec.ts", "../window/**/*.spec.ts"]
           }
         }
       }

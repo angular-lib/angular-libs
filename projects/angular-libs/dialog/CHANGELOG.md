@@ -1,31 +1,33 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 0.2.0 (rewrite)
+
+Smaller, platform-first rewrite: about half the code of 0.1, one way to do each thing.
+
+### Breaking
+- `dialog.open(component, inputs?, options?)` — inputs are a separate argument; `ref.closed` resolves `{ ok: true, value, source } | { ok: false, source }` and never rejects
+- Result type inferred from a public `injectDialog<R>()` / `DialogRef<R>` property (the `dialogRef` name and `DialogResultBrand` are gone)
+- Options trimmed to `size`, `mobile` (`sheet` / `fullscreen` below 640px), `panelClass`, `closeOnEscape`, `closeOnBackdrop`, `closeOnNavigation`, `ariaLabel`, `role`, `injector`; removed `disableClose`, `hasBackdrop`, `backdropClass`, `fullscreenBelow`, `width`/`height`/min/max, `autoFocus`, `restoreFocus`, `animation`, `parent`, `id`, `plugins`
+- Focus containment and initial focus are native (`showModal()`, `[autofocus]`); the JS focus trap is gone
+- Removed: `DefaultDialogComponent` (use the parts), `dialog.toast()` / `autoClosePlugin` (use `Toaster`), the plugin system and `definePlugin`, standalone actions, `updateConfig` and the public `config` signal
+- `dialog.window()` moved to `WindowService` in `@angular-libs/dialog/window`; `WindowRef` has `mode` / `bounds` signals; the drag / dock / snap / persistence plugins are built in and configured by options
+- `dialog.popover()` moved to `PopoverService.open(anchor, component, inputs?, options?)` on the Popover API + CSS anchor positioning; placements are `top` / `bottom` (`-start` / `-end`), `left`, `right`; the arrow option is gone
+- `provideDialog({ strings, defaults, toaster })`; theme tokens live on `:root`
+- Testing: `provideDialogTesting()` + `DialogTestingController.stub(component, outcome)` / `calls`
 
 ### Added
-- `defineDialog()` + `dialog.run()` — typed definitions: required inputs enforced, result inferred (or `dialogResult<T>()`), lazy loaders, discriminated `DialogOutcome` (`{ ok, value } | { ok: false, reason }`); `dialog.open(definition, inputs, options)` for eager ones
-- `DialogParts` — `<al-dialog-header>` / `<al-dialog-body>` / `<al-dialog-footer>`, `[alDialogTitle]`, `[alDialogDescription]`, `[alDialogClose]`; ARIA wired via DI on both service and headless dialogs
-- `injectDialog()` / `injectDialogRef()` — `guard()` for dismissals, `action()` with `pending` / `error`, `busy`, stacked `confirm()`
-- `DialogRef.outcome`, `DialogRef.busy`, `DialogRef.addCloseGuard()`, close source `'action'`
-- `confirm({ onConfirm, tone: 'danger', errorText })` — spinner, dismiss blocked, inline error with retry; `strings.error`
-- `Toaster` — per-corner top-layer regions, queue (`maxVisible`), actions, `promise()`, pause on hover / focus / hidden tab, swipe / Escape dismiss, live-region announcements; `provideDialog({ toaster })`, `strings.notifications`
-- `sheetBelow` bottom-sheet presentation; default CSS enter animation (`@starting-style`, reduced-motion aware)
-- Testing: `provideDialogTesting()` auto-wraps the service, `DialogTestingController.stub(definition, outcome)`, `runCalls`
-- `alDialog` — Aria-style headless attribute directive on the consumer’s `<dialog>` (focus trap, restore focus, Escape, backdrop, scroll lock; no CSS import)
-- `DialogService` now layers default chrome on that same primitive (`dialog[al-dialog-surface]` + host directive) so dismiss / focus / ARIA are not a second implementation
-- Slimmer combo: scroll lock follows `modal`; `aria-label` / `role` stay native attributes; batteries open via `presentDialogSurface`
-- Independent `closeOnEscape` / `closeOnBackdrop` ( `disableClose` remains a both-off shorthand )
-- Optional `hasBackdrop` and `backdropClass`
-- `role?: 'dialog' | 'alertdialog'` — `confirm()` / `alert()` default to `alertdialog`
-- `fullscreenBelow?: 'sm' | 'md' | 'lg' | 'xl'` for mobile-fullscreen modals
-- Popover flip (and shift/clamp fallback) near viewport edges; `flip: false` keeps clamp-only
+- `injectDialog()` — `guard()` (dismissals only), `action()` with `pending` / `error` and a busy dialog, stacked `confirm()`
+- `DialogParts` — `<al-dialog-header>` / `<al-dialog-body>` / `<al-dialog-footer>`, `[alDialogTitle]`, `[alDialogDescription]`, `[alDialogClose]`; also on headless `alDialog`
+- `confirm({ onConfirm, tone: 'danger', errorText })` — spinner, dismiss blocked, inline error with retry
+- `Toaster` — per-corner top-layer regions, queue, actions, `promise()`, pause on hover / focus, Escape, live-region announcements; mounted inside the topmost modal so toasts stay clickable
+- CSS enter / exit transitions (`@starting-style`, `allow-discrete`); elements are removed once they finish
+- `DialogService.openDialogs` signal
 
 ### Fixed
-- Repeated Escape no longer force-closes dialogs with `closeOnEscape: false` / `disableClose` / `beforeClose` (Chrome close watcher); Escape is handled on `document` for the topmost modal
-- Title parts and `ensureTitleId` no longer disagree on the title id; `ariaLabel` is applied before content is created
-- Scroll lock compensates for the scrollbar width (no horizontal page shift)
-- DefaultDialog maximize icon follows `ref.state()` (zoneless change detection)
-- `wrapDialogServiceForTesting` forwards every `open()` argument
+- Repeated Escape could force-close dialogs with `closeOnEscape: false` / guards (Chrome close watcher); Escape is now handled on `document` for the topmost modal
+- Scroll lock no longer shifts the page by the scrollbar width
+- Title id and `aria-labelledby` could disagree when parts rendered after open
+- Opening a window `id` while its previous window was still closing returned the closing one
 
 ## 0.1.0
 

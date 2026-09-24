@@ -9,305 +9,208 @@ import {
   output,
   untracked,
 } from '@angular/core';
-import {
-  applyAutoFocus,
-  isClickInsideDialog,
-  lockBodyScroll,
-  queryFocusable,
-  unlockBodyScroll,
-} from './dialog-behavior';
-import type { AutoFocusTarget } from './dialog.types';
 
 export type AlDialogCloseReason = 'escape' | 'backdrop' | 'close';
 
-export interface AlDialogClosed {
-  reason: AlDialogCloseReason;
-}
-
 /**
- * Headless behavior on the consumer’s own `<dialog>`.
+ * Headless behavior for your own `<dialog>`: open/close from a signal, Escape and
+ * backdrop dismiss, scroll lock, and focus return. No styles.
  *
- * Native `<dialog>` is required so `showModal()` can use the top layer.
- * No CSS, tokens, or chrome — that is the batteries path (`DialogService` + `core.css`).
- *
- * ARIA: pass `labelledBy` / `describedBy`, or set `aria-labelledby` / `aria-label` /
- * `role` on the host yourself. Unset inputs do not overwrite native attributes.
+ * Focus containment and initial focus are native (`showModal()`, `autofocus`).
  *
  * @example
  * ```html
- * <dialog alDialog [open]="open()" labelledBy="edit-title" (closed)="open.set(false)">
- *   <h2 id="edit-title">Edit user</h2>
- *   <form>…</form>
+ * <dialog alDialog [open]="open()" (closed)="open.set(false)">
+ *   <h2 alDialogTitle>Edit user</h2>
+ *   …
  * </dialog>
  * ```
  */
 @Directive({
   selector: 'dialog[alDialog]',
   exportAs: 'alDialog',
-  standalone: true,
   host: {
-    '[attr.aria-modal]': 'modal() ? "true" : "false"',
-    '[attr.tabindex]': '-1',
+    tabindex: '-1',
     '(cancel)': 'onCancel($event)',
-    '(mousedown)': 'onMouseDown($event)',
+    '(mousedown)': 'mousedownOnBackdrop = isBackdropEvent($event)',
     '(click)': 'onClick($event)',
-    '(keydown)': 'onKeydown($event)',
-    '(close)': 'onNativeClose()',
+    '(close)': 'teardown()',
   },
 })
 export class AlDialog {
-  private readonly el = inject<ElementRef<HTMLDialogElement>>(ElementRef).nativeElement;
-  private readonly destroyRef = inject(DestroyRef);
-
-  /** The host `<dialog>` element. */
-  get element(): HTMLDialogElement {
-    return this.el;
-  }
-
-  /** When true, opens the dialog (`showModal` / `show`); when false, closes it. */
+  /** Opens (`showModal()` / `show()`) when `true`, closes when `false`. */
   readonly open = input(false, { transform: booleanAttribute });
-  /**
-   * Modal (`showModal`, focus trap, scroll lock, `aria-modal=true`) vs modeless (`show`).
-   * Default `true`.
-   */
+  /** Modal (top layer, rest of the page inert, scroll lock) or modeless. Default `true`. */
   readonly modal = input(true, { transform: booleanAttribute });
-  /** Sets `aria-labelledby`. Omit to keep a native attribute on the host. */
-  readonly labelledBy = input<string | undefined>(undefined);
-  /** Sets `aria-describedby`. Omit to keep a native attribute on the host. */
-  readonly describedBy = input<string | undefined>(undefined);
-  /** Dismiss on Escape. Default `true`. */
   readonly closeOnEscape = input(true, { transform: booleanAttribute });
-  /** Dismiss on backdrop (click outside the dialog box). Default `true`. */
   readonly closeOnBackdrop = input(true, { transform: booleanAttribute });
-  /** Return focus to the opener on close. Default `true`. */
+  /** Return focus to the element focused before opening. Default `true`. */
   readonly restoreFocus = input(true, { transform: booleanAttribute });
-  /** Where to put focus after open. Default `first-tabbable`. */
-  readonly autoFocus = input<AutoFocusTarget>('first-tabbable');
 
-  /** Emits after the dialog finishes closing. */
-  readonly closed = output<AlDialogClosed>();
+  /** Emits after the dialog has closed. */
+  readonly closed = output<{ reason: AlDialogCloseReason }>();
 
-  private dismissFn: ((reason: AlDialogCloseReason) => void) | null = null;
-  private opened = false;
-  private closeReason: AlDialogCloseReason = 'close';
-  private suppressEmit = false;
+  /** The host `<dialog>`. */
+  readonly element: HTMLDialogElement = inject(ElementRef).nativeElement;
+
+  private isOpen = false;
+  private reason: AlDialogCloseReason = 'close';
   private opener: HTMLElement | null = null;
-  private mousedownInside = false;
-  private bodyLocked = false;
+  private dismissHandler: ((reason: AlDialogCloseReason) => void) | null = null;
+  protected mousedownOnBackdrop = false;
 
   constructor() {
     effect(() => {
-      const id = this.labelledBy();
-      if (id) this.el.setAttribute('aria-labelledby', id);
+      const open = this.open();
+      untracked(() => (open ? this.show() : this.close()));
     });
-    effect(() => {
-      const id = this.describedBy();
-      if (id) this.el.setAttribute('aria-describedby', id);
+    inject(DestroyRef).onDestroy(() => {
+      // Tear down first: the `close` event below must not emit on a destroyed output.
+      this.teardown(false);
+      if (this.element.open) this.element.close();
     });
-
-    effect(() => {
-      const shouldOpen = this.open();
-      untracked(() => {
-        if (shouldOpen) {
-          this.show();
-        } else {
-          this.hide('close');
-        }
-      });
-    });
-
-    this.destroyRef.onDestroy(() => this.teardown(true));
   }
 
-  /** Close from the template (`#d="alDialog"; d.close()`). */
-  close(): void {
-    this.hide('close');
+  /** Closes the dialog (`closed` emits with reason `close`). */
+  close(reason: AlDialogCloseReason = 'close'): void {
+    if (!this.isOpen) return;
+    this.reason = reason;
+    this.element.close();
   }
 
   /**
-   * Batteries hook: Escape / backdrop call this instead of closing, so
-   * {@link DialogRef.close} can run plugins and leave animations.
-   * @internal
+   * @internal Escape / backdrop call `handler` instead of closing, so `DialogRef` can
+   * run guards first.
    */
-  handleDismiss(handler: ((reason: AlDialogCloseReason) => void) | null): void {
-    this.dismissFn = handler;
+  ɵonDismiss(handler: (reason: AlDialogCloseReason) => void): void {
+    this.dismissHandler = handler;
   }
 
-  protected onCancel(event: Event): void {
-    event.preventDefault();
-    if (this.closeOnEscape()) {
-      this.requestDismiss('escape');
-    }
-  }
-
-  protected onMouseDown(event: MouseEvent): void {
-    this.mousedownInside = isClickInsideDialog(this.el, event);
-  }
-
-  protected onClick(event: MouseEvent): void {
-    if (!this.opened || !this.closeOnBackdrop()) return;
-    if (!this.mousedownInside && !isClickInsideDialog(this.el, event)) {
-      this.requestDismiss('backdrop');
-    }
-  }
-
-  protected onKeydown(event: KeyboardEvent): void {
-    if (!this.opened || !this.modal() || event.key !== 'Tab') return;
-
-    const focusable = queryFocusable(this.el);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      this.el.focus();
-      return;
-    }
-
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-
-    if (event.shiftKey && active === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && active === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
-  /**
-   * @internal Escape for the topmost modal, routed from a document listener — see
-   * {@link trackModal}.
-   */
-  handleEscapeKey(event: KeyboardEvent): void {
-    event.preventDefault();
-    if (this.closeOnEscape()) {
-      this.requestDismiss('escape');
-    }
-  }
-
-  protected onNativeClose(): void {
-    this.teardown(false);
-  }
-
-  private requestDismiss(reason: AlDialogCloseReason): void {
-    if (this.dismissFn) {
-      this.dismissFn(reason);
-      return;
-    }
-    this.hide(reason);
+  /** @internal */
+  ɵdismiss(reason: 'escape' | 'backdrop'): void {
+    if (this.dismissHandler) this.dismissHandler(reason);
+    else this.close(reason);
   }
 
   private show(): void {
-    if (this.opened) return;
-    const isModal = this.modal();
-    if (isModal && typeof this.el.showModal !== 'function') return;
-    if (!isModal && typeof this.el.show !== 'function') return;
-
-    if (this.restoreFocus()) {
-      this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    } else {
-      this.opener = null;
-    }
-
-    this.el.removeAttribute('open');
-    if (isModal) {
-      this.el.showModal();
-    } else {
-      this.el.show();
-    }
-    this.opened = true;
-    this.lockScroll();
-    if (isModal) trackModal(this);
-
-    queueMicrotask(() => {
-      if (!this.opened) return;
-      applyAutoFocus(this.el, this.autoFocus());
-    });
+    if (this.isOpen || !this.element.isConnected) return;
+    const modal = this.modal();
+    this.opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.element.removeAttribute('open');
+    if (modal) this.element.showModal();
+    else this.element.show();
+    this.isOpen = true;
+    if (modal) modalStack.push(this);
   }
 
-  private hide(reason: AlDialogCloseReason): void {
-    if (!this.opened) return;
-    this.closeReason = reason;
-    if (this.el.open) {
-      this.el.close();
-      return;
-    }
-    this.teardown(false);
+  protected onCancel(event: Event): void {
+    // Other close requests (e.g. Android back). Escape is handled by the modal stack.
+    event.preventDefault();
+    if (this.closeOnEscape()) this.ɵdismiss('escape');
   }
 
-  private teardown(fromDestroy: boolean): void {
-    if (!this.opened) return;
-    this.opened = false;
-    untrackModal(this);
-    this.unlockScroll();
-    this.restoreOpener();
-
-    if (fromDestroy) {
-      this.suppressEmit = true;
-      if (this.el.open) {
-        this.el.close();
-      }
-      return;
-    }
-
-    if (this.suppressEmit) {
-      this.suppressEmit = false;
-      return;
-    }
-
-    this.closed.emit({ reason: this.closeReason });
-    this.closeReason = 'close';
+  protected isBackdropEvent(event: MouseEvent): boolean {
+    if (event.target !== this.element) return false;
+    const r = this.element.getBoundingClientRect();
+    return (
+      event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom
+    );
   }
 
-  private restoreOpener(): void {
-    if (!this.restoreFocus()) return;
-    const opener = this.opener;
+  protected onClick(event: MouseEvent): void {
+    const fromBackdrop = this.mousedownOnBackdrop && this.isBackdropEvent(event);
+    this.mousedownOnBackdrop = false;
+    if (fromBackdrop && this.isOpen && this.closeOnBackdrop()) this.ɵdismiss('backdrop');
+  }
+
+  protected teardown(emit = true): void {
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    modalStack.remove(this);
+    if (this.restoreFocus() && this.opener?.isConnected) this.opener.focus();
     this.opener = null;
-    if (opener && document.contains(opener)) {
-      opener.focus();
-    }
-  }
-
-  private lockScroll(): void {
-    if (!this.modal() || this.bodyLocked) return;
-    lockBodyScroll();
-    this.bodyLocked = true;
-  }
-
-  private unlockScroll(): void {
-    if (!this.bodyLocked) return;
-    this.bodyLocked = false;
-    unlockBodyScroll();
+    if (emit) this.closed.emit({ reason: this.reason });
+    this.reason = 'close';
   }
 }
 
 /**
- * Open modal `alDialog`s, topmost last.
+ * Open modals, topmost last.
  *
- * Escape is handled on `document` instead of via the native `cancel` event: Chrome's
- * close watcher closes a `<dialog>` outright after repeated prevented `cancel`s without
- * user activation, which would bypass `closeOnEscape: false`, guards and busy state.
- * Preventing the keydown keeps the close watcher out. It listens on `document` because
- * focus is often not inside the dialog (e.g. a button that became disabled while
- * saving). `cancel` still covers other close requests such as Android back.
+ * Escape is handled on `document` rather than through `cancel`: Chrome's close watcher
+ * closes a `<dialog>` outright after repeated prevented `cancel`s, which would bypass
+ * `closeOnEscape: false`, guards and busy state. Listening on `document` also covers
+ * focus outside the dialog (e.g. on a button that became disabled).
  */
-const modalStack: AlDialog[] = [];
+const modalStack = {
+  items: [] as AlDialog[],
+  listeners: new Set<() => void>(),
 
-function onDocumentKeydown(event: KeyboardEvent): void {
-  // A widget inside the dialog (e.g. a combobox) already consumed it, or an IME is composing.
+  push(dialog: AlDialog): void {
+    if (this.items.length === 0) document.addEventListener('keydown', onEscapeKey);
+    this.items.push(dialog);
+    this.listeners.forEach((l) => l());
+    lockScroll(true);
+  },
+
+  remove(dialog: AlDialog): void {
+    const index = this.items.indexOf(dialog);
+    if (index === -1) return;
+    this.items.splice(index, 1);
+    if (this.items.length === 0) document.removeEventListener('keydown', onEscapeKey);
+    this.listeners.forEach((l) => l());
+    lockScroll(this.items.length > 0);
+  },
+};
+
+function onEscapeKey(event: KeyboardEvent): void {
+  // A widget inside the dialog (e.g. a combobox) consumed it, or an IME is composing.
   if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
-  modalStack[modalStack.length - 1]?.handleEscapeKey(event);
+  const top = modalStack.items[modalStack.items.length - 1];
+  // An open light-dismiss popover inside the dialog closes first, natively.
+  if (hasOpenPopover(top.element)) return;
+  event.preventDefault();
+  if (top.closeOnEscape()) top.ɵdismiss('escape');
 }
 
-function trackModal(dialog: AlDialog): void {
-  if (modalStack.includes(dialog)) return;
-  modalStack.push(dialog);
-  if (modalStack.length === 1) document.addEventListener('keydown', onDocumentKeydown);
+function hasOpenPopover(root: Element): boolean {
+  return [...root.querySelectorAll<HTMLElement>('[popover]:not([popover="manual"])')].some((el) => {
+    try {
+      return el.matches(':popover-open');
+    } catch {
+      return el.checkVisibility?.() ?? true; // engines without :popover-open (e.g. jsdom)
+    }
+  });
 }
 
-function untrackModal(dialog: AlDialog): void {
-  const index = modalStack.indexOf(dialog);
-  if (index === -1) return;
-  modalStack.splice(index, 1);
-  if (modalStack.length === 0) document.removeEventListener('keydown', onDocumentKeydown);
+/** @internal The topmost open modal `<dialog>`, if any. */
+export function ɵtopModal(): HTMLDialogElement | null {
+  return modalStack.items[modalStack.items.length - 1]?.element ?? null;
+}
+
+/** @internal Calls `listener` whenever the modal stack changes. Returns a remover. */
+export function ɵonModalStackChange(listener: () => void): () => void {
+  modalStack.listeners.add(listener);
+  return () => modalStack.listeners.delete(listener);
+}
+
+let restoreScroll: (() => void) | null = null;
+
+/** Locks page scroll, padding `<body>` by the hidden scrollbar so the page does not shift. */
+function lockScroll(locked: boolean): void {
+  if (locked === !!restoreScroll) return;
+  if (!locked) {
+    restoreScroll!();
+    restoreScroll = null;
+    return;
+  }
+  const { style } = document.body;
+  const previous = { overflow: style.overflow, paddingRight: style.paddingRight };
+  const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+  if (scrollbar > 0) {
+    const padding = parseFloat(getComputedStyle(document.body).paddingRight) || 0;
+    style.paddingRight = `${padding + scrollbar}px`;
+  }
+  style.overflow = 'hidden';
+  restoreScroll = () => Object.assign(style, previous);
 }
