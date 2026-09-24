@@ -90,6 +90,15 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
 
   // Bypass capturing while undo/redo re-emits (out-of-band — not via headers).
   let isNavigatingHistory = false;
+  // Options objects of our own undo/redo re-emits. When undo/redo runs inside a subscriber, the bus
+  // queues the emit until after `isNavigatingHistory` is reset; object identity still recognises it.
+  const navigationEmitOptions = new WeakSet<object>();
+
+  const emitNavigation = (item: HistoryItem) => {
+    const emitOptions = { headers: item.headers ? { ...item.headers } : undefined };
+    navigationEmitOptions.add(emitOptions);
+    busInstance!.emit(item.key as any, item.payload, emitOptions);
+  };
 
   return {
     onInit(bus: IALEventBus<any>) {
@@ -101,6 +110,7 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
 
       // Guard history stack from capturing undo/redo events directly
       if (isNavigatingHistory) return;
+      if (emitOptions && navigationEmitOptions.has(emitOptions)) return;
 
       undoStack.push({ key: keyStr, payload, headers: emitOptions?.headers });
       if (undoStack.length > limit) {
@@ -134,10 +144,7 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
         redoStack.push(current);
 
         // Retrieve prior state and restore it
-        const prior = undoStack[undoStack.length - 1];
-        busInstance.emit(prior.key as any, prior.payload, {
-          headers: prior.headers ? { ...prior.headers } : undefined,
-        });
+        emitNavigation(undoStack[undoStack.length - 1]);
         return true;
       } finally {
         isNavigatingHistory = false;
@@ -150,10 +157,7 @@ export function historyPlugin(options: HistoryPluginOptions = {}): ALEventBusHis
       try {
         const next = redoStack.pop()!;
         undoStack.push(next);
-
-        busInstance.emit(next.key as any, next.payload, {
-          headers: next.headers ? { ...next.headers } : undefined,
-        });
+        emitNavigation(next);
         return true;
       } finally {
         isNavigatingHistory = false;

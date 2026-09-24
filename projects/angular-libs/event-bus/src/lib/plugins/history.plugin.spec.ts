@@ -6,6 +6,8 @@ import { historyPlugin } from './history.plugin';
 interface TestEventMap {
   'theme:changed': 'light' | 'dark';
   'user:login': { userId: string };
+  'shortcut:undo': void;
+  'shortcut:redo': void;
 }
 
 describe('historyPlugin', () => {
@@ -40,6 +42,29 @@ describe('historyPlugin', () => {
     bus.history.redo();
     expect(bus.latest('theme:changed')?.payload).toBe('dark');
     expect(bus.history.canUndo()).toBe(true);
+    expect(bus.history.canRedo()).toBe(false);
+  });
+
+  it('should support undo/redo triggered from inside a subscriber without recording them as new entries', () => {
+    @Injectable()
+    class ThemeHistoryBus extends ALEventBus<TestEventMap> {
+      history = this.registerPlugin(historyPlugin({ keys: ['theme:changed'] }));
+    }
+    const bus = TestBed.runInInjectionContext(() => new ThemeHistoryBus());
+    bus.on('shortcut:undo', { callback: () => { bus.history.undo(); }, unsubscribeOn: 'manual' });
+    bus.on('shortcut:redo', { callback: () => { bus.history.redo(); }, unsubscribeOn: 'manual' });
+
+    bus.emit('theme:changed', 'light');
+    bus.emit('theme:changed', 'dark');
+
+    bus.emit('shortcut:undo');
+    expect(bus.latest('theme:changed')?.payload).toBe('light');
+    expect(bus.history.getUndoStack().map((i) => i.payload)).toEqual(['light']);
+    expect(bus.history.canRedo()).toBe(true);
+
+    bus.emit('shortcut:redo');
+    expect(bus.latest('theme:changed')?.payload).toBe('dark');
+    expect(bus.history.getUndoStack().map((i) => i.payload)).toEqual(['light', 'dark']);
     expect(bus.history.canRedo()).toBe(false);
   });
 
