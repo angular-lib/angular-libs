@@ -109,6 +109,16 @@ describe('AlDialog', () => {
     expect(host.reasons).toEqual(['backdrop']);
   });
 
+  it('never prevents mousedown inside the dialog (focus, selection, resize grip)', () => {
+    const { first, open } = setup();
+    open();
+    for (const target of [first, first.querySelector('#inside')!]) {
+      const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+      target.dispatchEvent(down);
+      expect(down.defaultPrevented).toBe(false);
+    }
+  });
+
   it('locks page scroll while a modal is open', () => {
     const { host, fixture, open } = setup();
     open();

@@ -32,7 +32,7 @@ export type AlDialogCloseReason = 'escape' | 'backdrop' | 'close';
   host: {
     tabindex: '-1',
     '(cancel)': 'onCancel($event)',
-    '(mousedown)': 'mousedownOnBackdrop = isBackdropEvent($event)',
+    '(mousedown)': 'onMouseDown($event)',
     '(click)': 'onClick($event)',
     '(close)': 'teardown()',
   },
@@ -101,6 +101,12 @@ export class AlDialog {
     else this.element.show();
     this.isOpen = true;
     if (modal) modalStack.push(this);
+  }
+
+  // A method, not an inline assignment: a handler that evaluates to `false` makes Angular
+  // call preventDefault(), which would block focus, text selection and the resize grip.
+  protected onMouseDown(event: MouseEvent): void {
+    this.mousedownOnBackdrop = this.isBackdropEvent(event);
   }
 
   protected onCancel(event: Event): void {
