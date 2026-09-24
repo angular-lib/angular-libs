@@ -1,1023 +1,477 @@
 import {
+  DestroyRef,
   Injectable,
+  Injector,
+  ResourceRef,
+  Signal,
   WritableSignal,
   computed,
-  OnDestroy,
-  signal,
-  Signal,
   inject,
-  DestroyRef,
-  resource,
-  ResourceRef,
   isDevMode,
-  Type,
-  InjectionToken,
+  resource,
+  runInInjectionContext,
+  signal,
+  untracked,
 } from '@angular/core';
 import {
-  type CombineLatestOptions,
-  type CombineLatestSource,
-  type BusEvent,
-  type SubscriptionOptions,
-  type IALEventBus,
-  type ALEventBusPlugin,
-  type EmitOptions,
+  BusEvent,
+  EmitArgs,
+  EmitOptions,
+  EventBusFeature,
+  EventKey,
+  Middleware,
+  OnOptions,
+  Projection,
+  ProjectionOptions,
+  ProjectionReducers,
+  ResourceOptions,
+  SignalOptions,
 } from './event-bus.models';
-import { type TransformedPayloads } from './event-bus.internal';
+import { createProjection } from './projection';
 
-type ValueWithDefault<TValue, TDefault> = TDefault extends TValue ? TValue : TValue | TDefault;
+// `NoInfer` stops an annotated target (e.g. `x: Signal<string> = …`) from inferring away `| undefined`.
+type ValueWithDefault<TValue, TDefault> = NoInfer<TDefault extends TValue ? TValue : TValue | TDefault>;
+
+/** The event passed to a handler listening to one or more keys, discriminated by `key`. */
+export type EventFor<TEventMap, THeaders extends object, K extends EventKey<TEventMap>> = {
+  [P in K]: BusEvent<TEventMap[P], THeaders, P>;
+}[K];
+
+type AnyEvent = BusEvent<any, any, string>;
+type AnyListener = (event: AnyEvent) => void;
 
 /**
- * A generic, signal-based event bus service for Angular applications.
- *
- * **AI Agent & Developer Instructions:**
- * - This service uses Angular Signals (`WritableSignal`, `computed`, `effect`) instead of RxJS.
- * - You can inject this directly or extend it to define a strict event map interface.
- * - For connecting events to component state or templates, prefer `onToSignal` which returns a reactive `Signal`.
- * - For side-effects in component initialization contexts, call `on` directly. It automatically detects and binds to the surrounding `DestroyRef` to auto-unsubscribe.
- * - For executing side effects reacting to events outside an injection context (e.g. inside an async method), use `on` or `once` with a callback. If you don't want them to leak, remember to capture the returned unsubscribe function or pass `{ unsubscribeOn: 'manual' }`.
+ * A typed, signal-based event bus. Extend it with your event map and provide it like any service.
  *
  * @example
- * ```typescript
- * // 1. Define your event map
- * interface AppEventMap {
+ * ```ts
+ * export interface AppEventMap {
  *   'user:login': { userId: string };
  *   'user:logout': void;
+ *   'search:typed': string;
  * }
  *
- * // 2. Create a typed ALEventBus for your app
  * @Injectable({ providedIn: 'root' })
- * export class AppEventBus extends ALEventBus<AppEventMap> {}
- *
- * // 3. Inject and use in your components or services
- * @Component({ ... })
- * export class MyComponent {
- *   private eventBus = inject(AppEventBus);
- *
- *   // Get reactive state (Signal) directly from the event bus
- *   loginData = this.eventBus.onToSignal('user:login');
- *
+ * export class AppEventBus extends ALEventBus<AppEventMap> {
  *   constructor() {
- *     // Execute a side effect with automatic cleanup upon destroy (context-aware!)
- *     this.eventBus.on('user:login', {
- *       callback: (event) => console.log('User logged in:', event.payload.userId)
- *     });
- *
- *     // Emit an event requiring a payload
- *     this.eventBus.emit('user:login', { userId: '123' });
- *
- *     // Emit a void event (no payload argument needed!)
- *     this.eventBus.emit('user:logout');
+ *     super();
+ *     this.use(withLogger(), withDebounce('search:typed', 300));
  *   }
  * }
+ *
+ * // component
+ * bus = inject(AppEventBus);
+ * user = this.bus.onToSignal('user:login');
+ * constructor() {
+ *   this.bus.on('user:logout', () => this.router.navigate(['/']));
+ * }
+ * login() {
+ *   this.bus.emit('user:login', { userId: '42' });
+ * }
  * ```
+ *
+ * Providing the bus in a component's `providers` gives that subtree its own instance, destroyed
+ * with the component.
  */
 @Injectable({ providedIn: 'root' })
-export class ALEventBus<
-  TEventMap extends {},
-  THeaders extends Record<string, any> = Record<string, any>
-> implements IALEventBus<TEventMap, THeaders>, OnDestroy {
-  private readonly NOT_EMITTED = Symbol('NOT_EMITTED');
-  private events = new Map<string, WritableSignal<any>>();
-  /**
-   * Reentrancy guard to prevent stack overflows and preserve event order.
-   * If an event is emitted WHILE another dispatch is in progress (e.g., from a plugin hook),
-   * it is queued and processed immediately after the current dispatch finishes.
-   */
-  private isEmitting = false;
-  private eventQueue: { key: any; payload: any; options: any }[] = [];
-  private subscriptions = new Map<
-    string,
-    Map<string, { dispatch: (event: BusEvent<any, THeaders>) => void; unsubscribe: () => void }>
-  >();
-  private plugins: ALEventBusPlugin<TEventMap, THeaders>[] = [];
+export class ALEventBus<TEventMap extends object, THeaders extends object = Record<string, unknown>> {
+  readonly #injector = inject(Injector);
+  readonly #listeners = new Map<string, Set<AnyListener>>();
+  readonly #latest = new Map<string, WritableSignal<AnyEvent | undefined>>();
+  readonly #middleware: Middleware<TEventMap, THeaders>[] = [];
+  readonly #queue: AnyEvent[] = [];
+  #pipeline: (event: AnyEvent) => void = (event) => this.#deliver(event);
+  #delivering = false;
+  #destroyed = false;
 
-  ngOnDestroy(): void {
-    this.unsubscribeAll();
-    this.events.clear();
-    this.runOnDestroy();
-    this.plugins = [];
-  }
-
-  /**
-   * Internal helper: Invokes `onBeforeEmit` for every registered plugin, isolating failures so a
-   * throwing plugin doesn't prevent subsequent plugins from running or corrupt the emission.
-   * **AI Hint:** Do NOT call externally.
-   */
-  private runOnBeforeEmit<K extends keyof TEventMap>(
-    key: K,
-    payload: TEventMap[K],
-    options?: EmitOptions<THeaders>,
-  ): { cancelled: boolean; payload: TEventMap[K] } {
-    let currentPayload = payload;
-    for (const plugin of this.plugins) {
-      if (!plugin.onBeforeEmit) continue;
-      try {
-        const result = plugin.onBeforeEmit(key, currentPayload, options);
-        if (result === false) {
-          return { cancelled: true, payload: currentPayload };
+  constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      this.#destroyed = true;
+      for (const m of this.#middleware) {
+        try {
+          m.destroy?.();
+        } catch (error) {
+          console.error('[ALEventBus] Middleware destroy() threw.', error);
         }
-        if (result !== undefined) {
-          currentPayload = result as TEventMap[K];
-        }
-      } catch (e) {
-        console.error(
-          `[ALEventBus] Plugin onBeforeEmit hook threw for event "${String(key)}"; ignoring this plugin's contribution for this emission.`,
-          e,
-        );
       }
-    }
-    return { cancelled: false, payload: currentPayload };
-  }
-
-  /**
-   * Internal helper: Invokes `onAfterEmit` for every registered plugin, isolating failures so a
-   * throwing plugin doesn't prevent subsequent plugins from being notified.
-   * **AI Hint:** Do NOT call externally.
-   */
-  private runOnAfterEmit<K extends keyof TEventMap>(
-    key: K,
-    payload: TEventMap[K],
-    options?: EmitOptions<THeaders>,
-  ): void {
-    for (const plugin of this.plugins) {
-      if (!plugin.onAfterEmit) continue;
-      try {
-        plugin.onAfterEmit(key, payload, options);
-      } catch (e) {
-        console.error(`[ALEventBus] Plugin onAfterEmit hook threw for event "${String(key)}".`, e);
-      }
-    }
-  }
-
-  /**
-   * Internal helper: Invokes `onSubscribe` for every registered plugin, isolating failures.
-   * **AI Hint:** Do NOT call externally.
-   */
-  private runOnSubscribe(key: string, subscriptionId: string): void {
-    for (const plugin of this.plugins) {
-      if (!plugin.onSubscribe) continue;
-      try {
-        plugin.onSubscribe(key, subscriptionId);
-      } catch (e) {
-        console.error(`[ALEventBus] Plugin onSubscribe hook threw for event "${key}".`, e);
-      }
-    }
-  }
-
-  /**
-   * Internal helper: Invokes `onUnsubscribe` for every registered plugin, isolating failures.
-   * **AI Hint:** Do NOT call externally.
-   */
-  private runOnUnsubscribe(key: string, subscriptionId: string): void {
-    for (const plugin of this.plugins) {
-      if (!plugin.onUnsubscribe) continue;
-      try {
-        plugin.onUnsubscribe(key, subscriptionId);
-      } catch (e) {
-        console.error(`[ALEventBus] Plugin onUnsubscribe hook threw for event "${key}".`, e);
-      }
-    }
-  }
-
-  /**
-   * Internal helper: Invokes `onDestroy` for every registered plugin, isolating failures so a
-   * throwing plugin doesn't prevent the rest of the bus (and other plugins) from tearing down.
-   * **AI Hint:** Do NOT call externally.
-   */
-  private runOnDestroy(): void {
-    for (const plugin of this.plugins) {
-      if (!plugin.onDestroy) continue;
-      try {
-        plugin.onDestroy();
-      } catch (e) {
-        console.error('[ALEventBus] Plugin onDestroy hook threw an error.', e);
-      }
-    }
-  }
-
-  /**
-   * Registers a plugin to extend the event bus functionality.
-   * Plugins can react to key lifecycle phases or intercept/modify values before emission.
-   * 
-   * **AI Agent & Developer Instructions for Building Plugins:**
-   * 1. **Contract**: Implement `ALEventBusPlugin<TEventMap, THeaders>`.
-   * 2. **Lifecycle Hooks**:
-   *    - `onInit(bus)`: Called immediately. Use to store a reference to the event bus.
-   *    - `onBeforeEmit(key, payload, options)`: Intercepts events before emission.
-   *      - Return `false` to cancel emission completely.
-   *      - Return a modified/new payload to override what gets emitted.
-   *      - Return nothing (`void`/`undefined`) to emit the payload unchanged.
-   *    - `onAfterEmit(key, payload, options)`: React to successful emissions (e.g. logging, storage).
-   *    - `onSubscribe(key, subId)` & `onUnsubscribe(key, subId)`: Monitor active subscribers.
-   *    - `onDestroy()`: Clean up resources when the bus is destroyed.
-   * 3. **Registration Pattern**:
-   *    - **Active Plugins**: (e.g., history plugins) that expose API methods should be registered as class fields/properties to allow direct access (e.g., `this.history.undo()`).
-   *    - **Passive Plugins**: (e.g., logging or debounce plugins) that run completely in the background should be registered directly within the subclass `constructor`.
-   * 
-   * @example
-   * ```typescript
-   * // 1. Create your passive plugin via a factory function (conforming to functional design patterns in this library)
-   * export function myLoggingPlugin(): ALEventBusPlugin {
-   *   return {
-   *     onInit(bus) {
-   *       console.log('Plugin initialised');
-   *     },
-   *     onAfterEmit(key, payload) {
-   *       console.log(`Emitted ${key} with payload:`, payload);
-   *     }
-   *   };
-   * }
-   * 
-   * // 2. Register passive plugins in constructor, active plugins as subclass properties
-   * @Injectable({ providedIn: 'root' })
-   * export class AppEventBus extends ALEventBus<AppEventMap> {
-   *   // Active plugin with programmatic API
-   *   history = this.registerPlugin(historyPlugin({ keys: ['document:save'] }));
-   * 
-   *   constructor() {
-   *     super();
-   * 
-   *     // Passive plugin (logs in the background, no properties needed on class instance)
-   *     this.registerPlugin(myLoggingPlugin());
-   *   }
-   * }
-   * ```
-   * 
-   * @param plugin The plugin instance satisfying `ALEventBusPlugin`.
-   * @returns The registered plugin instance.
-   */
-  protected registerPlugin<P extends ALEventBusPlugin<TEventMap, THeaders>>(plugin: P): P {
-    plugin.onInit?.(this);
-    this.plugins.push(plugin);
-    return plugin;
-  }
-
-  /**
-   * Unsubscribes all listeners from the event bus.
-   * 
-   * **AI Hint & Best Practices:** 
-   * - Generally avoid calling this method in consuming components.
-   * - It is primarily used internally on `ngOnDestroy` of the service, or for complete cleanups during testing.
-   * - In component code, rely on the `unsubscribeOn` option within `.on()` instead.
-   * 
-   * @example
-   * ```typescript
-   * // Unsubscribe absolutely everyone from everything (typically in tests)
-   * eventBus.unsubscribeAll();
-   * ```
-   */
-  unsubscribeAll(): void {
-    const allTeardowns: (() => void)[] = [];
-    this.subscriptions.forEach((subs) => {
-      subs.forEach((sub) => allTeardowns.push(sub.unsubscribe));
-    });
-    allTeardowns.forEach((unsub) => unsub());
-    this.subscriptions.clear();
-  }
-
-  /**
-   * Unsubscribes from all subscription callbacks registered for a specific event.
-   * 
-   * **AI Hint & Best Practices:**
-   * - Prefer using the automatic/injection-context automatic `unsubscribeOn` or capturing the individual unsubscribe function returned by `.on()`.
-   * - This method terminates *all* listeners across the entire application for the specified event key, which could unexpectedly break separate component listeners.
-   * 
-   * @example
-   * ```typescript
-   * // Unsubscribe all listeners registered to the 'user:login' event
-   * eventBus.unsubscribe('user:login');
-   * ```
-   * 
-   * @param key The event key/type.
-   */
-  unsubscribe<K extends keyof TEventMap>(key: K): void {
-    const keyStr = String(key);
-    const subs = this.subscriptions.get(keyStr);
-    if (subs) {
-      const unsubscribers = Array.from(subs.values()).map((sub) => sub.unsubscribe);
-      unsubscribers.forEach((unsub) => unsub());
-    }
-  }
-
-  /**
-   * Resets the cached/stored payload for a single event so it behaves as "not emitted".
-   * Future calls to `latest` or `onToSignal` will yield `undefined` (or the fallback `defaultValue`) until the next emission.
-   * 
-   * **Best Practices & Use Cases:**
-   * - Does not tear down active subscription effects or listeners. Use `unsubscribe` or `unsubscribeAll` to remove listeners.
-   * - Excellent for purging sensitive or stale state (e.g., clearing auth/user metadata on user logout).
-   * 
-   * @example
-   * ```typescript
-   * // Reset the cached 'user:login' data so future reads are undefined
-   * eventBus.resetEvent('user:login');
-   * ```
-   * 
-   * @param key The event key/type to reset.
-   */
-  resetEvent<K extends keyof TEventMap>(key: K): void {
-    const keyStr = String(key);
-    const sig = this.events.get(keyStr) as WritableSignal<any> | undefined;
-    if (sig) {
-      sig.set(this.NOT_EMITTED);
-    } else {
-      // ensure future getSignal reads behave like NOT_EMITTED
-      this.events.set(keyStr, signal(this.NOT_EMITTED));
-    }
-    this.runOnReset(keyStr);
-  }
-
-  /**
-   * Resets the cached/stored payloads for all events so they behave as "not emitted".
-   * 
-   * **Best Practices:**
-   * - Does not tear down active subscription effects or listeners; use `unsubscribeAll` to remove listeners.
-   * - Broadly used during deep application resets (e.g., global logout flow, clean slate redirects).
-   * 
-   * @example
-   * ```typescript
-   * // Clear state for all events in the event bus
-   * eventBus.resetAllEvents();
-   * ```
-   */
-  resetAllEvents(): void {
-    this.events.forEach((sig) => {
-      (sig as WritableSignal<any>).set(this.NOT_EMITTED);
-    });
-    this.runOnReset(undefined);
-  }
-
-  /**
-   * Internal helper: Invokes `onReset` for every registered plugin, isolating failures.
-   * **AI Hint:** Do NOT call externally.
-   */
-  private runOnReset(key: string | undefined): void {
-    for (const plugin of this.plugins) {
-      if (!plugin.onReset) continue;
-      try {
-        plugin.onReset(key);
-      } catch (e) {
-        console.error(`[ALEventBus] Plugin onReset hook threw for key "${key ?? '(all)'}".`, e);
-      }
-    }
-  }
-
-  /**
-   * Internal helper: Lazily creates or retrieves the underlying `WritableSignal` for a given event key.
-   * **AI Hint:** This is a private utility wrapping `Symbol('NOT_EMITTED')` logic. Do NOT call externally.
-   */
-  private getSignal<TData = any>(key: string): WritableSignal<TData | symbol> {
-    if (!this.events.has(key)) {
-      this.events.set(key, signal(this.NOT_EMITTED));
-    }
-    return this.events.get(key)! as WritableSignal<TData | symbol>;
-  }
-
-  /**
-   * Emits an event to the bus with the specified payload (and optional headers).
-   * This synchronously and immediately updates the underlying Signal, updating any derived streams, and executing subscriber callbacks.
-   * 
-   * **AI Instructions & Best Practices:**
-   * - Event emissions are fully synchronous. Do not try to `await` this method.
-   * - Payloads are passed by reference. Do not mutate the payload object inside a callback as it affects other subscribers.
-   * - Argument positions are always fixed: `(key, payload?, options?)`. The payload is never confused with
-   *   `options`, even if your payload happens to look like `{ headers: ... }` - only the third argument is ever
-   *   treated as `EmitOptions`.
-   * - For events defined with a `void` or `undefined` payload, the payload argument can be entirely omitted UNLESS
-   *   you need to pass `options` - in that case, pass `undefined` explicitly as the payload: `emit(key, undefined, options)`.
-   * 
-   * @example
-   * ```typescript
-   * // 1. Emitting an event with a payload
-   * eventBus.emit('user:login', { userId: '123' });
-   * 
-   * // 2. Emitting an event with custom headers
-   * eventBus.emit('user:login', { userId: '123' }, { headers: { source: 'auth-guard' } });
-   * 
-   * // 3. Emitting a void event (no payload needed)
-   * eventBus.emit('user:logout');
-   * 
-   * // 4. Emitting a void event WITH custom headers - pass `undefined` explicitly as the payload
-   * eventBus.emit('user:logout', undefined, { headers: { source: 'auth-guard' } });
-   * ```
-   * 
-   * @param args Arguments matching the predefined event shape. Contains the event key, its payload (if any), and optional metadata headers.
-   */
-  emit<K extends keyof TEventMap>(
-    ...args: TEventMap[K] extends void | undefined
-      ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
-      : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
-  ): void {
-    const key = args[0];
-    const payload = args[1];
-    const options = args[2];
-
-    // If we're already in a dispatch cycle, queue this emission to prevent infinite recursion
-    // (stack overflow) and ensure deterministic execution order for nested calls.
-    if (this.isEmitting) {
-      this.eventQueue.push({ key, payload, options });
-      return;
-    }
-
-    this.isEmitting = true;
-    try {
-      this.processEmit(key, payload as TEventMap[K], options as EmitOptions<THeaders> | undefined);
-
-      // Drain the queue of any nested emissions triggered during the main dispatch cycle.
-      while (this.eventQueue.length > 0) {
-        const next = this.eventQueue.shift()!;
-        this.processEmit(
-          next.key,
-          next.payload as TEventMap[typeof next.key],
-          next.options as EmitOptions<THeaders> | undefined
-        );
-      }
-    } finally {
-      this.isEmitting = false;
-    }
-  }
-
-  /** Internal core emission logic */
-  private processEmit<K extends keyof TEventMap>(
-    key: K,
-    payload: TEventMap[K],
-    options?: EmitOptions<THeaders>
-  ): void {
-    const beforeEmitResult = this.runOnBeforeEmit(key, payload, options);
-    if (beforeEmitResult.cancelled) {
-      return;
-    }
-    const finalPayload = beforeEmitResult.payload;
-
-    const event: BusEvent<TEventMap[K], THeaders> = {
-      key: key as string,
-      payload: finalPayload,
-      timestamp: Date.now(),
-      headers: (options as EmitOptions<THeaders> | undefined)?.headers,
-    };
-    this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string).set(event);
-
-    // Call subscribers synchronously
-    const subs = this.subscriptions.get(key as string);
-    if (subs) {
-      const receivers = Array.from(subs.values());
-      receivers.forEach((sub) => {
-        sub.dispatch(event);
-      });
-    }
-
-    this.runOnAfterEmit(key, finalPayload, options as EmitOptions<THeaders>);
-  }
-
-  /**
-   * Synchronously retrieves the latest event envelope (payload, timestamp, and optional headers) for the specified key.
-   * If the event has never been emitted, or was explicitly reset, returns `undefined`.
-   * 
-   * **Best Practices:**
-   * - Perfect for one-off synchronous validation checks where you don't need a reactive stream.
-   * 
-   * @example
-   * ```typescript
-   * // Synchronously fetch the last emitted login event envelope
-   * const lastEvent = eventBus.latest('user:login');
-   * if (lastEvent) {
-   *   console.log('Last logged in user ID:', lastEvent.payload.userId);
-   *   console.log('Timestamp:', lastEvent.timestamp);
-   * }
-   * ```
-   * 
-   * @param key The event key to query.
-   * @returns The `BusEvent` wrapper object, or `undefined`.
-   */
-  latest<K extends keyof TEventMap>(
-    key: K,
-  ): BusEvent<TEventMap[K], THeaders> | undefined {
-    const signalValue = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
-    return signalValue === this.NOT_EMITTED
-      ? undefined
-      : (signalValue as BusEvent<TEventMap[K], THeaders>);
-  }
-
-  /**
-   * Creates a reactive Angular Signal that updates whenever the specified event is emitted.
-   * 
-   * **AI Instructions & Best Practices:** 
-   * - This is the preferred, idiomatic way to consume events inside modern Angular templates or as derived state using `computed()`.
-   * - By default, it returns `undefined` until the first event is emitted.
-   * - Use the `defaultValue` option to supply a synchronous fallback value before the first emission.
-   * - Use the `transform` option to refine or map the payload directly within the reactive stream.
-   *
-   * @example
-   * ```typescript
-   * // 1. Basic usage - returns Signal<UserData | undefined>
-   * currentUser = this.eventBus.onToSignal('user:login');
-   * 
-   * // 2. With default fallback value - returns Signal<boolean>
-   * isLoggedIn = this.eventBus.onToSignal('user:login', {
-   *   defaultValue: false,
-   *   transform: (user) => !!user
-   * });
-   * 
-   * // 3. With a transformation helper - returns Signal<string | undefined>
-   * username = this.eventBus.onToSignal('user:login', {
-   *   transform: (user) => user.name.toUpperCase()
-   * });
-   * ```
-   *
-   * @param key The event key to listen to.
-   * @param options Configuration for mapping/transforming the payload and/or defining a fallback default value.
-   * @returns A reactive Signal yielding the latest event payload or transformed value.
-   */
-  onToSignal<
-    K extends keyof TEventMap,
-    TTransformed = TEventMap[K],
-    TDefault = undefined
-  >(
-    key: K,
-    options?: {
-      transform?: (payload: TEventMap[K]) => TTransformed;
-      defaultValue?: TDefault;
-    },
-  ): Signal<ValueWithDefault<TTransformed, TDefault>> {
-    return computed(() => {
-      const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(key as string)();
-      if (value === this.NOT_EMITTED) {
-        return options?.defaultValue as any;
-      }
-      const hubEvent = value as BusEvent<TEventMap[K], THeaders>;
-      return (options?.transform
-        ? options.transform(hubEvent.payload)
-        : (hubEvent.payload as any)) as any;
+      this.#listeners.clear();
+      this.#queue.length = 0;
     });
   }
 
   /**
-   * Creates a reactive Angular `ResourceRef` that triggers an asynchronous loader whenever the specified event is emitted.
-   * Leverages Angular's modern Resource API to expertly handle loading/error states and auto-cancellation
-   * (via `AbortSignal`) when multiple events are emitted rapidly.
-   * 
-   * **AI Instructions & Best Practices:** 
-   * - This is the perfect pattern for connecting events directly to asynchronous operations (such as HTTP requests, DB queries, etc.).
-   * - Returning `undefined` from the params initially blocks loading until the event fires at least once, unless a standard `defaultValue` is specified.
-   * - You can pre-process the event payload with a standard sync transformation helper before passing it to the async loader.
+   * Adds middleware and other features, in order. Call it from your subclass constructor.
    *
    * @example
-   * ```typescript
-   * // 1. Basic usage without transform:
-   * // The event payload is { userId: string }, so `params` inside loader has the same shape.
-   * userProfileResource = this.eventBus.onToResource('user:login', {
-   *   loader: async ({ params, abortSignal }) => {
-   *     const res = await fetch(`/api/users/${params.userId}`, { signal: abortSignal });
-   *     return res.json();
-   *   }
-   * });
-   * 
-   * // 2. Advanced usage with a transform function:
-   * // The payload is mapped from `doc` to the string `doc.id`, so `params` inside loader is just that string.
-   * documentResource = this.eventBus.onToResource('doc:selected', {
-   *   defaultValue: null,
-   *   transform: (doc) => doc.id,
-   *   loader: async ({ params: docId, abortSignal }) => {
-   *     return this.docService.fetchDetails(docId, abortSignal);
-   *   }
-   * });
-   * ```
-   *
-   * @param key The event key.
-   * @param options Configuration detailing the async loader, initial default fallback value, and an optional transform function.
-   * @returns A ResourceRef representing the status and resolved async value.
-   */
-  onToResource<
-    K extends keyof TEventMap,
-    TResponse,
-    TTransformed = TEventMap[K],
-    TDefault = undefined
-  >(
-    key: K,
-    options: {
-      transform?: (payload: TEventMap[K]) => TTransformed;
-      loader: (ctx: {
-        params: TTransformed;
-        abortSignal: AbortSignal;
-      }) => Promise<TResponse> | TResponse;
-      defaultValue?: TDefault;
-    },
-  ): ResourceRef<ValueWithDefault<TResponse, TDefault>> {
-    const keyStr = String(key);
-
-    return resource<TResponse | TDefault, { payload: TTransformed } | undefined>({
-      defaultValue: options.defaultValue as TResponse | TDefault,
-      params: () => {
-        const value = this.getSignal<BusEvent<TEventMap[K], THeaders>>(keyStr)();
-        if (value === this.NOT_EMITTED) {
-          return undefined;
-        }
-        const busEvent = value as BusEvent<TEventMap[K], THeaders>;
-        const transformed = options.transform
-          ? options.transform(busEvent.payload)
-          : (busEvent.payload as any);
-        return { payload: transformed };
-      },
-      loader: async ({ params, abortSignal }) => {
-        if (params === undefined) {
-          return undefined as any;
-        }
-        return options.loader({ params: params.payload as any, abortSignal });
-      },
-    }) as any;
-  }
-
-  /**
-   * Subscribes a callback to receive emissions for a specified event key.
-   * 
-   * **AI Instructions & Best Practices:**
-   * - Use this when responding to events with side effects (e.g., launching dialogs, showing toast notifications, updating global analytic logs).
-   * - **Zero-Boilerplate Memory Management**: If called inside an active Angular injection context (e.g., within constructor, field-initializers, or factory functions),
-   *   it automatically retrieves `DestroyRef` and safely registers auto-unsubscription under the hood.
-   * - If created outside an injection context (e.g., in a late dynamically loaded component function), capture the returned `() => void` unsubscribe function or supply an explicit `unsubscribeOn` token in `options` to avoid memory leaks.
-   *
-   * @example
-   * ```typescript
-   * // 1. Inside component constructor - auto-unsubscribes when component is destroyed
+   * ```ts
    * constructor() {
-   *   this.eventBus.on('user:login', {
-   *     callback: (event) => console.log('Welcome back', event.payload.userId)
-   *   });
+   *   super();
+   *   this.use(withLogger(), withCrossTabSync({ channel: 'my-app', keys: ['user:logout'] }));
    * }
-   * 
-   * // 2. Using an explicit transform and custom header options
-   * this.eventBus.on('user:login', {
-   *   transform: (user) => user.email,
-   *   callback: (event) => console.log('Transformed email payload:', event.payload)
-   * });
-   * 
-   * // 3. Late/dynamic manual cleanup setup
-   * const unsubscribe = this.eventBus.on('theme:changed', {
-   *   unsubscribeOn: 'manual', // Silences potential leak warnings in dev mode
-   *   callback: (evt) => applyNewTheme(evt.payload)
-   * });
-   * // Call unsubscribe() manually when done!
    * ```
-   *
-   * @param key The event key.
-   * @param options Subscription configuration including the callback, optional payload transform, and/or unsubscription strategies.
-   * @returns A cleanup function to manually unsubscribe.
    */
-  on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-    key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
+  protected use(...features: EventBusFeature<TEventMap, THeaders>[]): void {
+    runInInjectionContext(this.#injector, () => {
+      for (const feature of features) {
+        const middleware = feature(this);
+        if (middleware) this.#middleware.push(middleware);
+      }
+    });
+    this.#pipeline = this.#middleware.reduceRight<(event: AnyEvent) => void>(
+      (next, m) => (event) => runMiddleware(m, event, next),
+      (event) => this.#deliver(event),
+    );
+  }
+
+  /**
+   * Emits an event. Emits from inside a handler are delivered after the current event, in order.
+   *
+   * @example
+   * ```ts
+   * bus.emit('user:login', { userId: '42' });
+   * bus.emit('user:logout');
+   * bus.emit('user:logout', undefined, { headers: { reason: 'timeout' } });
+   * ```
+   */
+  emit<K extends EventKey<TEventMap>>(...args: EmitArgs<TEventMap, K, THeaders>): void {
+    if (this.#destroyed) return;
+    const [key, payload, options] = args as unknown as [K, TEventMap[K], EmitOptions<THeaders> | undefined];
+    const event: BusEvent<TEventMap[K], THeaders, K> = {
+      key,
+      payload,
+      headers: options?.headers,
+      origin: options?.origin ?? 'local',
+      timestamp: Date.now(),
+    };
+    // Middleware and handlers are side effects: never let them become dependencies of a caller's
+    // `computed` or `effect`.
+    untracked(() => this.#pipeline(event));
+  }
+
+  /**
+   * Runs `handler` for every delivered event of one or more keys.
+   *
+   * Stops automatically when the surrounding injection context (component, directive, service) is
+   * destroyed, and additionally on `options.unsubscribeOn`. Outside an injection context, pass
+   * `unsubscribeOn` or call the returned function. Errors thrown by the handler, or promises it
+   * rejects, are logged and never affect other handlers.
+   *
+   * @example
+   * ```ts
+   * bus.on('user:login', (user) => this.loadProfile(user.userId));
+   * bus.on(['cart:add', 'cart:clear'], (_, event) => this.track(event.key));
+   * bus.on('item:added', handler, { unsubscribeOn: 'cart:cleared' });
+   * ```
+   * @returns A function that stops listening.
+   */
+  on<K extends EventKey<TEventMap>>(
+    key: K | readonly K[],
+    handler: (payload: TEventMap[K], event: EventFor<TEventMap, THeaders, K>) => unknown,
+    options?: OnOptions<TEventMap>,
   ): () => void {
-    const { callback, transform, unsubscribeOn } = options;
-    const keyStr = String(key);
-    const subscriptionId = `sub:${keyStr}:${Date.now()}:${Math.random().toString(36).substring(2, 9)}`;
+    const keys: readonly string[] = Array.isArray(key) ? key : [key as string];
+    const unsubscribeOn = options?.unsubscribeOn;
 
-    this.runOnSubscribe(keyStr, subscriptionId);
-
-    const dispatch = (busEvent: BusEvent<TEventMap[K], THeaders>) => {
-      const { key, timestamp, payload, headers } = busEvent;
-      const transformed = transform
-        ? transform(payload as TEventMap[K])
-        : (payload as unknown as TTransformed);
-
-      const evt = { key, timestamp, payload: transformed, headers };
-
-      try {
-        const res = callback(evt);
-        if (res instanceof Promise) {
-          res.catch((err) =>
-            console.error(`Error in callback for event ${keyStr}:`, err),
-          );
-        }
-      } catch (err) {
-        console.error(`Error in callback for event ${keyStr}:`, err);
-      }
-    };
-
-    let cleanupTracker: (() => void) | null = null;
-
-    const unsubscribe = () => {
-      const subs = this.subscriptions.get(keyStr);
-      if (subs && subs.has(subscriptionId)) {
-        subs.delete(subscriptionId);
-        if (subs.size === 0) {
-          this.subscriptions.delete(keyStr);
-        }
-        this.runOnUnsubscribe(keyStr, subscriptionId);
-      }
-      if (cleanupTracker) {
-        cleanupTracker();
-        cleanupTracker = null;
-      }
-    };
-
-    if (!this.subscriptions.has(keyStr)) {
-      this.subscriptions.set(keyStr, new Map());
-    }
-    this.subscriptions.get(keyStr)!.set(subscriptionId, { dispatch, unsubscribe });
-
-    // Context-guided automatic DestroyRef resolution
     let contextDestroyRef: DestroyRef | null = null;
     try {
       contextDestroyRef = inject(DestroyRef, { optional: true });
     } catch {
-      // Safely ignore if executed outside an active injection context
+      // Outside an injection context.
     }
-
-    if (isDevMode() && !contextDestroyRef && !unsubscribeOn) {
+    if (isDevMode() && !contextDestroyRef && unsubscribeOn === undefined) {
       console.warn(
-        `[ALEventBus] Potential memory leak: Subscription for event "${keyStr}" was created outside an injection context without an explicit 'unsubscribeOn' strategy.\n` +
-        `Make sure to either:\n` +
-        `1. Call on() inside an injection context (e.g. constructor or field initializer) to enable automatic cleanup.\n` +
-        `2. Manually capture and call the returned unsubscribe function.\n` +
-        `3. Pass an explicit 'unsubscribeOn' strategy (e.g. DestroyRef or list of terminating event keys).\n` +
-        `To suppress this warning, explicitly pass: { unsubscribeOn: 'manual' }`
+        `[ALEventBus] on('${keys.join("', '")}') was called outside an injection context without ` +
+          `'unsubscribeOn'. Call the returned function to stop it, or pass { unsubscribeOn: 'manual' } ` +
+          `to silence this warning.`,
       );
     }
 
-    const finalUnsubscribeOn = unsubscribeOn === 'manual'
-      ? undefined
-      : (unsubscribeOn ?? contextDestroyRef ?? undefined);
+    const cleanups: (() => void)[] = [];
+    let stopped = false;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      cleanups.forEach((cleanup) => cleanup());
+    };
 
-    if (finalUnsubscribeOn) {
-      if (typeof (finalUnsubscribeOn as any).onDestroy === 'function') {
-        const cleanupDestroy = (finalUnsubscribeOn as DestroyRef).onDestroy(unsubscribe);
-        if (typeof cleanupDestroy === 'function') {
-          cleanupTracker = cleanupDestroy;
+    if (unsubscribeOn !== 'manual') {
+      // Register cleanup before attaching: a destroyed DestroyRef throws here, before anything leaks.
+      for (const destroyRef of [contextDestroyRef, isDestroyRef(unsubscribeOn) ? unsubscribeOn : null]) {
+        if (destroyRef) cleanups.push(destroyRef.onDestroy(stop));
+      }
+      if (isAbortSignal(unsubscribeOn)) {
+        if (unsubscribeOn.aborted) {
+          stop();
+          return stop;
         }
-      } else {
-        const keys = Array.isArray(finalUnsubscribeOn) ? finalUnsubscribeOn : [finalUnsubscribeOn];
-        const cancelSubs = keys.map((k) =>
-          this.on(k as any, { callback: () => unsubscribe() }),
-        );
-        cleanupTracker = () => cancelSubs.forEach((unsub) => unsub());
+        unsubscribeOn.addEventListener('abort', stop, { once: true });
+        cleanups.push(() => unsubscribeOn.removeEventListener('abort', stop));
+      }
+      if (typeof unsubscribeOn === 'string' || Array.isArray(unsubscribeOn)) {
+        const terminators: readonly string[] = Array.isArray(unsubscribeOn) ? unsubscribeOn : [unsubscribeOn];
+        for (const terminator of terminators) cleanups.push(this.#subscribe(terminator, stop));
       }
     }
 
-    return unsubscribe;
+    const call = handler as (payload: unknown, event: AnyEvent) => unknown;
+    for (const k of keys) {
+      cleanups.push(
+        this.#subscribe(k, (event) => {
+          const result = call(event.payload, event);
+          if (result instanceof Promise) {
+            result.catch((error) => console.error(`[ALEventBus] Async handler for "${event.key}" rejected.`, error));
+          }
+        }),
+      );
+    }
+    return stop;
   }
 
-  /**
-   * Subscribes a callback to receive exactly ONE emission for a specified event key, and then automatically unsubscribes.
-   * 
-   * **Best Practices:**
-   * - Perfect for one-time initialization routines, lazy setups, or transient feedback routines.
-   * 
-   * @example
-   * ```typescript
-   * // Fire a callback the very first time the user logs in
-   * this.eventBus.once('user:login', {
-   *   callback: (event) => {
-   *     console.log('App successfully initialised for user', event.payload.userId);
-   *   }
-   * });
-   * ```
-   * 
-   * @param key The event key.
-   * @param options Subscription configuration including the callback, payload transform, and optional unsubscription strategies.
-   * @returns A manual cleanup function if the listener needs to be terminated before the event fires.
-   */
-  once<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-    key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>,
+  /** Like `on`, but stops after the first delivered event. */
+  once<K extends EventKey<TEventMap>>(
+    key: K | readonly K[],
+    handler: (payload: TEventMap[K], event: EventFor<TEventMap, THeaders, K>) => unknown,
+    options?: OnOptions<TEventMap>,
   ): () => void {
-    let unsubscribe: () => void;
-    const oneTimeCallback = async (event: BusEvent<TTransformed, THeaders>) => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-      try {
-        await options.callback(event);
-      } catch (error) {
-        console.error(
-          `Error in once callback for event ${String(key)}:`,
-          error,
-        );
-      }
-    };
-    unsubscribe = this.on(key, {
-      callback: oneTimeCallback,
-      transform: options.transform,
-      unsubscribeOn: options.unsubscribeOn,
-    } as any);
-    return unsubscribe;
+    const stop = this.on(
+      key,
+      (payload, event) => {
+        stop();
+        return handler(payload, event);
+      },
+      options,
+    );
+    return stop;
   }
 
   /**
-   * Combines the latest payloads of multiple events into a single, synchronously updated reactive Signal.
-   * 
-   * **AI Instructions & Best Practices:**
-   * - Useful when deriving state that depends on multiple events simultaneously.
-   * - Under the hood, this compiles the events into a tuple of transformed values.
-   * - Yields `undefined` until *every* specified source event has emitted at least once.
-   * 
-   * @example
-   * ```typescript
-   * // Combine multiple sources into one reactive Signal
-   * connectionState = this.eventBus.combineLatestToSignal([
-   *   { key: 'network:ping', transform: (p) => p.latency },
-   *   { key: 'user:session' }
-   * ]);
-   * 
-   * // connectionState() is undefined until both events emit.
-   * // Afterwards, it returns a precise tuple: [number, SessionData]
-   * ```
-   *
-   * @param sources A read-only array of `CombineLatestSource` objects detailing target event keys and optional transforms.
-   * @returns A reactive Signal yielding the tuple of mapped event payloads, or `undefined`.
+   * The latest delivered event of `key`, or `undefined` if none since creation or the last reset.
+   * Reading it inside `computed`/`effect` tracks it.
    */
-  combineLatestToSignal<const TSources extends readonly CombineLatestSource[]>(
-    sources: TSources,
-  ): Signal<TransformedPayloads<TSources> | undefined> {
+  latest<K extends EventKey<TEventMap>>(key: K): BusEvent<TEventMap[K], THeaders, K> | undefined {
+    return this.#latestSignal(key)() as BusEvent<TEventMap[K], THeaders, K> | undefined;
+  }
+
+  /**
+   * A signal of the latest payload of `key`, optionally transformed. Starts with the payload already
+   * delivered (or `defaultValue` / `undefined`) and follows every new one.
+   *
+   * Signals compare by value: the same payload twice does not notify twice. Use `on()` or a
+   * `projection()` when every occurrence matters.
+   *
+   * @example
+   * ```ts
+   * user = bus.onToSignal('user:login');                        // Signal<User | undefined>
+   * name = bus.onToSignal('user:login', { transform: (u) => u.name, defaultValue: 'guest' });
+   * ```
+   */
+  onToSignal<K extends EventKey<TEventMap>, TTransformed = TEventMap[K], TDefault = undefined>(
+    key: K,
+    options?: SignalOptions<TEventMap[K], TTransformed, TDefault>,
+  ): Signal<ValueWithDefault<TTransformed, TDefault>> {
+    const latest = this.#latestSignal(key);
     return computed(() => {
-      const values = sources.map((s) => this.getSignal(s.key)());
-      if (values.some((v) => v === this.NOT_EMITTED)) {
-        return undefined;
-      }
-      const hubEvents = values as BusEvent<any>[];
-      return hubEvents.map((hubEvent, i) => {
-        const source = sources[i];
-        return source.transform
-          ? source.transform(hubEvent.payload)
-          : hubEvent.payload;
-      }) as TransformedPayloads<TSources>;
+      const event = latest();
+      if (!event) return options?.defaultValue as ValueWithDefault<TTransformed, TDefault>;
+      const value = options?.transform ? options.transform(event.payload) : event.payload;
+      return value as ValueWithDefault<TTransformed, TDefault>;
     });
   }
 
   /**
-   * Subscribes to the combination of the latest values of multiple events and executes a callback side-effect.
-   * 
-   * **Best Practices:**
-   * - The callback triggers only after *all* combined source events have emitted at least once.
-   * - After that threshold, any subsequent emission from *any* of the sources triggers the callback with the latest state of all combined events.
-   * 
-   * @example
-   * ```typescript
-   * const unsubscribe = this.eventBus.combineLatest({
-   *   sources: [
-   *     { key: 'user:login' },
-   *     { key: 'config:loaded', transform: (c) => c.features }
-   *   ],
-   *   callback: ([loginEvent, configEvent]) => {
-   *     console.log('User logged in AND configuration was loaded!');
-   *     this.initFeaturesForUser(loginEvent.payload.userId, configEvent.payload);
-   *   }
-   * });
-   * 
-   * // Call unsubscribe() to clean up all underlying subscriptions
-   * ```
+   * A signal of the latest payloads of several events as a typed tuple, or `undefined` until every
+   * event has been delivered at least once.
    *
-   * @param options Configuration detailing target sources and the trigger callback function.
-   * @returns A manual unsubscribe function that tears down all internally managed subscriptions.
+   * @example
+   * ```ts
+   * session = bus.combineLatestToSignal(['user:login', 'config:loaded']); // Signal<[User, Config] | undefined>
+   * ```
    */
-  combineLatest<const TSources extends readonly CombineLatestSource[]>(
-    options: CombineLatestOptions<TSources>,
+  combineLatestToSignal<const TKeys extends readonly EventKey<TEventMap>[]>(
+    keys: TKeys,
+  ): Signal<{ -readonly [I in keyof TKeys]: TEventMap[TKeys[I]] } | undefined> {
+    const sources = keys.map((key) => this.#latestSignal(key));
+    return computed(() => {
+      const payloads: unknown[] = [];
+      for (const source of sources) {
+        const event = source();
+        if (!event) return undefined;
+        payloads.push(event.payload);
+      }
+      return payloads as { -readonly [I in keyof TKeys]: TEventMap[TKeys[I]] };
+    });
+  }
+
+  /**
+   * Runs `handler` with the latest payloads of all `keys` whenever one of them is delivered, once
+   * every key has been delivered at least once. Cleanup works like `on()`.
+   */
+  combineLatest<const TKeys extends readonly EventKey<TEventMap>[]>(
+    keys: TKeys,
+    handler: (payloads: { -readonly [I in keyof TKeys]: TEventMap[TKeys[I]] }) => unknown,
+    options?: OnOptions<TEventMap>,
   ): () => void {
-    const { sources, callback, unsubscribeOn } = options;
-
-    const checkAndTrigger = () => {
-      const values = sources.map((s) => this.getSignal(s.key)());
-      if (values.some((v) => v === this.NOT_EMITTED)) {
-        return;
-      }
-      const hubEvents = values as BusEvent<any>[];
-      const payloads = hubEvents.map((hubEvent, i) => {
-        const source = sources[i];
-        return source.transform
-          ? source.transform(hubEvent.payload)
-          : hubEvent.payload;
-      }) as TransformedPayloads<TSources>;
-
-      // Build BusEvent<TTransformed>[] matching sources order
-      const events = payloads.map((payload, i) => ({
-        key: sources[i].key,
-        timestamp: hubEvents[i].timestamp,
-        payload,
-        headers: hubEvents[i].headers,
-      })) as any;
-
-      const result = callback(events);
-      if (result instanceof Promise) {
-        const keys = sources.map((s) => s.key).join(', ');
-        result.catch((error) =>
-          console.error(
-            `Error in combineLatest callback for events ${keys}:`,
-            error,
-          ),
-        );
-      }
-    };
-
-    const unsubscribes = sources.map((source) =>
-      this.on(source.key as any, {
-        callback: () => checkAndTrigger(),
-        unsubscribeOn,
-      }),
+    const combined = this.combineLatestToSignal(keys);
+    return this.on(
+      keys as readonly EventKey<TEventMap>[],
+      () => {
+        const payloads = untracked(combined);
+        return payloads ? handler(payloads) : undefined;
+      },
+      options,
     );
+  }
 
-    return () => {
-      unsubscribes.forEach((unsub) => unsub());
-    };
+  /**
+   * An Angular `ResourceRef` that runs `loader` every time `key` is delivered — even with an
+   * identical payload — and aborts the previous load. Idle until the first event; `resetEvent(key)`
+   * returns it to idle.
+   *
+   * @example
+   * ```ts
+   * profile = bus.onToResource('user:login', {
+   *   transform: (user) => user.userId,
+   *   loader: ({ params: userId, abortSignal }) =>
+   *     fetch(`/api/users/${userId}`, { signal: abortSignal }).then((r) => r.json() as Promise<Profile>),
+   * });
+   * ```
+   */
+  onToResource<K extends EventKey<TEventMap>, TResponse, TTransformed = TEventMap[K], TDefault = undefined>(
+    key: K,
+    options: ResourceOptions<TEventMap[K], TTransformed, TResponse, TDefault>,
+  ): ResourceRef<ValueWithDefault<TResponse, TDefault>> {
+    const latest = this.#latestSignal(key);
+    const transform = options.transform ?? ((payload: TEventMap[K]) => payload as unknown as TTransformed);
+
+    return resource<TResponse | TDefault, { event: BusEvent<TEventMap[K]>; value: TTransformed } | undefined>({
+      injector: options.injector,
+      defaultValue: options.defaultValue as TDefault,
+      // A fresh object per event, so every delivery reloads even when the payload is unchanged.
+      params: () => {
+        const event = latest() as BusEvent<TEventMap[K]> | undefined;
+        return event ? { event, value: transform(event.payload) } : undefined;
+      },
+      loader: async ({ params, abortSignal }) => options.loader({ params: params.value, abortSignal, event: params.event }),
+    }) as ResourceRef<ValueWithDefault<TResponse, TDefault>>;
+  }
+
+  /**
+   * Creates state derived from events. Declare it as a field of your bus class. Every delivered event
+   * runs its reducer (identical payloads count). Optionally keeps snapshots for undo/redo.
+   *
+   * @example
+   * ```ts
+   * export class AppEventBus extends ALEventBus<AppEventMap> {
+   *   cart = this.projection({ items: [] as Item[] }, {
+   *     'cart:add': (s, item) => ({ items: [...s.items, item] }),
+   *     'cart:clear': () => ({ items: [] }),
+   *   }, { undo: true });
+   * }
+   *
+   * // cart.state(), cart.undo(), cart.redo(), cart.canUndo()
+   * ```
+   */
+  protected projection<TState>(
+    initial: TState,
+    reducers: ProjectionReducers<TEventMap, NoInfer<TState>, THeaders>,
+    options?: ProjectionOptions,
+  ): Projection<TState> {
+    return createProjection(initial, reducers, options, (key, listener) => this.#subscribe(key, listener));
+  }
+
+  /** Forgets the latest payload of `key`. Signals return to their default, resources to idle. */
+  resetEvent<K extends EventKey<TEventMap>>(key: K, options?: { origin?: string }): void {
+    this.#latest.get(key)?.set(undefined);
+    this.#notifyReset(key, options?.origin ?? 'local');
+  }
+
+  /** Forgets the latest payload of every event. Handlers and projections are unaffected. */
+  resetAllEvents(options?: { origin?: string }): void {
+    this.#latest.forEach((latest) => latest.set(undefined));
+    this.#notifyReset(undefined, options?.origin ?? 'local');
+  }
+
+  /** Stops every handler of `key` across the app, including projections. Prefer the function returned by `on()`. */
+  unsubscribe<K extends EventKey<TEventMap>>(key: K): void {
+    this.#listeners.delete(key);
+  }
+
+  /** Stops every handler, including projections. Mostly useful in tests. */
+  unsubscribeAll(): void {
+    this.#listeners.clear();
+  }
+
+  #subscribe(key: string, listener: AnyListener): () => void {
+    let listeners = this.#listeners.get(key);
+    if (!listeners) this.#listeners.set(key, (listeners = new Set()));
+    listeners.add(listener);
+    return () => this.#listeners.get(key)?.delete(listener);
+  }
+
+  #latestSignal(key: string): WritableSignal<AnyEvent | undefined> {
+    let latest = this.#latest.get(key);
+    if (!latest) this.#latest.set(key, (latest = signal<AnyEvent | undefined>(undefined)));
+    return latest;
+  }
+
+  #notifyReset(key: EventKey<TEventMap> | undefined, origin: string): void {
+    for (const m of this.#middleware) {
+      try {
+        m.onReset?.(key, origin);
+      } catch (error) {
+        console.error('[ALEventBus] Middleware onReset() threw.', error);
+      }
+    }
+  }
+
+  #deliver(event: AnyEvent): void {
+    if (this.#destroyed) return;
+    this.#queue.push(event);
+    if (this.#delivering) return;
+
+    this.#delivering = true;
+    try {
+      untracked(() => {
+        while (this.#queue.length > 0) {
+          const next = this.#queue.shift()!;
+          this.#latestSignal(next.key).set(next);
+          const listeners = this.#listeners.get(next.key);
+          if (!listeners) continue;
+          for (const listener of [...listeners]) {
+            try {
+              listener(next);
+            } catch (error) {
+              console.error(`[ALEventBus] Handler for "${next.key}" threw.`, error);
+            }
+          }
+        }
+      });
+    } finally {
+      this.#delivering = false;
+      // Empty after a normal drain; after an unexpected throw, don't replay leftovers on a later emit.
+      this.#queue.length = 0;
+    }
   }
 }
 
-/**
- * Creates highly declarative, functional hook helpers for a specific ALEventBus implementation.
- * Layering functional wrappers on top of the robust core class gives you the absolute best of both worlds:
- * zero-boilerplate developer experience in your components with zero high-risk core refactoring.
- *
- * @param eventBusToken The InjectionToken or Class reference of your custom Event Bus (e.g. AppEventBus).
- * @returns An object containing type-safe, low-boilerplate hook functions: `onEvent`, `onceEvent`, `emitEvent`, and `useEventSignal`.
- * 
- * @example
- * ```typescript
- * // In your events.ts:
- * @Injectable({ providedIn: 'root' })
- * export class AppEventBus extends ALEventBus<AppEventMap> {}
- * 
- * export const { onEvent, onceEvent, emitEvent, useEventSignal } = createEventBusHooks(AppEventBus);
- * 
- * // In your component:
- * @Component({ ... })
- * export class MyComponent {
- *   // Reactive Signal directly in field initializer
- *   isLoggedIn = useEventSignal('user:login', { defaultValue: false, transform: u => !!u });
- * 
- *   constructor() {
- *     // Simple callback, automatically disposed!
- *     onEvent('user:logout', () => {
- *       console.log('User signed out.');
- *     });
- *   }
- * }
- * ```
- */
-export function createEventBusHooks<
-  TEventMap extends Record<string, any>,
-  THeaders extends Record<string, any> = Record<string, any>
->(
-  eventBusToken: Type<ALEventBus<TEventMap, THeaders>> | InjectionToken<ALEventBus<TEventMap, THeaders>>
-) {
-  return {
-    onEvent: <K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-      key: K,
-      callback: (event: BusEvent<TTransformed, THeaders>) => void,
-      options?: Omit<SubscriptionOptions<TEventMap[K], TTransformed, THeaders>, 'callback'>
-    ): () => void => {
-      const bus = inject(eventBusToken);
-      return bus.on(key, { ...(options || {}), callback } as any);
-    },
+function runMiddleware(middleware: Middleware<any, any>, event: AnyEvent, next: (event: AnyEvent) => void): void {
+  let passed = false;
+  try {
+    middleware.handle(event as never, (e) => {
+      passed = true;
+      next(e);
+    });
+  } catch (error) {
+    console.error(`[ALEventBus] Middleware threw for "${event.key}"; passing the event on unchanged.`, error);
+    // Fail open: a broken logger or analytics middleware must not swallow events.
+    if (!passed) next(event);
+  }
+}
 
-    onceEvent: <K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-      key: K,
-      callback: (event: BusEvent<TTransformed, THeaders>) => void,
-      options?: Omit<SubscriptionOptions<TEventMap[K], TTransformed, THeaders>, 'callback'>
-    ): () => void => {
-      const bus = inject(eventBusToken);
-      return bus.once(key, { ...(options || {}), callback } as any);
-    },
+function isDestroyRef(value: unknown): value is DestroyRef {
+  return typeof (value as DestroyRef | undefined)?.onDestroy === 'function';
+}
 
-    emitEvent: <K extends keyof TEventMap>(
-      ...args: TEventMap[K] extends void | undefined
-        ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
-        : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
-    ): void => {
-      const bus = inject(eventBusToken);
-      (bus.emit as any)(...args);
-    },
-
-    useEventSignal: <K extends keyof TEventMap, TTransformed = TEventMap[K], TDefault = undefined>(
-      key: K,
-      options?: {
-        transform?: (payload: TEventMap[K]) => TTransformed;
-        defaultValue?: TDefault;
-      }
-    ): Signal<ValueWithDefault<TTransformed, TDefault>> => {
-      const bus = inject(eventBusToken);
-      return bus.onToSignal(key, options);
-    },
-
-    combineEvents: <const TSources extends readonly CombineLatestSource[]>(
-      options: {
-        sources: TSources;
-        callback: (events: {
-          -readonly [I in keyof TSources]: BusEvent<
-            TSources[I] extends CombineLatestSource<any, infer TTransformed>
-              ? unknown extends TTransformed
-                ? TSources[I] extends { key: infer K }
-                  ? K extends keyof TEventMap
-                    ? TEventMap[K]
-                    : any
-                  : any
-                : TTransformed
-              : any,
-            THeaders
-          >;
-        }) => void | Promise<void>;
-        unsubscribeOn?: DestroyRef | 'manual' | string | string[];
-      }
-    ): () => void => {
-      const bus = inject(eventBusToken);
-      return bus.combineLatest(options as any);
-    }
-  };
+function isAbortSignal(value: unknown): value is AbortSignal {
+  return typeof AbortSignal !== 'undefined' && value instanceof AbortSignal;
 }

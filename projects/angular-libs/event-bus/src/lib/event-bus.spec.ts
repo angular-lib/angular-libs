@@ -1,503 +1,354 @@
-import { Injectable, runInInjectionContext, EnvironmentInjector } from '@angular/core';
+import { Component, DestroyRef, EnvironmentInjector, Injectable, effect, inject, runInInjectionContext, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ALEventBus, createEventBusHooks } from './event-bus';
-import { ALEventBusPlugin, BusEvent } from './event-bus.models';
-import { MockComponent, TestEventMap, TestEventBus, createTestPlugin } from './testing/event-bus-test-helpers';
+import { ALEventBus } from './event-bus';
+import { Middleware } from './event-bus.models';
+import { withBubbling, withMiddleware } from './middleware/custom';
+import { TestEventBus, TestEventMap } from './testing/test-bus';
 
-describe('ALEventBus Basic/Core Functionality', () => {
-  let eventBus: TestEventBus;
-
+describe('ALEventBus', () => {
+  let bus: TestEventBus;
   beforeEach(() => {
-    TestBed.configureTestingModule({
-      providers: [TestEventBus],
-    });
-    eventBus = TestBed.inject(TestEventBus);
+    TestBed.configureTestingModule({});
+    bus = TestBed.inject(TestEventBus);
   });
 
-  afterEach(() => {
-    eventBus.resetAllEvents();
-    eventBus.unsubscribeAll();
+  it('emits typed payloads and headers, and remembers the latest event', () => {
+    const got: unknown[] = [];
+    bus.on('user:login', (user, event) => got.push([user.userId, event.key, event.headers, event.origin]), { unsubscribeOn: 'manual' });
+    expect(bus.latest('user:login')).toBeUndefined();
+
+    bus.emit('user:login', { userId: '1' }, { headers: { traceId: 't' } });
+
+    expect(got).toEqual([['1', 'user:login', { traceId: 't' }, 'local']]);
+    expect(bus.latest('user:login')?.payload).toEqual({ userId: '1' });
   });
 
-  it('should emit and read latest event synchronously', () => {
-    expect(eventBus.latest('user:login')).toBeUndefined();
-
-    eventBus.emit('user:login', { userId: '123', username: 'alice' });
-
-    const latest = eventBus.latest('user:login');
-    expect(latest).toBeDefined();
-    expect(latest?.payload).toEqual({ userId: '123', username: 'alice' });
-    expect(latest?.key).toBe('user:login');
+  it('emits void events without a payload, or with options after an explicit undefined', () => {
+    const got: unknown[] = [];
+    bus.on('user:logout', (_, e) => got.push(e.headers), { unsubscribeOn: 'manual' });
+    bus.emit('user:logout');
+    bus.emit('user:logout', undefined, { headers: { traceId: 'x' } });
+    expect(got).toEqual([undefined, { traceId: 'x' }]);
   });
 
-  it('should never confuse a payload for options, even when the payload is shaped like { headers }', () => {
-    expect(eventBus.latest('request:completed')).toBeUndefined();
-
-    const payloadData = {
-      headers: { 'Content-Type': 'application/json' },
-      body: '{"status":"ok"}'
-    };
-    eventBus.emit('request:completed', payloadData);
-
-    const latest = eventBus.latest('request:completed');
-    expect(latest).toBeDefined();
-    expect(latest?.payload).toEqual(payloadData);
-    expect(latest?.headers).toBeUndefined(); // Headers should be undefined since we did not supply options
-
-    // Payloads shaped EXACTLY like `{ headers }` (no other keys) are also always treated as the
-    // payload now - argument position is the only thing that determines payload vs. options.
-    const headersOnlyPayload = { headers: { traceId: 'abc' } };
-    eventBus.emit('request:completed', headersOnlyPayload as any);
-    expect(eventBus.latest('request:completed')?.payload).toEqual(headersOnlyPayload);
-    expect(eventBus.latest('request:completed')?.headers).toBeUndefined();
-  });
-
-  it('should support callback based subscriptions via on() and print warning but suppress if manual', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    const received: BusEvent<{ userId: string; username: string }>[] = [];
-    const unsubscribe = eventBus.on('user:login', {
-      callback: (event) => { received.push(event); },
-    });
-
-    eventBus.emit('user:login', { userId: '456', username: 'bob' });
-
-    expect(received.length).toBe(1);
-    expect(received[0].payload).toEqual({ userId: '456', username: 'bob' });
-
-    // Expect warning in devMode for outside-injection-context on()
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
-
-    unsubscribe();
-  });
-
-  it('should support automatic contextual unsubscription via DestroyRef inside an injection context', () => {
-    const received: BusEvent<'light' | 'dark'>[] = [];
-    
-    const fixture = TestBed.createComponent(MockComponent);
-    const componentInjector = fixture.debugElement.injector;
-
-    runInInjectionContext(componentInjector, () => {
-      eventBus.on('theme:changed', {
-        callback: (event) => { received.push(event); }
-      });
-    });
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(received.length).toBe(1);
-
-    // Simulate destruction of the context natively through Component lifecycle!
-    fixture.destroy();
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(received.length).toBe(1); // Should not have increased since we auto-unsubscribed!
-  });
-
-  it('should bypass automatic unsubscription if unsubscribeOn is "manual"', () => {
-    const received: BusEvent<'light' | 'dark'>[] = [];
-    
-    const fixture = TestBed.createComponent(MockComponent);
-    const componentInjector = fixture.debugElement.injector;
-
-    runInInjectionContext(componentInjector, () => {
-      eventBus.on('theme:changed', {
-        callback: (event) => { received.push(event); },
-        unsubscribeOn: 'manual'
-      });
-    });
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(received.length).toBe(1);
-
-    // Simulate destruction of the context - should be ignored due to manual bypass
-    fixture.destroy();
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(received.length).toBe(2); // Should have increased because we bypassed contextual destruction!
-  });
-
-  it('should support customized typed headers globally', () => {
-    interface CustomHeaders {
-      traceId: string;
-      tenant: string;
-    }
+  it('never treats a payload shaped like options as options', () => {
     @Injectable()
-    class CustomHeadersEventBus extends ALEventBus<TestEventMap, CustomHeaders> {}
+    class Bus extends ALEventBus<{ response: { headers: Record<string, string> } }> {}
+    const b = TestBed.runInInjectionContext(() => new Bus());
+    b.emit('response', { headers: { a: 'b' } });
+    expect(b.latest('response')?.payload).toEqual({ headers: { a: 'b' } });
+    expect(b.latest('response')?.headers).toBeUndefined();
+  });
 
-    const customBus = TestBed.runInInjectionContext(() => new CustomHeadersEventBus());
-    const received: BusEvent<'light' | 'dark', CustomHeaders>[] = [];
+  it('delivers emits from handlers after the current event, in order', () => {
+    const log: string[] = [];
+    bus.on('count:changed', (n) => { bus.emit('theme:changed', 'dark'); bus.emit('user:logout'); log.push(`count-a:${n}`); }, { unsubscribeOn: 'manual' });
+    bus.on('count:changed', () => log.push('count-b'), { unsubscribeOn: 'manual' });
+    bus.on('theme:changed', () => log.push('theme'), { unsubscribeOn: 'manual' });
+    bus.on('user:logout', () => log.push('logout'), { unsubscribeOn: 'manual' });
+    bus.emit('count:changed', 1);
+    expect(log).toEqual(['count-a:1', 'count-b', 'theme', 'logout']);
+  });
 
-    customBus.on('theme:changed', {
-      callback: (event) => {
-        received.push(event);
+  it('isolates throwing and rejecting handlers', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const got: number[] = [];
+    bus.on('count:changed', () => { throw new Error('sync'); }, { unsubscribeOn: 'manual' });
+    bus.on('count:changed', async () => { throw new Error('async'); }, { unsubscribeOn: 'manual' });
+    bus.on('count:changed', (n) => got.push(n), { unsubscribeOn: 'manual' });
+
+    expect(() => bus.emit('count:changed', 1)).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(got).toEqual([1]);
+    expect(error).toHaveBeenCalledTimes(2);
+    error.mockRestore();
+  });
+
+  it('does not let an emitting effect track signals read by handlers', () => {
+    const unrelated = signal(0);
+    let deliveries = 0;
+    bus.on('user:logout', () => { unrelated(); deliveries++; }, { unsubscribeOn: 'manual' });
+    TestBed.runInInjectionContext(() => effect(() => bus.emit('user:logout')));
+    TestBed.tick();
+    unrelated.set(1);
+    TestBed.tick();
+    expect(deliveries).toBe(1);
+  });
+
+  it('once() stops after the first event', () => {
+    const got: number[] = [];
+    bus.once('count:changed', (n) => got.push(n), { unsubscribeOn: 'manual' });
+    bus.emit('count:changed', 1);
+    bus.emit('count:changed', 2);
+    expect(got).toEqual([1]);
+  });
+
+  it('listens to several keys with a key-discriminated event', () => {
+    const got: string[] = [];
+    bus.on(['user:login', 'theme:changed'], (_, e) => got.push(e.key === 'user:login' ? e.payload.userId : e.payload), { unsubscribeOn: 'manual' });
+    bus.emit('user:login', { userId: 'u' });
+    bus.emit('theme:changed', 'dark');
+    expect(got).toEqual(['u', 'dark']);
+  });
+
+  it('resetEvent / resetAllEvents forget latest payloads but keep handlers', () => {
+    const got: number[] = [];
+    bus.on('count:changed', (n) => got.push(n), { unsubscribeOn: 'manual' });
+    bus.emit('count:changed', 1);
+    bus.emit('theme:changed', 'dark');
+    bus.resetEvent('count:changed');
+    expect(bus.latest('count:changed')).toBeUndefined();
+    expect(bus.latest('theme:changed')).toBeDefined();
+    bus.resetAllEvents();
+    expect(bus.latest('theme:changed')).toBeUndefined();
+    bus.emit('count:changed', 2);
+    expect(got).toEqual([1, 2]);
+  });
+
+  it('unsubscribe(key) and unsubscribeAll() stop handlers', () => {
+    const got: string[] = [];
+    bus.on('count:changed', () => got.push('count'), { unsubscribeOn: 'manual' });
+    bus.on('user:logout', () => got.push('logout'), { unsubscribeOn: 'manual' });
+    bus.unsubscribe('count:changed');
+    bus.emit('count:changed', 1);
+    bus.emit('user:logout');
+    bus.unsubscribeAll();
+    bus.emit('user:logout');
+    expect(got).toEqual(['logout']);
+  });
+});
+
+describe('ALEventBus.on cleanup', () => {
+  let bus: TestEventBus;
+  beforeEach(() => {
+    TestBed.configureTestingModule({});
+    bus = TestBed.inject(TestEventBus);
+  });
+
+  @Component({ template: '' })
+  class Host {
+    destroyRef = inject(DestroyRef);
+  }
+
+  it('stops when the surrounding component is destroyed', () => {
+    const got: number[] = [];
+    const fixture = TestBed.createComponent(Host);
+    runInInjectionContext(fixture.componentRef.injector, () => bus.on('count:changed', (n) => got.push(n)));
+    bus.emit('count:changed', 1);
+    fixture.destroy();
+    bus.emit('count:changed', 2);
+    expect(got).toEqual([1]);
+  });
+
+  it('stops on a terminator key, and still on component destroy', () => {
+    const got: string[] = [];
+    const a = TestBed.createComponent(Host);
+    const b = TestBed.createComponent(Host);
+    runInInjectionContext(a.componentRef.injector, () => bus.on('count:changed', (n) => got.push(`a${n}`), { unsubscribeOn: 'user:logout' }));
+    runInInjectionContext(b.componentRef.injector, () => bus.on('count:changed', (n) => got.push(`b${n}`), { unsubscribeOn: ['user:logout'] }));
+
+    bus.emit('count:changed', 1);
+    a.destroy(); // destroyed before the terminator: must still stop
+    bus.emit('count:changed', 2);
+    bus.emit('user:logout');
+    bus.emit('count:changed', 3);
+
+    expect(got).toEqual(['a1', 'b1', 'b2']);
+    b.destroy();
+  });
+
+  it('stops on an AbortSignal and ignores an already aborted one', () => {
+    const got: string[] = [];
+    const controller = new AbortController();
+    const aborted = new AbortController();
+    aborted.abort();
+    bus.on('count:changed', (n) => got.push(`live${n}`), { unsubscribeOn: controller.signal });
+    bus.on('count:changed', (n) => got.push(`dead${n}`), { unsubscribeOn: aborted.signal });
+    bus.emit('count:changed', 1);
+    controller.abort();
+    bus.emit('count:changed', 2);
+    expect(got).toEqual(['live1']);
+  });
+
+  it("keeps running past destroy with 'manual'", () => {
+    const got: number[] = [];
+    const fixture = TestBed.createComponent(Host);
+    const stop = runInInjectionContext(fixture.componentRef.injector, () => bus.on('count:changed', (n) => got.push(n), { unsubscribeOn: 'manual' }));
+    fixture.destroy();
+    bus.emit('count:changed', 1);
+    stop();
+    bus.emit('count:changed', 2);
+    expect(got).toEqual([1]);
+  });
+
+  it('throws before attaching when given an already destroyed DestroyRef', () => {
+    const got: number[] = [];
+    const fixture = TestBed.createComponent(Host);
+    const destroyRef = fixture.componentInstance.destroyRef;
+    fixture.destroy();
+    expect(() => bus.on('count:changed', (n) => got.push(n), { unsubscribeOn: destroyRef })).toThrow();
+    bus.emit('count:changed', 1);
+    expect(got).toEqual([]);
+  });
+
+  it('warns outside an injection context only without unsubscribeOn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    bus.on('count:changed', () => {});
+    expect(warn).toHaveBeenCalledOnce();
+    bus.on('count:changed', () => {}, { unsubscribeOn: 'user:logout' });
+    bus.on('count:changed', () => {}, { unsubscribeOn: 'manual' });
+    TestBed.runInInjectionContext(() => bus.on('count:changed', () => {}));
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
+  });
+});
+
+describe('ALEventBus middleware', () => {
+  function busWith(...middleware: Middleware<TestEventMap>[]) {
+    @Injectable()
+    class Bus extends ALEventBus<TestEventMap> {
+      constructor() {
+        super();
+        this.use(...middleware.map((m) => withMiddleware<TestEventMap>(() => m)));
       }
-    });
-
-    customBus.emit('theme:changed', 'dark', { headers: { traceId: '12345', tenant: 'org-a' } });
-
-    expect(received.length).toBe(1);
-    expect(received[0].headers?.traceId).toBe('12345');
-    expect(received[0].headers?.tenant).toBe('org-a');
-  });
-
-  it('should support signal-based subscription via onToSignal()', () => {
-    const signal = eventBus.onToSignal('theme:changed');
-    expect(signal()).toBeUndefined();
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(signal()).toBe('dark');
-  });
-
-  it('should support signal-based subscription via onToSignal() with a defaultValue', () => {
-    const signal = eventBus.onToSignal('theme:changed', { defaultValue: 'light' });
-    expect(signal()).toBe('light');
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(signal()).toBe('dark');
-  });
-
-  it('should support async resource mapping via onToResource() with a defaultValue', async () => {
-    const res = TestBed.runInInjectionContext(() => eventBus.onToResource('theme:changed', {
-      defaultValue: 'light-default',
-      loader: async ({ params }) => {
-        return `fetched:${params}`;
-      }
-    }));
-
-    expect(res.value()).toBe('light-default');
-
-    eventBus.emit('theme:changed', 'dark');
-    
-    // Allow macro-task/promise resolution
-    await new Promise(resolve => setTimeout(resolve, 10));
-    expect(res.value()).toBe('fetched:dark');
-  });
-
-  it('should support once() subscription', () => {
-    const received: BusEvent<void>[] = [];
-    eventBus.once('simple:event', {
-      callback: (event) => { received.push(event); },
-    });
-
-    eventBus.emit('simple:event');
-
-    expect(received.length).toBe(1);
-
-    eventBus.emit('simple:event');
-
-    // Secondary emit should not trigger subscription execution
-    expect(received.length).toBe(1);
-  });
-
-  it('should support emitting a void event with options by passing an explicit undefined payload', () => {
-    const received: BusEvent<void>[] = [];
-    eventBus.on('simple:event', { callback: (event) => { received.push(event); } });
-
-    eventBus.emit('simple:event', undefined, { headers: { source: 'test' } });
-
-    expect(received.length).toBe(1);
-    expect(received[0].headers).toEqual({ source: 'test' });
-  });
-
-  it('should support combineLatestToSignal() only once all sources have emitted', () => {
-    const combined = eventBus.combineLatestToSignal([
-      { key: 'user:login' },
-      { key: 'theme:changed', transform: (theme: 'light' | 'dark') => theme.toUpperCase() },
-    ]);
-
-    expect(combined()).toBeUndefined();
-
-    eventBus.emit('user:login', { userId: '1', username: 'ana' });
-    expect(combined()).toBeUndefined(); // still waiting on 'theme:changed'
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(combined()).toEqual([{ userId: '1', username: 'ana' }, 'DARK']);
-
-    // Re-emitting only one of the sources should update the tuple with the latest values of both
-    eventBus.emit('user:login', { userId: '2', username: 'bo' });
-    expect(combined()).toEqual([{ userId: '2', username: 'bo' }, 'DARK']);
-  });
-
-  it('should support combineLatest() callback firing only after all sources have emitted', () => {
-    const calls: unknown[] = [];
-    const unsubscribe = eventBus.combineLatest({
-      sources: [{ key: 'user:login' }, { key: 'theme:changed' }],
-      callback: (events) => { calls.push(events.map((e) => e.payload)); },
-    });
-
-    eventBus.emit('user:login', { userId: '1', username: 'ana' });
-    expect(calls.length).toBe(0); // 'theme:changed' hasn't emitted yet
-
-    eventBus.emit('theme:changed', 'light');
-    expect(calls.length).toBe(1);
-    expect(calls[0]).toEqual([{ userId: '1', username: 'ana' }, 'light']);
-
-    eventBus.emit('theme:changed', 'dark');
-    expect(calls.length).toBe(2);
-    expect(calls[1]).toEqual([{ userId: '1', username: 'ana' }, 'dark']);
-
-    unsubscribe();
-
-    eventBus.emit('theme:changed', 'light');
-    expect(calls.length).toBe(2); // no longer subscribed
-  });
-
-  it('should support resetEvent(key) to clear a single event without affecting others', () => {
-    eventBus.emit('user:login', { userId: '1', username: 'ana' });
-    eventBus.emit('theme:changed', 'dark');
-
-    eventBus.resetEvent('user:login');
-
-    expect(eventBus.latest('user:login')).toBeUndefined();
-    expect(eventBus.latest('theme:changed')?.payload).toBe('dark');
-  });
-
-  it('should support unsubscribe(key) to remove all listeners for a specific event only', () => {
-    const loginReceived: unknown[] = [];
-    const themeReceived: unknown[] = [];
-    eventBus.on('user:login', { callback: (e) => { loginReceived.push(e.payload); } });
-    eventBus.on('theme:changed', { callback: (e) => { themeReceived.push(e.payload); } });
-
-    eventBus.unsubscribe('user:login');
-
-    eventBus.emit('user:login', { userId: '1', username: 'ana' });
-    eventBus.emit('theme:changed', 'dark');
-
-    expect(loginReceived.length).toBe(0); // unsubscribed
-    expect(themeReceived.length).toBe(1); // untouched
-  });
-});
-
-describe('ALEventBus Plugin Support', () => {
-  @Injectable()
-  class PluginEnabledEventBus extends ALEventBus<TestEventMap> {
-    testPlugin = this.registerPlugin(createTestPlugin());
+    }
+    TestBed.configureTestingModule({ providers: [Bus] });
+    const bus = TestBed.inject(Bus);
+    const log: string[] = [];
+    bus.on(['count:changed', 'user:logout'], (_, e) => log.push(`${e.key}:${String(e.payload)}`), { unsubscribeOn: 'manual' });
+    return { bus, log };
   }
 
-  let eventBus: PluginEnabledEventBus;
-
-  beforeEach(() => {
-    TestBed.configureTestingModule({
-      providers: [PluginEnabledEventBus],
-    });
-    eventBus = TestBed.inject(PluginEnabledEventBus);
-  });
-
-  it('should initialize the plugin with the bus instance', () => {
-    expect(eventBus.testPlugin.initializedBus).toBe(eventBus);
-  });
-
-  it('should call beforeEmit and afterEmit triggers on emission', () => {
-    eventBus.emit('theme:changed', 'light', { headers: { origin: 'test' } });
-
-    expect(eventBus.testPlugin.beforeEmitCalls).toEqual([
-      { key: 'theme:changed', payload: 'light', options: { headers: { origin: 'test' } } },
-    ]);
-    expect(eventBus.testPlugin.afterEmitCalls).toEqual([
-      { key: 'theme:changed', payload: 'light', options: { headers: { origin: 'test' } } },
-    ]);
-    expect(eventBus.latest('theme:changed')?.headers).toEqual({ origin: 'test' });
-  });
-
-  it('should allow a plugin to override payload in onBeforeEmit', () => {
-    eventBus.testPlugin.overridePayload = { userId: '999', username: 'overridden_user' };
-
-    eventBus.emit('user:login', { userId: '123', username: 'original' });
-
-    const latest = eventBus.latest('user:login');
-    expect(latest?.payload).toEqual({ userId: '999', username: 'overridden_user' });
-  });
-
-  it('should prevent emission when onBeforeEmit returns false', () => {
-    eventBus.testPlugin.cancelEmit = true;
-
-    eventBus.emit('theme:changed', 'dark');
-
-    expect(eventBus.latest('theme:changed')).toBeUndefined();
-    expect(eventBus.testPlugin.beforeEmitCalls.length).toBe(1);
-    // afterEmit should not have been called
-    expect(eventBus.testPlugin.afterEmitCalls.length).toBe(0);
-  });
-
-  it('should notify plugin onDestroy on bus ngOnDestroy', () => {
-    expect(eventBus.testPlugin.destroyCalled).toBe(false);
-    eventBus.ngOnDestroy();
-    expect(eventBus.testPlugin.destroyCalled).toBe(true);
-  });
-
-  it('should notify onSubscribe and onUnsubscribe lifecycle hooks', () => {
-    expect(eventBus.testPlugin.subscribeCalls.length).toBe(0);
-
-    const unsubscribe = eventBus.on('simple:event', { callback: () => {} });
-
-    expect(eventBus.testPlugin.subscribeCalls.length).toBe(1);
-    expect(eventBus.testPlugin.subscribeCalls[0].key).toBe('simple:event');
-
-    const subId = eventBus.testPlugin.subscribeCalls[0].subId;
-    expect(subId).toBeDefined();
-
-    expect(eventBus.testPlugin.unsubscribeCalls.length).toBe(0);
-
-    // Call the unsubscriber directly (or triggers cleanup)
-    unsubscribe();
-
-    expect(eventBus.testPlugin.unsubscribeCalls.length).toBe(1);
-    expect(eventBus.testPlugin.unsubscribeCalls[0]).toEqual({ key: 'simple:event', subId });
-  });
-});
-
-describe('ALEventBus Plugin Hook Error Isolation', () => {
-  function createThrowingPlugin(): ALEventBusPlugin<TestEventMap> {
-    return {
-      onBeforeEmit() { throw new Error('boom: onBeforeEmit'); },
-      onAfterEmit() { throw new Error('boom: onAfterEmit'); },
-      onSubscribe() { throw new Error('boom: onSubscribe'); },
-      onUnsubscribe() { throw new Error('boom: onUnsubscribe'); },
-      onReset() { throw new Error('boom: onReset'); },
-      onDestroy() { throw new Error('boom: onDestroy'); },
-    };
-  }
-
-  @Injectable()
-  class MixedPluginEventBus extends ALEventBus<TestEventMap> {
-    healthyPlugin = this.registerPlugin(createTestPlugin());
-    throwingPlugin = this.registerPlugin(createThrowingPlugin());
-  }
-
-  let eventBus: MixedPluginEventBus;
-  let errorSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    TestBed.configureTestingModule({ providers: [MixedPluginEventBus] });
-    eventBus = TestBed.inject(MixedPluginEventBus);
-    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  afterEach(() => {
-    errorSpy.mockRestore();
-  });
-
-  it('should still emit and notify the healthy plugin when another plugin throws in onBeforeEmit/onAfterEmit', () => {
-    eventBus.emit('theme:changed', 'dark');
-
-    expect(eventBus.latest('theme:changed')?.payload).toBe('dark');
-    expect(eventBus.healthyPlugin.beforeEmitCalls.length).toBe(1);
-    expect(eventBus.healthyPlugin.afterEmitCalls.length).toBe(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('onBeforeEmit'),
-      expect.any(Error),
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('onAfterEmit'),
-      expect.any(Error),
-    );
-  });
-
-  it('should still notify the healthy plugin when another plugin throws in onSubscribe/onUnsubscribe', () => {
-    const unsubscribe = eventBus.on('simple:event', { callback: () => {} });
-
-    expect(eventBus.healthyPlugin.subscribeCalls.length).toBe(1);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onSubscribe'), expect.any(Error));
-
-    unsubscribe();
-
-    expect(eventBus.healthyPlugin.unsubscribeCalls.length).toBe(1);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onUnsubscribe'), expect.any(Error));
-  });
-
-  it('should still destroy the healthy plugin when another plugin throws in onDestroy', () => {
-    eventBus.ngOnDestroy();
-
-    expect(eventBus.healthyPlugin.destroyCalled).toBe(true);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onDestroy'), expect.any(Error));
-  });
-
-  it('should still reset without throwing when another plugin throws in onReset', () => {
-    expect(() => eventBus.resetAllEvents()).not.toThrow();
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('onReset'), expect.any(Error));
-  });
-});
-
-describe('createEventBusHooks() DX Functional Hooks', () => {
-  const { onEvent, onceEvent, emitEvent, useEventSignal } = createEventBusHooks<TestEventMap>(TestEventBus);
-
-  beforeEach(() => {
-    TestBed.configureTestingModule({
-      providers: [TestEventBus],
-    });
-  });
-
-  it('should support declarative hook onEvent and emitEvent under injection context', () => {
-    const received: BusEvent<{ userId: string; username: string }>[] = [];
-    const injector = TestBed.inject(EnvironmentInjector);
-
-    // run in injection context for injecting TestBed config
-    runInInjectionContext(injector, () => {
-      onEvent('user:login', (event) => {
-        received.push(event);
-      }, { unsubscribeOn: 'manual' });
-
-      emitEvent('user:login', { userId: '789', username: 'charlie' });
-    });
-
-    expect(received.length).toBe(1);
-    expect(received[0].payload).toEqual({ userId: '789', username: 'charlie' });
-  });
-
-  it('should support onceEvent which triggers once and unsubscribes', () => {
-    const received: string[] = [];
-    const injector = TestBed.inject(EnvironmentInjector);
-
-    runInInjectionContext(injector, () => {
-      onceEvent('theme:changed', (event) => {
-        received.push(event.payload);
-      }, { unsubscribeOn: 'manual' });
-
-      emitEvent('theme:changed', 'light');
-      emitEvent('theme:changed', 'dark');
-    });
-
-    expect(received).toEqual(['light']);
-  });
-
-  it('should support useEventSignal for component signal binding', () => {
-    const injector = TestBed.inject(EnvironmentInjector);
-
-    runInInjectionContext(injector, () => {
-      const sig = useEventSignal('theme:changed', { defaultValue: 'light' as const });
-      expect(sig()).toBe('light');
-
-      emitEvent('theme:changed', 'dark');
-      expect(sig()).toBe('dark');
-    });
-  });
-
-  it('should support combineEvents to react when multiple events emit', () => {
-    const injector = TestBed.inject(EnvironmentInjector);
-    const received: any[] = [];
-
-    runInInjectionContext(injector, () => {
-      const { combineEvents } = createEventBusHooks<TestEventMap>(TestEventBus);
-
-      combineEvents({
-        sources: [
-          { key: 'theme:changed' },
-          { key: 'user:login' }
-        ],
-        callback: ([themeEvent, loginEvent]) => {
-          received.push({
-            theme: themeEvent.payload,
-            user: loginEvent.payload.username
-          });
+  it('runs middleware in order and lets it change or drop events', () => {
+    const order: string[] = [];
+    const { bus, log } = busWith(
+      { handle: (e, next) => { order.push('first'); next(e); } },
+      {
+        handle: (e, next) => {
+          order.push('second');
+          if (e.key === 'count:changed') {
+            if (e.payload < 0) return;
+            return next({ ...e, payload: e.payload * 10 });
+          }
+          next(e);
         },
-        unsubscribeOn: 'manual'
-      });
+      },
+    );
+    bus.emit('count:changed', 1);
+    bus.emit('count:changed', -1);
+    expect(order).toEqual(['first', 'second', 'first', 'second']);
+    expect(log).toEqual(['count:changed:10']);
+  });
 
-      emitEvent('theme:changed', 'dark');
-      emitEvent('user:login', { userId: '111', username: 'David' });
-    });
+  it('lets middleware defer an event; it continues from that point exactly once', () => {
+    vi.useFakeTimers();
+    try {
+      let downstream = 0;
+      const { bus, log } = busWith(
+        { handle: (e, next) => void setTimeout(() => next(e), 100) },
+        { handle: (e, next) => { downstream++; next(e); } },
+      );
+      bus.emit('count:changed', 1);
+      expect(log).toEqual([]);
+      vi.advanceTimersByTime(100);
+      expect(log).toEqual(['count:changed:1']);
+      expect(downstream).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
-    expect(received).toEqual([{ theme: 'dark', user: 'David' }]);
+  it('fails open when middleware throws, without delivering twice', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { bus, log } = busWith(
+      { handle: (e, next) => { if (e.key === 'user:logout') throw new Error('before'); next(e); } },
+      { handle: (e, next) => { next(e); throw new Error('after'); } },
+    );
+    bus.emit('user:logout');
+    bus.emit('count:changed', 1);
+    expect(log).toEqual(['user:logout:undefined', 'count:changed:1']);
+    error.mockRestore();
+  });
+
+  it('runs features in the bus injection context, notifies resets and destroys middleware with the bus', () => {
+    @Injectable({ providedIn: 'root' })
+    class Analytics { seen: string[] = []; }
+    const destroy = vi.fn();
+    const resets: unknown[] = [];
+    @Injectable()
+    class Tracked extends ALEventBus<TestEventMap> {
+      constructor() {
+        super();
+        this.use(withMiddleware(() => {
+          const analytics = inject(Analytics);
+          return {
+            handle: (e, next) => { analytics.seen.push(e.key); next(e); },
+            onReset: (key, origin) => resets.push([key, origin]),
+            destroy,
+          };
+        }));
+      }
+    }
+    const injector = TestBed.inject(EnvironmentInjector);
+    const tracked = runInInjectionContext(injector, () => new Tracked());
+    tracked.emit('user:logout');
+    tracked.resetEvent('user:logout');
+    tracked.resetAllEvents();
+    expect(TestBed.inject(Analytics).seen).toEqual(['user:logout']);
+    expect(resets).toEqual([['user:logout', 'local'], [undefined, 'local']]);
+
+    TestBed.resetTestingModule();
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+});
+
+describe('scoped ALEventBus', () => {
+  beforeEach(() => TestBed.configureTestingModule({}));
+
+  it('a component-provided bus is isolated and destroyed with the component', () => {
+    const root = TestBed.inject(TestEventBus);
+    const rootGot: number[] = [];
+    root.on('count:changed', (n) => rootGot.push(n), { unsubscribeOn: 'manual' });
+
+    @Component({ template: '', providers: [TestEventBus] })
+    class Scoped {
+      bus = inject(TestEventBus);
+      got: number[] = [];
+      constructor() {
+        this.bus.on('count:changed', (n) => this.got.push(n));
+      }
+    }
+    const fixture = TestBed.createComponent(Scoped);
+    const scoped = fixture.componentInstance;
+    scoped.bus.emit('count:changed', 1);
+    root.emit('count:changed', 2);
+    fixture.destroy();
+    scoped.bus.emit('count:changed', 3);
+
+    expect(scoped.bus).not.toBe(root);
+    expect(scoped.got).toEqual([1]);
+    expect(rootGot).toEqual([2]);
+  });
+
+  it('withBubbling() also delivers subtree events to the parent instance', () => {
+    @Injectable({ providedIn: 'root' })
+    class BubblingBus extends ALEventBus<TestEventMap> {
+      constructor() {
+        super();
+        this.use(withBubbling());
+      }
+    }
+    const root = TestBed.inject(BubblingBus);
+    const rootGot: number[] = [];
+    root.on('count:changed', (n) => rootGot.push(n), { unsubscribeOn: 'manual' });
+
+    @Component({ template: '', providers: [BubblingBus] })
+    class Scoped {
+      bus = inject(BubblingBus);
+    }
+    TestBed.createComponent(Scoped).componentInstance.bus.emit('count:changed', 7);
+    root.emit('count:changed', 8);
+    expect(rootGot).toEqual([7, 8]);
   });
 });

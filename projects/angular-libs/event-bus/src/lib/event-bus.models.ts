@@ -1,153 +1,113 @@
-import { DestroyRef } from '@angular/core';
-import { TransformedEvents } from './event-bus.internal';
+import { DestroyRef, Injector, Signal } from '@angular/core';
+import type { ALEventBus } from './event-bus';
 
-/**
- * Base configuration for transforming an event's payload.
- * @template TPayload The type of the original event payload.
- * @template TTransformed The type of the transformed payload.
- */
-export interface TransformOptions<TPayload, TTransformed> {
-  /** Transform the event payload. */
-  transform?: (payload: TPayload) => TTransformed;
-}
+/** The string keys of an event map. */
+export type EventKey<TEventMap> = Extract<keyof TEventMap, string>;
 
-/**
- * Configuration for the callback-based `on` and `once` methods.
- */
-export interface SubscriptionOptions<
-  TPayload,
-  TTransformed,
-  THeaders extends Record<string, any> = Record<string, any>,
-> extends TransformOptions<TPayload, TTransformed> {
-  /** The callback that executes when the event triggers. */
-  callback: (event: BusEvent<TTransformed, THeaders>) => void | Promise<void>;
-  /**
-   * **AI Hint**: Controls when the subscription is automatically cleaned up.
-   * - By default (`undefined`), if called in an injection context (e.g. constructor or field initializer),
-   *   it automatically resolves the context's `DestroyRef` to auto-unsubscribe on destruction.
-   * - Pass `'manual'` to bypass automatic injection-context cleanup entirely.
-   * - Pass an explicit `DestroyRef` instance.
-   * - Pass an event key or an array of keys (e.g. `'user:logout'`) to auto-unsubscribe when any of those events fire.
-   */
-  unsubscribeOn?: DestroyRef | 'manual' | string | string[];
-}
-
-/**
- * Defines a single event source for `combineLatest` methods.
- */
-export interface CombineLatestSource<
-  TPayload = any,
-  TTransformed = TPayload,
-> extends TransformOptions<TPayload, TTransformed> {
-  key: string;
-}
-
-/**
- * Configuration for the callback-based `combineLatest` method.
- */
-export interface CombineLatestOptions<
-  TSources extends readonly CombineLatestSource[],
+/** A delivered event. */
+export interface BusEvent<
+  TPayload = unknown,
+  THeaders extends object = Record<string, unknown>,
+  TKey extends string = string,
 > {
-  sources: TSources;
-  callback: (events: TransformedEvents<TSources>) => void | Promise<void>;
-  /**
-   * **AI Hint**: Controls when the subscription is automatically cleaned up.
-   * - By default (`undefined`), if called in an injection context (e.g. constructor or field initializer),
-   *   it automatically resolves the context's `DestroyRef` to auto-unsubscribe on destruction.
-   * - Pass `'manual'` to bypass automatic injection-context cleanup entirely.
-   * - Pass an explicit `DestroyRef` instance.
-   * - Pass an event key or an array of keys (e.g. `'user:logout'`) to auto-unsubscribe when any of those events fire.
-   */
-  unsubscribeOn?: DestroyRef | 'manual' | string | string[];
+  readonly key: TKey;
+  readonly payload: TPayload;
+  /** Optional metadata passed with `emit(key, payload, { headers })`. */
+  readonly headers?: THeaders;
+  /** `'local'` for `emit()`; `'remote'` for events received by `withCrossTabSync()`. */
+  readonly origin: 'local' | 'remote' | (string & {});
+  readonly timestamp: number;
 }
 
-export interface BusEvent<TPayload, THeaders extends Record<string, any> = Record<string, any>> {
-  /** The event key. */
-  key: string;
-  /** The event payload. */
-  payload: TPayload;
-  /** The event timestamp. */
-  timestamp: number;
-  /** Transient metadata context passed along with the event emission. */
+/**
+ * Any event of an event map, as a union discriminated by `key`:
+ * `if (event.key === 'user:login') event.payload.userId`.
+ */
+export type EventOf<TEventMap, THeaders extends object = Record<string, unknown>> = {
+  [K in EventKey<TEventMap>]: BusEvent<TEventMap[K], THeaders, K>;
+}[EventKey<TEventMap>];
+
+export interface EmitOptions<THeaders extends object = Record<string, unknown>> {
   headers?: THeaders;
+  /** Marks where the event came from. Defaults to `'local'`; bridges set e.g. `'remote'`. */
+  origin?: string;
 }
 
+/** `emit` arguments: the payload may be omitted for `void` events. */
+export type EmitArgs<TEventMap, K extends keyof TEventMap, THeaders extends object> = TEventMap[K] extends void | undefined
+  ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
+  : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>];
+
 /**
- * Options configurable during an event emission.
+ * When a subscription stops, besides the surrounding injection context's `DestroyRef`
+ * (which always applies unless `'manual'`):
+ * - `'manual'`: only when you call the returned function.
+ * - A `DestroyRef` or `AbortSignal`.
+ * - One or more event keys: when any of them is emitted.
  */
-export interface EmitOptions<THeaders extends Record<string, any> = Record<string, any>> {
-  /** Optional metadata headers accompanying the payload. */
-  headers?: THeaders;
+export type UnsubscribeOn<TEventMap> = 'manual' | DestroyRef | AbortSignal | EventKey<TEventMap> | readonly EventKey<TEventMap>[];
+
+export interface OnOptions<TEventMap> {
+  unsubscribeOn?: UnsubscribeOn<TEventMap>;
 }
 
+/** Passes an event on to the next middleware, or to listeners at the end of the pipeline. */
+export type Next<TEventMap, THeaders extends object = Record<string, unknown>> = (event: EventOf<TEventMap, THeaders>) => void;
+
 /**
- * Minimal interface of the event bus exposed to plugins.
+ * Middleware sees every event before listeners. It can pass it on (`next(event)`), change it
+ * (`next({ ...event, payload })`), drop it (not calling `next`) or defer it (calling `next` later).
+ * A deferred event continues from the same point, so later middleware sees it exactly once.
  */
-export interface IALEventBus<TEventMap extends {}, THeaders extends Record<string, any> = Record<string, any>> {
-  emit<K extends keyof TEventMap>(
-    ...args: TEventMap[K] extends void | undefined
-      ? [key: K] | [key: K, payload: undefined, options?: EmitOptions<THeaders>]
-      : [key: K, payload: TEventMap[K], options?: EmitOptions<THeaders>]
-  ): void;
-  latest<K extends keyof TEventMap>(key: K): BusEvent<TEventMap[K], THeaders> | undefined;
-  resetEvent<K extends keyof TEventMap>(key: K): void;
-  resetAllEvents(): void;
-  on<K extends keyof TEventMap, TTransformed = TEventMap[K]>(
-    key: K,
-    options: SubscriptionOptions<TEventMap[K], TTransformed, THeaders>
-  ): () => void;
+export interface Middleware<TEventMap = any, THeaders extends object = Record<string, unknown>> {
+  handle(event: EventOf<TEventMap, THeaders>, next: Next<TEventMap, THeaders>): void;
+  /** Called after `resetEvent(key)` (`key` set) or `resetAllEvents()` (`key` undefined). */
+  onReset?(key: EventKey<TEventMap> | undefined, origin: string): void;
+  /** Called when the bus is destroyed. */
+  destroy?(): void;
 }
 
-/**
- * Interface that all ALEventBus plugins must implement.
- */
-export interface ALEventBusPlugin<TEventMap extends {} = any, THeaders extends Record<string, any> = Record<string, any>> {
-  /**
-   * Called immediately when registering the plugin in the event bus.
-   * Gives the plugin access to the event bus reference.
-   */
-  onInit?(bus: IALEventBus<TEventMap, THeaders>): void;
+/** Runs once when passed to `use()`, in the bus's injection context. May return middleware. */
+export type EventBusFeature<TEventMap extends object = any, THeaders extends object = Record<string, unknown>> = (
+  bus: ALEventBus<TEventMap, THeaders>,
+) => Middleware<TEventMap, THeaders> | void;
 
-  /**
-   * Called before an event is emitted.
-   * If it returns `false`, the emission is cancelled.
-   * If it returns a value, that value (including `undefined` or new objects) overrides the event payload.
-   */
-  onBeforeEmit?<K extends keyof TEventMap>(
-    key: K,
-    payload: TEventMap[K],
-    options?: EmitOptions<THeaders>
-  ): TEventMap[K] | false | void;
+export interface SignalOptions<TPayload, TTransformed, TDefault> {
+  transform?: (payload: TPayload) => TTransformed;
+  defaultValue?: TDefault;
+}
 
-  /**
-   * Called after an event is emitted (and the underlying Signal has updated).
-   */
-  onAfterEmit?<K extends keyof TEventMap>(
-    key: K,
-    payload: TEventMap[K],
-    options?: EmitOptions<THeaders>
-  ): void;
+export interface ResourceOptions<TPayload, TTransformed, TResponse, TDefault> {
+  /** Maps the payload to the loader's `params`. Defaults to the payload itself. */
+  transform?: (payload: TPayload) => TTransformed;
+  loader: (ctx: { params: TTransformed; abortSignal: AbortSignal; event: BusEvent<TPayload> }) => Promise<TResponse> | TResponse;
+  /** Value while idle (before the first event, or after `resetEvent`). */
+  defaultValue?: TDefault;
+  /** Needed outside an injection context. */
+  injector?: Injector;
+}
 
-  /**
-   * Called when a new subscription is registered on the event bus.
-   */
-  onSubscribe?(key: string, subscriptionId: string): void;
+/** Reducers of a projection, one per event key it reacts to. */
+export type ProjectionReducers<TEventMap, TState, THeaders extends object = Record<string, unknown>> = {
+  [K in EventKey<TEventMap>]?: (state: TState, payload: TEventMap[K], event: BusEvent<TEventMap[K], THeaders, K>) => TState;
+};
 
-  /**
-   * Called when a subscription is removed/unsuscribed.
-   */
-  onUnsubscribe?(key: string, subscriptionId: string): void;
+export interface ProjectionOptions {
+  /** Keep snapshots for undo/redo. `true` keeps 50. */
+  undo?: boolean | { limit: number };
+}
 
-  /**
-   * Called when a single event's stored payload is reset via `resetEvent(key)`, or when ALL events
-   * are reset via `resetAllEvents()` (in which case `key` is `undefined`).
-   * **AI Hint:** Use this to keep plugin-local state (e.g. history stacks, cross-tab broadcasts)
-   * consistent with the bus - a reset does NOT automatically notify plugins otherwise.
-   */
-  onReset?(key?: string): void;
-
-  /**
-   * Called when the event bus instance is destroyed.
-   */
-  onDestroy?(): void;
+/** State derived from events. Returned by `projection()` inside your bus class. */
+export interface Projection<TState> {
+  readonly state: Signal<TState>;
+  readonly canUndo: Signal<boolean>;
+  readonly canRedo: Signal<boolean>;
+  /** Restores the previous state. Returns `false` when there is nothing to undo (or undo is off). */
+  undo(): boolean;
+  /** Re-applies the last undone state. Returns `false` when there is nothing to redo. */
+  redo(): boolean;
+  /** Forgets undo/redo history, keeping the current state. */
+  clearHistory(): void;
+  /** Returns to the initial state and forgets history. */
+  reset(): void;
 }
