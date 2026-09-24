@@ -1,11 +1,95 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, inject, input, linkedSignal, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import {
   AlDialog,
+  DialogParts,
   DialogService,
   DefaultDialogComponent,
+  Toaster,
+  defineDialog,
   definePlugin,
+  injectDialog,
 } from '@angular-libs/dialog';
+
+interface DemoUser {
+  name: string;
+  email: string;
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Typed dialog: required `user` input, `DemoUser` result, dirty guard, async save. */
+@Component({
+  selector: 'app-edit-user-dialog',
+  imports: [DialogParts],
+  template: `
+    <al-dialog-header>
+      Edit user
+      <p alDialogSubtitle alDialogDescription>Close with unsaved changes to see the guard.</p>
+    </al-dialog-header>
+    <al-dialog-body>
+      <label class="field">
+        Name
+        <input [value]="name()" (input)="name.set($any($event.target).value)" />
+      </label>
+      <label class="field">
+        Email
+        <input [value]="email()" (input)="email.set($any($event.target).value)" />
+      </label>
+      <label class="check">
+        <input type="checkbox" [checked]="fail()" (change)="fail.set(!fail())" />
+        Make the next save fail
+      </label>
+      @if (save.error()) {
+        <p class="al-dialog-error" role="alert">Could not save. Try again.</p>
+      }
+    </al-dialog-body>
+    <al-dialog-footer>
+      <button class="al-btn al-btn-secondary" alDialogClose>Cancel</button>
+      <button class="al-btn al-btn-primary" [disabled]="save.pending()" (click)="save()">
+        {{ save.pending() ? 'Saving…' : 'Save' }}
+      </button>
+    </al-dialog-footer>
+  `,
+  styles: `
+    .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; font-size: 0.875rem; }
+    .field input { padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font: inherit; }
+    .check { display: flex; gap: 6px; align-items: center; font-size: 0.8125rem; color: #64748b; }
+  `,
+})
+class EditUserDialogComponent {
+  readonly user = input.required<DemoUser>();
+  readonly dialog = injectDialog<DemoUser>();
+
+  readonly name = linkedSignal(() => this.user().name);
+  readonly email = linkedSignal(() => this.user().email);
+  readonly fail = signal(false);
+
+  constructor() {
+    this.dialog.guard(
+      () =>
+        !this.dirty() ||
+        this.dialog.confirm({
+          title: 'Discard changes?',
+          confirmText: 'Discard',
+          cancelText: 'Keep editing',
+          tone: 'danger',
+        }),
+    );
+  }
+
+  readonly save = this.dialog.action(async () => {
+    await wait(800);
+    if (this.fail()) throw new Error('Simulated failure');
+    return { name: this.name(), email: this.email() };
+  });
+
+  private dirty(): boolean {
+    return this.name() !== this.user().name || this.email() !== this.user().email;
+  }
+}
+
+const EditUserDialog = defineDialog(EditUserDialogComponent, { size: 'md', sheetBelow: 'sm' });
 
 @Component({
   selector: 'app-dialog-demo',
@@ -54,6 +138,34 @@ import {
             <h4>Customize</h4>
             <p>Custom plugin via <code>definePlugin</code> + theme tokens.</p>
             <button class="btn btn-purple" (click)="openCustom()">Custom plugin</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h3 class="section-title">Typed dialogs, async actions &amp; Toaster</h3>
+        <div class="grid">
+          <div class="card">
+            <h4>defineDialog + parts</h4>
+            <p><code>await dialog.run(EditUserDialog, {{ '{' }} user {{ '}' }})</code> → typed outcome. Dirty guard, async save, bottom sheet on phones.</p>
+            <button class="btn btn-primary" (click)="editUser()">Edit {{ user().name }}</button>
+            @if (lastOutcome()) {
+              <p class="result">{{ lastOutcome() }}</p>
+            }
+          </div>
+          <div class="card">
+            <h4>Async confirm</h4>
+            <p><code>confirm({{ '{' }} onConfirm, tone: 'danger' {{ '}' }})</code>: spinner, dismiss blocked, first attempt fails with retry.</p>
+            <button class="btn btn-danger" (click)="deleteProject()">Delete project</button>
+          </div>
+          <div class="card">
+            <h4>Toaster</h4>
+            <p>Queue, Undo action, promise toast, pause on hover, swipe / Escape to dismiss.</p>
+            <div class="row">
+              <button class="btn btn-blue" (click)="archive()">Archive</button>
+              <button class="btn btn-teal" (click)="sync()">Sync</button>
+              <button class="btn btn-secondary" (click)="toaster.error('Connection lost')">Error</button>
+            </div>
           </div>
         </div>
       </section>
@@ -111,6 +223,7 @@ import {
     .btn-blue { background: #2563eb; color: white; }
     .btn-danger { background: #ef4444; color: white; }
     .btn-secondary { background: #e2e8f0; color: #0f172a; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
     .kit-sheet {
       border: 0;
       padding: 1.5rem;
@@ -131,11 +244,61 @@ import {
 })
 export class DialogDemoComponent {
   private dialog = inject(DialogService);
+  protected toaster = inject(Toaster);
   lastConfirm: boolean | null = null;
   kitOpen = signal(false);
 
+  user = signal<DemoUser>({ name: 'Ada Lovelace', email: 'ada@example.com' });
+  lastOutcome = signal<string | null>(null);
+  private deleteAttempts = 0;
+
+  async editUser(): Promise<void> {
+    const outcome = await this.dialog.run(EditUserDialog, { user: this.user() });
+    if (outcome.ok) {
+      this.user.set(outcome.value);
+      this.lastOutcome.set(`Saved: ${outcome.value.name}`);
+      this.toaster.success('User saved');
+    } else {
+      this.lastOutcome.set(`Dismissed (${outcome.reason})`);
+    }
+  }
+
+  async deleteProject(): Promise<void> {
+    this.deleteAttempts = 0;
+    const deleted = await this.dialog.confirm({
+      title: 'Delete project?',
+      message: 'All boards and files are removed. This cannot be undone.',
+      confirmText: 'Delete',
+      tone: 'danger',
+      sheetBelow: 'sm',
+      errorText: 'The server did not respond. Try again.',
+      onConfirm: async () => {
+        await wait(900);
+        if (++this.deleteAttempts === 1) throw new Error('Simulated timeout');
+      },
+    });
+    if (deleted) this.toaster.success('Project deleted');
+  }
+
+  archive(): void {
+    this.toaster.show('Conversation archived', {
+      action: { label: 'Undo', onClick: () => this.toaster.show('Restored') },
+    });
+  }
+
+  sync(): void {
+    void this.toaster
+      .promise(wait(1500).then(() => 42), {
+        loading: 'Syncing…',
+        success: (n) => `Synced ${n} items`,
+        error: 'Sync failed',
+      })
+      .catch(() => {});
+  }
+
   closeAll(): void {
     this.dialog.closeAll();
+    this.toaster.dismissAll();
     this.kitOpen.set(false);
   }
 
