@@ -174,6 +174,17 @@ export class AlDialog {
     }
   }
 
+  /**
+   * @internal Escape for the topmost modal, routed from a document listener — see
+   * {@link trackModal}.
+   */
+  handleEscapeKey(event: KeyboardEvent): void {
+    event.preventDefault();
+    if (this.closeOnEscape()) {
+      this.requestDismiss('escape');
+    }
+  }
+
   protected onNativeClose(): void {
     this.teardown(false);
   }
@@ -206,6 +217,7 @@ export class AlDialog {
     }
     this.opened = true;
     this.lockScroll();
+    if (isModal) trackModal(this);
 
     queueMicrotask(() => {
       if (!this.opened) return;
@@ -226,6 +238,7 @@ export class AlDialog {
   private teardown(fromDestroy: boolean): void {
     if (!this.opened) return;
     this.opened = false;
+    untrackModal(this);
     this.unlockScroll();
     this.restoreOpener();
 
@@ -266,4 +279,35 @@ export class AlDialog {
     this.bodyLocked = false;
     unlockBodyScroll();
   }
+}
+
+/**
+ * Open modal `alDialog`s, topmost last.
+ *
+ * Escape is handled on `document` instead of via the native `cancel` event: Chrome's
+ * close watcher closes a `<dialog>` outright after repeated prevented `cancel`s without
+ * user activation, which would bypass `closeOnEscape: false`, guards and busy state.
+ * Preventing the keydown keeps the close watcher out. It listens on `document` because
+ * focus is often not inside the dialog (e.g. a button that became disabled while
+ * saving). `cancel` still covers other close requests such as Android back.
+ */
+const modalStack: AlDialog[] = [];
+
+function onDocumentKeydown(event: KeyboardEvent): void {
+  // A widget inside the dialog (e.g. a combobox) already consumed it, or an IME is composing.
+  if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+  modalStack[modalStack.length - 1]?.handleEscapeKey(event);
+}
+
+function trackModal(dialog: AlDialog): void {
+  if (modalStack.includes(dialog)) return;
+  modalStack.push(dialog);
+  if (modalStack.length === 1) document.addEventListener('keydown', onDocumentKeydown);
+}
+
+function untrackModal(dialog: AlDialog): void {
+  const index = modalStack.indexOf(dialog);
+  if (index === -1) return;
+  modalStack.splice(index, 1);
+  if (modalStack.length === 0) document.removeEventListener('keydown', onDocumentKeydown);
 }

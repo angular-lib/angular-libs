@@ -110,6 +110,52 @@ describe('AlDialog', () => {
     expect(el.open).toBe(true);
   });
 
+  function pressEscape(target: EventTarget = document.body): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  it('handles Escape keydown on document even when focus is outside the dialog', () => {
+    const { fixture, host, el } = createHost();
+    open(fixture, host);
+
+    const event = pressEscape(document.body);
+    fixture.detectChanges();
+
+    // Prevented so the browser close watcher never force-closes the dialog.
+    expect(event.defaultPrevented).toBe(true);
+    expect(host.lastClosed).toEqual({ reason: 'escape' });
+    expect(el.open).toBe(false);
+  });
+
+  it('prevents Escape keydown but stays open when closeOnEscape is false', () => {
+    const { fixture, host, el } = createHost();
+    host.closeOnEscape = false;
+    fixture.detectChanges();
+    open(fixture, host);
+
+    for (let i = 0; i < 3; i++) {
+      expect(pressEscape(el).defaultPrevented).toBe(true);
+    }
+    expect(host.lastClosed).toBeNull();
+    expect(el.open).toBe(true);
+  });
+
+  it('ignores Escape already handled by a widget inside the dialog', () => {
+    const { fixture, host, el } = createHost();
+    open(fixture, host);
+    const button = el.querySelector('#first')!;
+    button.addEventListener('keydown', (e) => e.preventDefault(), { once: true });
+
+    pressEscape(button);
+    expect(el.open).toBe(true);
+
+    host.open.set(false);
+    fixture.detectChanges();
+    expect(pressEscape().defaultPrevented).toBe(false); // listener removed once closed
+  });
+
   function dispatchBackdropClick(el: HTMLDialogElement): void {
     const opts: MouseEventInit = { clientX: 200, clientY: 200, bubbles: true };
     el.dispatchEvent(new MouseEvent('mousedown', opts));

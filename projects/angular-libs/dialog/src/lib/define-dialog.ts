@@ -70,7 +70,7 @@ interface DialogDefinitionBase<C, R, P extends PropertyKey> {
   readonly ɵkind: typeof DEFINITION;
   readonly options: DialogDefinitionOptions<C>;
   readonly presets: DialogInputPresets<C>;
-  /** @internal Phantom types — never set at runtime. */
+  /** Phantom types for inference — never set at runtime. Must stay in the `.d.ts` (no `@internal`). */
   readonly ɵtypes?: { result: R; preset: P };
 }
 
