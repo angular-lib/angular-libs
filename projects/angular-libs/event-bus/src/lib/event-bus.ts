@@ -434,6 +434,8 @@ export class ALEventBus<
       }
     } finally {
       this.isEmitting = false;
+      // Empty after a normal drain. After a throw, drop the rest so it can't fire on a later, unrelated emit.
+      this.eventQueue.length = 0;
     }
   }
 
@@ -675,14 +677,13 @@ export class ALEventBus<
 
     const dispatch = (busEvent: BusEvent<TEventMap[K], THeaders>) => {
       const { key, timestamp, payload, headers } = busEvent;
-      const transformed = transform
-        ? transform(payload as TEventMap[K])
-        : (payload as unknown as TTransformed);
 
-      const evt = { key, timestamp, payload: transformed, headers };
-
+      // `transform` is user code too: a throw must not abort dispatch to the remaining subscribers.
       try {
-        const res = callback(evt);
+        const transformed = transform
+          ? transform(payload as TEventMap[K])
+          : (payload as unknown as TTransformed);
+        const res = callback({ key, timestamp, payload: transformed, headers });
         if (res instanceof Promise) {
           res.catch((err) =>
             console.error(`Error in callback for event ${keyStr}:`, err),

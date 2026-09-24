@@ -291,6 +291,46 @@ describe('ALEventBus Basic/Core Functionality', () => {
     expect(calls.length).toBe(2); // no longer subscribed
   });
 
+  it('should isolate a throwing transform so other subscribers and nested emits still run', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const received: string[] = [];
+    eventBus.on('theme:changed', {
+      callback: () => { eventBus.emit('simple:event'); },
+      unsubscribeOn: 'manual',
+    });
+    eventBus.on('theme:changed', {
+      transform: () => { throw new Error('boom: transform'); },
+      callback: () => { received.push('never'); },
+      unsubscribeOn: 'manual',
+    });
+    eventBus.on('theme:changed', { callback: () => { received.push('after'); }, unsubscribeOn: 'manual' });
+    eventBus.on('simple:event', { callback: () => { received.push('nested'); }, unsubscribeOn: 'manual' });
+
+    expect(() => eventBus.emit('theme:changed', 'dark')).not.toThrow();
+
+    expect(received).toEqual(['after', 'nested']);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('theme:changed'), expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it('should drop queued emissions when a dispatch throws instead of replaying them on a later emit', () => {
+    const received: string[] = [];
+    eventBus.on('theme:changed', { callback: () => { eventBus.emit('simple:event'); }, unsubscribeOn: 'manual' });
+    eventBus.on('simple:event', { callback: () => { received.push('stale'); }, unsubscribeOn: 'manual' });
+    eventBus.on('user:login', { callback: () => { received.push('login'); }, unsubscribeOn: 'manual' });
+    // Subscriber and plugin code is isolated, so inject a raw dispatcher to simulate an unexpected throw
+    // after 'simple:event' has been queued.
+    (eventBus as any).subscriptions.get('theme:changed').set('hostile', {
+      dispatch: () => { throw new Error('boom: dispatch'); },
+      unsubscribe: () => {},
+    });
+
+    expect(() => eventBus.emit('theme:changed', 'dark')).toThrow('boom: dispatch');
+    eventBus.emit('user:login', { userId: '1', username: 'ana' });
+
+    expect(received).toEqual(['login']);
+  });
+
   it('should support resetEvent(key) to clear a single event without affecting others', () => {
     eventBus.emit('user:login', { userId: '1', username: 'ana' });
     eventBus.emit('theme:changed', 'dark');
