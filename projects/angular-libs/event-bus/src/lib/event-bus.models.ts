@@ -1,5 +1,6 @@
 import { DestroyRef, Injector, Signal } from '@angular/core';
 import type { ALEventBus } from './event-bus';
+import type { StorageOptions } from './storage';
 
 /** The string keys of an event map. */
 export type EventKey<TEventMap> = Extract<keyof TEventMap, string>;
@@ -14,8 +15,11 @@ export interface BusEvent<
   readonly payload: TPayload;
   /** Optional metadata passed with `emit(key, payload, { headers })`. */
   readonly headers?: THeaders;
-  /** `'local'` for `emit()`; `'remote'` for events received by `withCrossTabSync()`. */
-  readonly origin: 'local' | 'remote' | (string & {});
+  /**
+   * `'local'` for `emit()`, `'remote'` for events received by `withCrossTabSync()`, `'storage'` for
+   * values restored by `withPersistence()`.
+   */
+  readonly origin: 'local' | 'remote' | 'storage' | (string & {});
   readonly timestamp: number;
 }
 
@@ -79,12 +83,23 @@ export interface PluginHooks<TEventMap = any, THeaders extends object = Record<s
   api?: TApi;
 }
 
+/** Extra capabilities handed to plugins. */
+export interface PluginContext<TEventMap, THeaders extends object = Record<string, unknown>> {
+  /**
+   * Sets the latest event of `key` without running handlers or plugins, so signals, `latest()` and
+   * resources see it (with `origin: 'storage'`). For restoring saved state. Ignored when `key`
+   * already has an event.
+   */
+  hydrate<K extends EventKey<TEventMap>>(key: K, payload: TEventMap[K], options?: { headers?: THeaders; timestamp?: number }): void;
+}
+
 /**
  * A plugin: runs once when passed to `use()`, in the bus's injection context (so it can `inject()`),
  * and returns its hooks.
  */
 export type EventBusPlugin<TEventMap extends object = any, THeaders extends object = Record<string, unknown>, TApi = void> = (
   bus: ALEventBus<TEventMap, THeaders>,
+  context: PluginContext<TEventMap, THeaders>,
 ) => PluginHooks<TEventMap, THeaders, TApi> | void;
 
 export interface SignalOptions<TPayload, TTransformed, TDefault> {
@@ -110,6 +125,11 @@ export type ProjectionReducers<TEventMap, TState, THeaders extends object = Reco
 export interface ProjectionOptions {
   /** Keep snapshots for undo/redo. `true` keeps 50. */
   undo?: boolean | { limit: number };
+  /**
+   * Save the state to storage and restore it on startup. A string is the storage key; the object
+   * form adds `version`, `storage`, `serialize` and `deserialize`. Undo history is not saved.
+   */
+  persist?: string | ({ key: string } & StorageOptions);
 }
 
 /** State derived from events. Returned by `projection()` inside your bus class. */

@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from './event-bus';
+import { MemoryStorage } from './testing/memory-storage';
 
 interface CanvasEvents {
   'shape:moved': number;
@@ -95,5 +96,63 @@ describe('ALEventBus.projection', () => {
     expect(bus.clicks.canUndo()).toBe(false);
     expect(bus.clicks.undo()).toBe(false);
     expect(bus.clicks.state()).toBe(1);
+  });
+});
+
+describe('ALEventBus.projection persist', () => {
+  let storage: MemoryStorage;
+
+  function open(version = 1) {
+    @Injectable()
+    class CartBus extends ALEventBus<{ 'cart:add': string; 'cart:clear': void }> {
+      cart = this.projection<string[]>(
+        [],
+        { 'cart:add': (items, sku) => [...items, sku], 'cart:clear': () => [] },
+        { undo: true, persist: { key: 'cart', version, storage } },
+      );
+      label = this.projection('none', { 'cart:add': (_s, sku) => sku }, { persist: 'projection-spec-label' });
+    }
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [CartBus] });
+    return TestBed.inject(CartBus);
+  }
+
+  beforeEach(() => {
+    storage = new MemoryStorage();
+    localStorage.removeItem('projection-spec-label');
+  });
+
+  it('restores the state after a reload, and saves on every change including undo/redo', () => {
+    const bus = open();
+    bus.emit('cart:add', 'a');
+    bus.emit('cart:add', 'b');
+    expect(open().cart.state()).toEqual(['a', 'b']);
+
+    const reloaded = open();
+    expect(reloaded.cart.canUndo()).toBe(false); // history is not saved
+    reloaded.emit('cart:add', 'c');
+    reloaded.cart.undo();
+    expect(storage.json('cart')).toEqual({ v: 1, data: ['a', 'b'] });
+    reloaded.cart.redo();
+    expect(open().cart.state()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('reset() returns to the initial state and removes the saved value', () => {
+    const bus = open();
+    bus.emit('cart:add', 'a');
+    bus.cart.reset();
+    expect(storage.items.has('cart')).toBe(false);
+    expect(open().cart.state()).toEqual([]);
+  });
+
+  it('starts from the initial state when the saved version differs', () => {
+    open().emit('cart:add', 'a');
+    expect(open(2).cart.state()).toEqual([]);
+  });
+
+  it('accepts a plain storage key and uses localStorage', () => {
+    open().emit('cart:add', 'z');
+    expect(open().label.state()).toBe('z');
+    localStorage.removeItem('projection-spec-label');
   });
 });

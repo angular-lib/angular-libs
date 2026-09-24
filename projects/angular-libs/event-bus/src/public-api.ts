@@ -13,6 +13,7 @@ export type {
   EventOf,
   Next,
   OnOptions,
+  PluginContext,
   PluginHooks,
   Projection,
   ProjectionOptions,
@@ -28,3 +29,6 @@ export { withDebounce } from './lib/plugins/debounce';
 export { withCrossTabSync } from './lib/plugins/cross-tab-sync';
 export type { CrossTabSyncOptions } from './lib/plugins/cross-tab-sync';
 export { definePlugin, withBubbling } from './lib/plugins/define-plugin';
+export { withPersistence } from './lib/plugins/persistence';
+export type { PersistenceOptions } from './lib/plugins/persistence';
+export type { StorageLike, StorageOptions } from './lib/storage';

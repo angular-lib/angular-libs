@@ -31,11 +31,15 @@ export class DemoEventBus extends ALEventBus<DemoEventMap> {
     { undo: true },
   );
 
-  // Every message counts, even identical ones.
-  transcript = this.projection<string[]>([], {
-    'chat:message': (lines, m) => [...lines, m.text],
-    'action:clear': () => [],
-  });
+  // Every message counts, even identical ones. Survives reloads.
+  transcript = this.projection<string[]>(
+    [],
+    {
+      'chat:message': (lines, m) => [...lines, m.text],
+      'action:clear': () => [],
+    },
+    { persist: 'angular-libs-demo-transcript' },
+  );
 
   constructor() {
     super();
@@ -269,7 +273,7 @@ interface LogEntry {
               </div>
             </div>
             <div class="binding-item" style="margin-top: 12px;">
-              <span class="label">Transcript (projection counts every message)</span>
+              <span class="label">Transcript (projection, persisted — try reloading)</span>
               <strong>Values:</strong>
               @for (text of eventBus.transcript.state(); track $index) {
                 <span

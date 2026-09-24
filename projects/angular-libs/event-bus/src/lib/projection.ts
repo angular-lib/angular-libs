@@ -1,5 +1,6 @@
 import { computed, signal } from '@angular/core';
 import { BusEvent, Projection, ProjectionOptions } from './event-bus.models';
+import { StoredValue, storedValue } from './storage';
 
 type Reducer<S> = (state: S, payload: any, event: any) => S;
 
@@ -11,7 +12,18 @@ export function createProjection<S>(
   subscribe: (key: string, listener: (event: BusEvent<any, any, string>) => void) => () => void,
 ): Projection<S> {
   const limit = options?.undo === true ? 50 : options?.undo ? options.undo.limit : 0;
-  const state = signal(initial);
+  const persist = options?.persist;
+  const store: StoredValue<S> | null = persist
+    ? typeof persist === 'string'
+      ? storedValue<S>(persist)
+      : storedValue<S>(persist.key, persist)
+    : null;
+  const saved = store?.read();
+  const state = signal(saved === undefined ? initial : saved);
+  const setState = (value: S) => {
+    state.set(value);
+    store?.write(value);
+  };
   const past = signal<readonly S[]>([]);
   const future = signal<readonly S[]>([]);
 
@@ -25,7 +37,7 @@ export function createProjection<S>(
         past.update((stack) => [...stack, before].slice(-limit));
         future.set([]);
       }
-      state.set(after);
+      setState(after);
     });
   }
 
@@ -37,7 +49,7 @@ export function createProjection<S>(
       const stack = past();
       if (stack.length === 0) return false;
       future.update((f) => [...f, state()]);
-      state.set(stack[stack.length - 1]);
+      setState(stack[stack.length - 1]);
       past.set(stack.slice(0, -1));
       return true;
     },
@@ -45,7 +57,7 @@ export function createProjection<S>(
       const stack = future();
       if (stack.length === 0) return false;
       past.update((p) => [...p, state()].slice(-limit));
-      state.set(stack[stack.length - 1]);
+      setState(stack[stack.length - 1]);
       future.set(stack.slice(0, -1));
       return true;
     },
@@ -55,6 +67,7 @@ export function createProjection<S>(
     },
     reset() {
       state.set(initial);
+      store?.remove();
       past.set([]);
       future.set([]);
     },
