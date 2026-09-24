@@ -1,8 +1,8 @@
 import { Component, DestroyRef, EnvironmentInjector, Injectable, effect, inject, runInInjectionContext, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from './event-bus';
-import { Middleware } from './event-bus.models';
-import { withBubbling, withMiddleware } from './middleware/custom';
+import { PluginHooks } from './event-bus.models';
+import { withBubbling, definePlugin } from './plugins/define-plugin';
 import { TestEventBus, TestEventMap } from './testing/test-bus';
 
 describe('ALEventBus', () => {
@@ -204,13 +204,13 @@ describe('ALEventBus.on cleanup', () => {
   });
 });
 
-describe('ALEventBus middleware', () => {
-  function busWith(...middleware: Middleware<TestEventMap>[]) {
+describe('ALEventBus plugin handle()', () => {
+  function busWith(...hooks: PluginHooks<TestEventMap>[]) {
     @Injectable()
     class Bus extends ALEventBus<TestEventMap> {
       constructor() {
         super();
-        this.use(...middleware.map((m) => withMiddleware<TestEventMap>(() => m)));
+        this.use(...hooks.map((h) => definePlugin<TestEventMap>(() => h)));
       }
     }
     TestBed.configureTestingModule({ providers: [Bus] });
@@ -220,7 +220,7 @@ describe('ALEventBus middleware', () => {
     return { bus, log };
   }
 
-  it('runs middleware in order and lets it change or drop events', () => {
+  it('runs plugins in order and lets them change or drop events', () => {
     const order: string[] = [];
     const { bus, log } = busWith(
       { handle: (e, next) => { order.push('first'); next(e); } },
@@ -241,7 +241,7 @@ describe('ALEventBus middleware', () => {
     expect(log).toEqual(['count:changed:10']);
   });
 
-  it('lets middleware defer an event; it continues from that point exactly once', () => {
+  it('lets a plugin defer an event; it continues from that point exactly once', () => {
     vi.useFakeTimers();
     try {
       let downstream = 0;
@@ -259,7 +259,7 @@ describe('ALEventBus middleware', () => {
     }
   });
 
-  it('fails open when middleware throws, without delivering twice', () => {
+  it('fails open when handle() throws, without delivering twice', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { bus, log } = busWith(
       { handle: (e, next) => { if (e.key === 'user:logout') throw new Error('before'); next(e); } },
@@ -271,7 +271,7 @@ describe('ALEventBus middleware', () => {
     error.mockRestore();
   });
 
-  it('runs features in the bus injection context, notifies resets and destroys middleware with the bus', () => {
+  it('runs plugins in the bus injection context, notifies resets and destroys them with the bus', () => {
     @Injectable({ providedIn: 'root' })
     class Analytics { seen: string[] = []; }
     const destroy = vi.fn();
@@ -280,7 +280,7 @@ describe('ALEventBus middleware', () => {
     class Tracked extends ALEventBus<TestEventMap> {
       constructor() {
         super();
-        this.use(withMiddleware(() => {
+        this.use(definePlugin(() => {
           const analytics = inject(Analytics);
           return {
             handle: (e, next) => { analytics.seen.push(e.key); next(e); },
@@ -300,6 +300,105 @@ describe('ALEventBus middleware', () => {
 
     TestBed.resetTestingModule();
     expect(destroy).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ALEventBus plugin hooks', () => {
+  function busWith<TApi>(hooks: PluginHooks<TestEventMap, Record<string, unknown>, TApi>) {
+    @Injectable()
+    class Bus extends ALEventBus<TestEventMap> {
+      api = this.use(definePlugin<TestEventMap, Record<string, unknown>, TApi>(() => hooks));
+    }
+    TestBed.configureTestingModule({ providers: [Bus] });
+    return TestBed.inject(Bus);
+  }
+
+  it('use(plugin) returns the plugin api; several plugins return nothing', () => {
+    const bus = busWith({ api: { answer: () => 42 } });
+    expect(bus.api.answer()).toBe(42);
+
+    @Injectable()
+    class Many extends ALEventBus<TestEventMap> {
+      result = this.use(definePlugin(() => ({})), definePlugin(() => {}));
+    }
+    expect(TestBed.runInInjectionContext(() => new Many()).result).toBeUndefined();
+  });
+
+  it('onAfterEmit runs after every handler, also for events emitted from handlers, and not for dropped ones', () => {
+    const log: string[] = [];
+    @Injectable()
+    class Bus extends ALEventBus<TestEventMap> {
+      constructor() {
+        super();
+        this.use(
+          definePlugin<TestEventMap>(() => ({ handle: (e, next) => (e.key === 'search:typed' ? undefined : next(e)) })),
+          definePlugin<TestEventMap>(() => ({ onAfterEmit: (e) => log.push(`after:${e.key}`) })),
+        );
+      }
+    }
+    const bus = TestBed.runInInjectionContext(() => new Bus());
+    bus.on('count:changed', () => { log.push('handler:count'); bus.emit('user:logout'); }, { unsubscribeOn: 'manual' });
+    bus.on('user:logout', () => log.push('handler:logout'), { unsubscribeOn: 'manual' });
+
+    bus.emit('count:changed', 1);
+    bus.emit('search:typed', 'dropped');
+
+    expect(log).toEqual(['handler:count', 'after:count:changed', 'handler:logout', 'after:user:logout']);
+  });
+
+  it('onSubscribe/onUnsubscribe track on(), once() and every way a subscription stops', () => {
+    const log: string[] = [];
+    const bus = busWith({
+      onSubscribe: (key, id) => log.push(`+${id}`),
+      onUnsubscribe: (key, id) => log.push(`-${id}`),
+    });
+
+    const stop = bus.on(['count:changed', 'user:logout'], () => {}, { unsubscribeOn: 'manual' });
+    bus.once('theme:changed', () => {}, { unsubscribeOn: 'manual' });
+    bus.on('search:typed', () => {}, { unsubscribeOn: 'user:login' }); // terminator is not reported
+    expect(log).toEqual(['+count:changed#1', '+user:logout#2', '+theme:changed#3', '+search:typed#4']);
+
+    log.length = 0;
+    stop();
+    stop(); // idempotent
+    bus.emit('theme:changed', 'dark');
+    bus.emit('user:login', { userId: '1' });
+    expect(log).toEqual(['-count:changed#1', '-user:logout#2', '-theme:changed#3', '-search:typed#4']);
+
+    log.length = 0;
+    bus.on('count:changed', () => {}, { unsubscribeOn: 'manual' });
+    const late = bus.on('user:logout', () => {}, { unsubscribeOn: 'manual' });
+    bus.unsubscribe('count:changed');
+    bus.unsubscribeAll();
+    late(); // already removed: not reported twice
+    expect(log).toEqual(['+count:changed#5', '+user:logout#6', '-count:changed#5', '-user:logout#6']);
+  });
+
+  it('reports unsubscribes when the subscribing component is destroyed', () => {
+    const log: string[] = [];
+    const bus = busWith({ onUnsubscribe: (key) => log.push(key) });
+    @Component({ template: '' })
+    class Host {
+      constructor() {
+        bus.on('count:changed', () => {});
+      }
+    }
+    TestBed.createComponent(Host).destroy();
+    expect(log).toEqual(['count:changed']);
+  });
+
+  it('isolates throwing hooks', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const got: number[] = [];
+    const bus = busWith({
+      onAfterEmit: () => { throw new Error('after'); },
+      onSubscribe: () => { throw new Error('subscribe'); },
+    });
+    bus.on('count:changed', (n) => got.push(n), { unsubscribeOn: 'manual' });
+    expect(() => bus.emit('count:changed', 1)).not.toThrow();
+    expect(got).toEqual([1]);
+    expect(error).toHaveBeenCalledTimes(2);
+    error.mockRestore();
   });
 });
 

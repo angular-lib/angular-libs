@@ -1,5 +1,5 @@
 import { isDevMode } from '@angular/core';
-import { EventBusFeature, EventOf } from '../event-bus.models';
+import { EventBusPlugin, EventOf } from '../event-bus.models';
 
 export interface LoggerOptions<TEventMap = any> {
   /** Defaults to `isDevMode()`. */
@@ -12,7 +12,7 @@ export interface LoggerOptions<TEventMap = any> {
  * Logs each event as a collapsed console group. Add it last to log what handlers receive, or first
  * to log everything emitted (including events later dropped or debounced).
  */
-export function withLogger<TEventMap extends object = any>(options: LoggerOptions<TEventMap> = {}): EventBusFeature<TEventMap, any> {
+export function withLogger<TEventMap extends object = any>(options: LoggerOptions<TEventMap> = {}): EventBusPlugin<TEventMap, any> {
   return () => {
     if (!(options.enabled ?? isDevMode())) return;
     return {

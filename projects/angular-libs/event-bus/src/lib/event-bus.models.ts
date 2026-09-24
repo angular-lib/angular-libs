@@ -51,26 +51,41 @@ export interface OnOptions<TEventMap> {
   unsubscribeOn?: UnsubscribeOn<TEventMap>;
 }
 
-/** Passes an event on to the next middleware, or to listeners at the end of the pipeline. */
+/** Passes an event on to the next plugin's `handle`, or to handlers at the end of the chain. */
 export type Next<TEventMap, THeaders extends object = Record<string, unknown>> = (event: EventOf<TEventMap, THeaders>) => void;
 
 /**
- * Middleware sees every event before listeners. It can pass it on (`next(event)`), change it
- * (`next({ ...event, payload })`), drop it (not calling `next`) or defer it (calling `next` later).
- * A deferred event continues from the same point, so later middleware sees it exactly once.
+ * What a plugin does. Every hook is optional.
+ *
+ * - `handle` intercepts events before handlers: pass on (`next(event)`), change
+ *   (`next({ ...event, payload })`), drop (don't call `next`) or defer (call `next` later — the event
+ *   continues from the same point, so later plugins see it exactly once).
+ * - `onAfterEmit` observes an event after every handler has received it.
+ * - `api` is returned by `use()`, so a plugin can expose methods on your bus.
  */
-export interface Middleware<TEventMap = any, THeaders extends object = Record<string, unknown>> {
-  handle(event: EventOf<TEventMap, THeaders>, next: Next<TEventMap, THeaders>): void;
+export interface PluginHooks<TEventMap = any, THeaders extends object = Record<string, unknown>, TApi = void> {
+  handle?(event: EventOf<TEventMap, THeaders>, next: Next<TEventMap, THeaders>): void;
+  /** Called after every handler has received `event`, including events emitted from handlers. */
+  onAfterEmit?(event: EventOf<TEventMap, THeaders>): void;
+  /** Called when `on()` / `once()` / `combineLatest()` start listening to `key`. */
+  onSubscribe?(key: EventKey<TEventMap>, subscriptionId: string): void;
+  /** Called when that subscription stops, for whatever reason. */
+  onUnsubscribe?(key: EventKey<TEventMap>, subscriptionId: string): void;
   /** Called after `resetEvent(key)` (`key` set) or `resetAllEvents()` (`key` undefined). */
   onReset?(key: EventKey<TEventMap> | undefined, origin: string): void;
   /** Called when the bus is destroyed. */
   destroy?(): void;
+  /** Returned by `use(plugin)`. */
+  api?: TApi;
 }
 
-/** Runs once when passed to `use()`, in the bus's injection context. May return middleware. */
-export type EventBusFeature<TEventMap extends object = any, THeaders extends object = Record<string, unknown>> = (
+/**
+ * A plugin: runs once when passed to `use()`, in the bus's injection context (so it can `inject()`),
+ * and returns its hooks.
+ */
+export type EventBusPlugin<TEventMap extends object = any, THeaders extends object = Record<string, unknown>, TApi = void> = (
   bus: ALEventBus<TEventMap, THeaders>,
-) => Middleware<TEventMap, THeaders> | void;
+) => PluginHooks<TEventMap, THeaders, TApi> | void;
 
 export interface SignalOptions<TPayload, TTransformed, TDefault> {
   transform?: (payload: TPayload) => TTransformed;

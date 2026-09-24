@@ -5,7 +5,7 @@ Signal-first Angular libraries (Angular 22 workspace). Nine packages plus a demo
 | Package | Role | Peers |
 | --- | --- | --- |
 | [`@angular-libs/dialog`](projects/angular-libs/dialog) | Native `<dialog>`: modal, window, confirm, popover, toast | ≥19 |
-| [`@angular-libs/event-bus`](projects/angular-libs/event-bus) | Typed, signal-based event bus + middleware and projections | ≥20 |
+| [`@angular-libs/event-bus`](projects/angular-libs/event-bus) | Typed, signal-based event bus + plugins and projections | ≥20 |
 | [`@angular-libs/store`](projects/angular-libs/store) | Signal store with entity / persist / history / IndexedDB | ≥20 |
 | [`@angular-libs/translate`](projects/angular-libs/translate) | Signal i18n + `TranslatePipe` | ≥19 |
 | [`@angular-libs/web`](projects/angular-libs/web) | Browser/hardware API signals + directives | ≥18 |

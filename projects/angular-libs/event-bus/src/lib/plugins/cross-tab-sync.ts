@@ -1,4 +1,4 @@
-import { EventBusFeature, EventKey } from '../event-bus.models';
+import { EventBusPlugin, EventKey } from '../event-bus.models';
 
 export interface CrossTabSyncOptions<TEventMap = any> {
   /** `BroadcastChannel` name. Use one per app and bus class. */
@@ -17,11 +17,11 @@ export const ɵTAB_ID = Math.random().toString(36).slice(2);
  * `BroadcastChannel`.
  *
  * Received events enter the pipeline from the start with `origin: 'remote'` and are never sent back,
- * whatever other middleware (such as debounce) does with them. Messages from the same tab (e.g. a
+ * whatever other plugins (such as debounce) do with them. Messages from the same tab (e.g. a
  * component-scoped copy of the bus) are ignored. Does nothing where `BroadcastChannel` is unavailable
  * (SSR, old browsers).
  */
-export function withCrossTabSync<TEventMap extends object>(options: CrossTabSyncOptions<TEventMap>): EventBusFeature<TEventMap, any> {
+export function withCrossTabSync<TEventMap extends object>(options: CrossTabSyncOptions<TEventMap>): EventBusPlugin<TEventMap, any> {
   return (bus) => {
     if (typeof BroadcastChannel === 'undefined') return;
     const channel = new BroadcastChannel(options.channel);

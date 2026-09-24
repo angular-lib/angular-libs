@@ -1,7 +1,7 @@
 import { EnvironmentInjector, Injectable, createEnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from '../event-bus';
-import { EventBusFeature } from '../event-bus.models';
+import { EventBusPlugin } from '../event-bus.models';
 import { MockBroadcastChannel } from '../testing/mock-broadcast-channel';
 import { TestEventMap, TestHeaders } from '../testing/test-bus';
 import { withCrossTabSync, ɵTAB_ID } from './cross-tab-sync';
@@ -11,7 +11,7 @@ describe('withCrossTabSync', () => {
   let restore: () => void;
   const tabs: EnvironmentInjector[] = [];
 
-  function openTab(...features: EventBusFeature<TestEventMap, any>[]) {
+  function openTab(...features: EventBusPlugin<TestEventMap, any>[]) {
     @Injectable()
     class Bus extends ALEventBus<TestEventMap, TestHeaders> {
       constructor() {
@@ -82,10 +82,10 @@ describe('withCrossTabSync', () => {
     expect(b.latest('user:logout')).toBeUndefined();
   });
 
-  it('never ping-pongs with debounce, whichever middleware comes first', () => {
+  it('never ping-pongs with debounce, whichever plugin comes first', () => {
     vi.useFakeTimers();
     try {
-      const orders: EventBusFeature<TestEventMap, any>[][] = [
+      const orders: EventBusPlugin<TestEventMap, any>[][] = [
         [withDebounce<TestEventMap>('search:typed', 100), withCrossTabSync({ channel: 'x' })],
         [withCrossTabSync({ channel: 'y' }), withDebounce<TestEventMap>('search:typed', 100)],
       ];

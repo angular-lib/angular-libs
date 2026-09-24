@@ -8,12 +8,12 @@ export type {
   BusEvent,
   EmitArgs,
   EmitOptions,
-  EventBusFeature,
+  EventBusPlugin,
   EventKey,
   EventOf,
-  Middleware,
   Next,
   OnOptions,
+  PluginHooks,
   Projection,
   ProjectionOptions,
   ProjectionReducers,
@@ -22,9 +22,9 @@ export type {
   UnsubscribeOn,
 } from './lib/event-bus.models';
 
-export { withLogger } from './lib/middleware/logger';
-export type { LoggerOptions } from './lib/middleware/logger';
-export { withDebounce } from './lib/middleware/debounce';
-export { withCrossTabSync } from './lib/middleware/cross-tab-sync';
-export type { CrossTabSyncOptions } from './lib/middleware/cross-tab-sync';
-export { withBubbling, withMiddleware } from './lib/middleware/custom';
+export { withLogger } from './lib/plugins/logger';
+export type { LoggerOptions } from './lib/plugins/logger';
+export { withDebounce } from './lib/plugins/debounce';
+export { withCrossTabSync } from './lib/plugins/cross-tab-sync';
+export type { CrossTabSyncOptions } from './lib/plugins/cross-tab-sync';
+export { definePlugin, withBubbling } from './lib/plugins/define-plugin';

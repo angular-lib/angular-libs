@@ -4,10 +4,10 @@ A typed, signal-based event bus service for Angular. No RxJS.
 
 [StackBlitz playground](https://stackblitz.com/edit/angular-libs-event-bus?file=src%2Fmain.ts)
 
-- ✅ **Strongly typed**: payloads, keys, tuples, middleware options and projections are all checked against your event map.
+- ✅ **Strongly typed**: payloads, keys, tuples, plugin options and projections are all checked against your event map.
 - 🚀 **Signal-based**: `onToSignal`, `combineLatestToSignal` and projections return signals. Angular 20+.
 - 🌀 **Async resources**: `onToResource()` maps events to Angular's Resource API, with loading/error state and abort.
-- 🧩 **Middleware**: logger, debounce and cross-tab sync built in, or write your own.
+- 🧩 **Plugins**: logger, debounce and cross-tab sync built in, or write your own — with an API of their own if you like.
 - ↩️ **Projections with undo**: derive state from events, with snapshot undo/redo.
 - 🧹 **Automatic cleanup**: `on()` stops with the component or service that called it.
 
@@ -147,9 +147,9 @@ bus.cart.clearHistory(); bus.cart.reset();
 
 Undo restores the whole previous state, whichever event produced it. Return the same state object from a reducer to mean "no change" (no history entry).
 
-## Middleware
+## Plugins
 
-Add middleware in your bus constructor with `use()`. It runs in order, before handlers.
+Add plugins in your bus constructor with `use()`. They run in the order you list them.
 
 ```ts
 @Injectable({ providedIn: 'root' })
@@ -165,35 +165,47 @@ export class AppEventBus extends ALEventBus<AppEventMap> {
 }
 ```
 
-| Middleware | Description |
+| Plugin | Description |
 |:--|:--|
 | `withLogger({ enabled?, filter? })` | Logs each event as a collapsed console group. `enabled` defaults to `isDevMode()`. |
 | `withDebounce(keys, ms)` | Delivers only the latest of each key after `ms` of quiet. |
 | `withCrossTabSync({ channel, keys? })` | Mirrors events and resets to other tabs via `BroadcastChannel`. Received events have `origin: 'remote'` and are never sent back — even combined with debounce. Payloads must be structured-cloneable. No-op during SSR. |
 | `withBubbling()` | For a bus provided in a component: also delivers its events to the parent (e.g. root) instance. |
-| `withMiddleware(factory)` | Your own middleware. |
 
-Keys in middleware options are checked against your event map.
+Keys in plugin options are checked against your event map.
 
-### Custom middleware
+### Writing a plugin
 
-A middleware passes an event on (`next(event)`), changes it (`next({ ...event, payload })`), drops it (doesn't call `next`), or defers it (calls `next` later — it continues from the same point, so later middleware sees it once). The factory runs in the bus's injection context, so it can `inject()`. `event.key` narrows `event.payload`.
+A plugin returns hooks; all are optional. The factory runs in the bus's injection context, so it can `inject()`. Whatever you put in `api` is returned by `use()`, so a plugin can add methods to your bus.
 
 ```ts
-this.use(
-  withMiddleware(() => {
+export function analyticsPlugin() {
+  return definePlugin<AppEventMap>(() => {
     const analytics = inject(Analytics);
+    const queue: string[] = [];
     return {
-      handle(event, next) {
-        next(event);
-        if (event.key === 'user:login') analytics.identify(event.payload.userId);
-      },
+      onAfterEmit: (event) => queue.push(event.key),
+      onSubscribe: (key, id) => console.debug('listening', key, id),
+      api: { flush: () => analytics.send(queue.splice(0)) },
     };
-  }),
-);
+  });
+}
+
+export class AppEventBus extends ALEventBus<AppEventMap> {
+  analytics = this.use(analyticsPlugin()); // bus.analytics.flush()
+}
 ```
 
-Optional hooks: `onReset(key, origin)` and `destroy()`. A middleware that throws is logged and the event continues unchanged.
+| Hook | When |
+|:--|:--|
+| `handle(event, next)` | Before handlers. Pass the event on (`next(event)`), change it (`next({ ...event, payload })`), drop it (don't call `next`) or defer it (call `next` later — it continues from the same point, so later plugins see it once). |
+| `onAfterEmit(event)` | After every handler has received the event — also for events emitted from handlers. Not called for dropped events. |
+| `onSubscribe(key, id)` / `onUnsubscribe(key, id)` | When `on()` / `once()` / `combineLatest()` start or stop listening, however they stop. |
+| `onReset(key, origin)` | After `resetEvent(key)` or `resetAllEvents()` (`key` undefined). |
+| `destroy()` | When the bus is destroyed. |
+| `api` | Returned by `use(plugin)`. |
+
+`event.key` narrows `event.payload`. A throwing hook is logged; a throwing `handle` lets the event continue unchanged.
 
 ## Scoped buses
 
@@ -204,7 +216,7 @@ Provide the bus in a component to give that subtree its own instance, destroyed 
 export class WizardComponent {}
 ```
 
-Its constructor (and `use(...)`) runs for that instance too. Add `withBubbling()` if the root instance should also see the subtree's events.
+Its constructor (and its plugins) run for that instance too. Add `withBubbling()` if the root instance should also see the subtree's events.
 
 ## Typed headers
 
@@ -247,12 +259,13 @@ on$<K extends EventKey<AppEventMap>>(key: K): Observable<AppEventMap[K]> {
 | `bus.once(key, { callback })` | `bus.once(key, handler)` |
 | `combineLatestToSignal([{ key: 'a', transform }, { key: 'b' }])` | `combineLatestToSignal(['a', 'b'])` + `computed()` |
 | `combineLatest({ sources, callback })` | `combineLatest(['a', 'b'], ([a, b]) => …)` |
-| `this.registerPlugin(loggerPlugin())` | `this.use(withLogger())` |
+| `this.registerPlugin(plugin)` | `this.use(plugin)` (returns the plugin's `api`) |
+| `loggerPlugin()` | `withLogger()` |
 | `debouncePlugin([{ key, delay }])` | `withDebounce(key, delay)` |
 | `crossTabSyncPlugin({ keys, channelName })` | `withCrossTabSync({ keys, channel })` (channel is required) |
 | `history = this.registerPlugin(historyPlugin({ keys }))` | `history = this.projection(initial, reducers, { undo: true })` |
 | `createEventBusHooks(AppEventBus)` | removed |
-| `ALEventBusPlugin` hooks | `Middleware` (`handle`, `onReset`, `destroy`) |
+| `ALEventBusPlugin` | `definePlugin(() => hooks)`: `onInit(bus)` → the factory's `bus` argument; `onBeforeEmit` → `handle`; `onAfterEmit`, `onSubscribe`, `onUnsubscribe`, `onReset` keep their names; `onDestroy` → `destroy` |
 
 `emit`, `onToSignal`, `onToResource`, `latest`, `resetEvent`, `resetAllEvents`, `unsubscribe` and `unsubscribeAll` keep their signatures.
 
@@ -268,6 +281,6 @@ When generating code that uses `@angular-libs/event-bus`:
 4. Bind state with `bus.onToSignal(key, { transform, defaultValue })` and `bus.combineLatestToSignal([...keys])`; derive with `computed()`. Do not use RxJS subjects.
 5. Load data on events with `bus.onToResource(key, { transform, loader })`.
 6. Use `this.projection(initial, reducers, { undo })` inside the bus class for state built from several events, counters or undo/redo.
-7. Add middleware in the bus constructor: `this.use(withLogger(), withDebounce(...), withCrossTabSync(...))`.
+7. Add plugins in the bus constructor: `this.use(withLogger(), withDebounce(...), withCrossTabSync(...))`. Write custom ones with `definePlugin(() => ({ handle, onAfterEmit, api }))`.
 
 </details>
