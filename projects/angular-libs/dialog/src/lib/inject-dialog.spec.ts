@@ -96,6 +96,15 @@ describe('injectDialog', () => {
     expect(ref.dialogEl.hasAttribute('aria-busy')).toBe(false);
   });
 
+  it('a completed action without a value skips dismissal guards', async () => {
+    const ref = service.open(FormDialogComponent);
+    ref.component.dirty = true;
+    ref.component.guardAnswer = false;
+    ref.component.saveImpl = () => Promise.resolve(undefined as unknown as string);
+    await ref.component.save();
+    expect(ref.dialogEl.open).toBe(false);
+  });
+
   it('action keeps the dialog open and exposes the error on failure', async () => {
     const ref = service.open(FormDialogComponent);
     ref.component.saveImpl = () => Promise.reject(new Error('boom'));

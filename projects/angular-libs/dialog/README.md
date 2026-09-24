@@ -11,7 +11,7 @@ Pick **one** path — same split as Angular **Material vs Aria**. Do not mix the
 
 - Batteries: import the CSS, call `open` / `confirm` / `alert` / `window` / `popover` / `toast`.
 - Aria: your markup + your CSS. The directive only does keyboard, focus, dismiss, and ARIA.
-- There is no token-bridge, `appearance`, `scheme`, or parts API on either path.
+- Chrome parts (`<al-dialog-header>`, `[alDialogClose]`, …) work on both paths; they are styled by `core.css` and plain semantics without it.
 
 **Browser-only:** `showModal()` / `open()` / `window()` use `document` and are not SSR-safe.
 
@@ -118,6 +118,93 @@ dialog.popover(MenuComponent, { anchor: event.currentTarget, placement: 'bottom'
 dialog.toast('Saved', { duration: 3000, position: 'bottom-right' });
 ```
 
+### Typed dialogs — `defineDialog` (recommended)
+
+Declare a dialog once; opening it type-checks required inputs and the result.
+
+```ts
+import { DialogParts, defineDialog, injectDialog } from '@angular-libs/dialog';
+
+@Component({
+  imports: [DialogParts],
+  template: `
+    <al-dialog-header>
+      Edit {{ user().name }}
+      <p alDialogSubtitle alDialogDescription>Changes apply immediately</p>
+    </al-dialog-header>
+    <al-dialog-body>…form…</al-dialog-body>
+    <al-dialog-footer>
+      <button class="al-btn al-btn-secondary" alDialogClose>Cancel</button>
+      <button class="al-btn al-btn-primary" [disabled]="save.pending()" (click)="save()">Save</button>
+    </al-dialog-footer>
+  `,
+})
+export class EditUserComponent {
+  readonly user = input.required<User>();
+  readonly dialog = injectDialog<User>(); // public → result type is inferred
+
+  constructor() {
+    // Runs on dismissals only (Escape, backdrop, ×, navigation) — never after a successful save.
+    this.dialog.guard(() => !this.form.dirty || this.dialog.confirm({ title: 'Discard changes?' }));
+  }
+
+  // pending() / error() signals; dismiss is blocked and aria-busy set while it runs;
+  // closes with the returned value on success.
+  readonly save = this.dialog.action(() => this.api.save(this.form.value));
+}
+
+export const EditUserDialog = defineDialog(EditUserComponent, { size: 'md', sheetBelow: 'sm' });
+export const ReportDialog = defineDialog(() => import('./report').then((m) => m.Report)); // lazy
+```
+
+```ts
+const outcome = await dialog.run(EditUserDialog, { user }); // `user` is required by the type
+if (outcome.ok) save(outcome.value);                       // value: User
+else console.log(outcome.reason);                           // 'escape' | 'backdrop' | 'manual' | …
+
+const ref = dialog.open(EditUserDialog, { user }, { size: 'lg' }); // eager definitions only
+```
+
+- `outcome.ok` is `true` exactly when the dialog closed **with a value**.
+- Required inputs are `input.required()` — and inputs with a default value (Angular types cannot tell them apart). Preset them on the definition (`inputs: { … }`) to make them optional.
+- `result: dialogResult<T>()` sets the result type when the component cannot express it.
+
+### Chrome parts
+
+| Part | Does |
+| --- | --- |
+| `<al-dialog-header>` | Title (wires `aria-labelledby`), `[alDialogSubtitle]`, `[alDialogHeaderActions]`, close button (`closable`, `closeLabel`, or `strings.close`) |
+| `<al-dialog-body>` / `<al-dialog-footer>` | Scrolling body / end-aligned actions |
+| `[alDialogTitle]` / `[alDialogDescription]` | Wire `aria-labelledby` / `aria-describedby` without ids |
+| `[alDialogClose]="value"` | Closes with `value` (empty = dismiss); `type="button"` by default; ignored while busy |
+
+Explicit `ariaLabel` / `ariaLabelledBy` options win over the parts. Button classes: `al-btn` + `al-btn-primary` / `al-btn-secondary` / `al-btn-danger`.
+
+### Async confirm
+
+```ts
+const deleted = await dialog.confirm({
+  title: 'Delete project?',
+  confirmText: 'Delete',
+  tone: 'danger',
+  onConfirm: () => api.deleteProject(id), // spinner, dismiss blocked, inline error + retry on throw
+  errorText: (e) => `Could not delete: ${(e as Error).message}`, // default: strings.error
+});
+```
+
+### Toaster
+
+```ts
+const toaster = inject(Toaster);
+toaster.success('Saved');
+toaster.show('Conversation archived', { action: { label: 'Undo', onClick: undo } });
+await toaster.promise(save(), { loading: 'Saving…', success: 'Saved', error: 'Could not save' });
+```
+
+One region per corner in the top layer, `maxVisible` queue, pause on hover / focus / hidden tab, swipe and Escape to dismiss, and announcements through persistent live regions (errors assertive). Defaults: `provideDialog({ toaster: { position, duration, maxVisible } })`. Prefer it over `dialog.toast()`.
+
+While a modal is open the rest of the page is inert, so toasts stay visible and announced but their buttons can't be clicked until the modal closes.
+
 ## 2. Design systems (Aria-style)
 
 Same idea as `@angular/aria`: attribute directives on the consumer’s markup. You own HTML and CSS. **Do not** import `core.css` or `--al-dialog-*` tokens on this path.
@@ -192,9 +279,17 @@ Options: `autoFocus`, `restoreFocus`, `ariaLabel` / `ariaLabelledBy` / `ariaDesc
 - `hasBackdrop: false` — transparent native `::backdrop` (still modal).
 - `backdropClass` — extra class on `<dialog>` for `::backdrop` styling.
 
-### Mobile fullscreen
+### Mobile fullscreen / bottom sheet
 
 `fullscreenBelow: 'sm' | 'md' | 'lg' | 'xl'` on `open()` (or confirm / alert) stretches the modal to the viewport under 640 / 768 / 1024 / 1280px.
+
+`sheetBelow` (same breakpoints) presents the modal as a bottom sheet instead: full width, docked to the bottom, rounded top, safe-area padding, slides up. It wins over `fullscreenBelow` on small screens.
+
+### Motion and scroll
+
+Modals, sheets, popovers and toasts fade/slide in with CSS `@starting-style` (no JS timers); `prefers-reduced-motion` turns it off. Tune with `--al-dialog-enter-duration`. `animation: 'fade'` still adds a leave animation. Scroll lock pads `<body>` by the hidden scrollbar width, so the page does not shift.
+
+Escape is handled on `document` and routed to the topmost modal, so `closeOnEscape: false`, guards and busy dialogs cannot be force-closed by the browser after repeated Escape presses.
 
 ## DefaultDialogComponent
 
@@ -242,8 +337,11 @@ ref.snap('left');
 ref.moveTo(x, y);
 ref.resizeTo(400, 300);
 ref.state(); // Signal: 'open' | 'minimized' | 'maximized' | 'closed'
+ref.busy();  // Signal: true while an action / onConfirm runs (dismiss blocked)
+ref.addCloseGuard(({ source, result }) => …); // returns a remover
 await ref.close(result);
 const { result, source } = await ref.closed;
+const outcome = await ref.outcome; // { ok: true, value } | { ok: false, reason }
 ```
 
 Standalone action functions (`minimize(ref)`, …) still exist as advanced/tree-shakeable imports; prefer ref methods.
@@ -251,18 +349,21 @@ Standalone action functions (`minimize(ref)`, …) still exist as advanced/tree-
 ## Testing
 
 ```ts
-import {
-  provideDialogTesting,
-  DialogTestingController,
-  wrapDialogServiceForTesting,
-  patchDialogElement,
-} from '@angular-libs/dialog/testing';
+import { provideDialogTesting, DialogTestingController } from '@angular-libs/dialog/testing';
 
 TestBed.configureTestingModule({ providers: provideDialogTesting() });
 const dialog = TestBed.inject(DialogService);
-const controller = TestBed.inject(DialogTestingController);
-wrapDialogServiceForTesting(dialog, controller);
+const controller = TestBed.inject(DialogTestingController); // already tracks every open / run
+
+// Answer run() without rendering the dialog:
+controller.stub(EditUserDialog, { ok: true, value: user, source: 'manual' });
+controller.stub(ConfirmDelete, (inputs) => ({ ok: false, reason: 'escape' }));
+
+expect(controller.runCalls[0]).toMatchObject({ definition: EditUserDialog, stubbed: true });
+await controller.flushClose(result); // closes the last opened dialog
 ```
+
+`wrapDialogServiceForTesting` is still exported; calling it after `provideDialogTesting()` is a no-op.
 
 ## Size presets
 

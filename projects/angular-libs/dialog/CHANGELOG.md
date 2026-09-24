@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- `defineDialog()` + `dialog.run()` — typed definitions: required inputs enforced, result inferred (or `dialogResult<T>()`), lazy loaders, discriminated `DialogOutcome` (`{ ok, value } | { ok: false, reason }`); `dialog.open(definition, inputs, options)` for eager ones
+- `DialogParts` — `<al-dialog-header>` / `<al-dialog-body>` / `<al-dialog-footer>`, `[alDialogTitle]`, `[alDialogDescription]`, `[alDialogClose]`; ARIA wired via DI on both service and headless dialogs
+- `injectDialog()` / `injectDialogRef()` — `guard()` for dismissals, `action()` with `pending` / `error`, `busy`, stacked `confirm()`
+- `DialogRef.outcome`, `DialogRef.busy`, `DialogRef.addCloseGuard()`, close source `'action'`
+- `confirm({ onConfirm, tone: 'danger', errorText })` — spinner, dismiss blocked, inline error with retry; `strings.error`
+- `Toaster` — per-corner top-layer regions, queue (`maxVisible`), actions, `promise()`, pause on hover / focus / hidden tab, swipe / Escape dismiss, live-region announcements; `provideDialog({ toaster })`, `strings.notifications`
+- `sheetBelow` bottom-sheet presentation; default CSS enter animation (`@starting-style`, reduced-motion aware)
+- Testing: `provideDialogTesting()` auto-wraps the service, `DialogTestingController.stub(definition, outcome)`, `runCalls`
 - `alDialog` — Aria-style headless attribute directive on the consumer’s `<dialog>` (focus trap, restore focus, Escape, backdrop, scroll lock; no CSS import)
 - `DialogService` now layers default chrome on that same primitive (`dialog[al-dialog-surface]` + host directive) so dismiss / focus / ARIA are not a second implementation
 - Slimmer combo: scroll lock follows `modal`; `aria-label` / `role` stay native attributes; batteries open via `presentDialogSurface`
@@ -11,6 +19,13 @@
 - `role?: 'dialog' | 'alertdialog'` — `confirm()` / `alert()` default to `alertdialog`
 - `fullscreenBelow?: 'sm' | 'md' | 'lg' | 'xl'` for mobile-fullscreen modals
 - Popover flip (and shift/clamp fallback) near viewport edges; `flip: false` keeps clamp-only
+
+### Fixed
+- Repeated Escape no longer force-closes dialogs with `closeOnEscape: false` / `disableClose` / `beforeClose` (Chrome close watcher); Escape is handled on `document` for the topmost modal
+- Title parts and `ensureTitleId` no longer disagree on the title id; `ariaLabel` is applied before content is created
+- Scroll lock compensates for the scrollbar width (no horizontal page shift)
+- DefaultDialog maximize icon follows `ref.state()` (zoneless change detection)
+- `wrapDialogServiceForTesting` forwards every `open()` argument
 
 ## 0.1.0
 

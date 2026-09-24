@@ -15,7 +15,7 @@ export interface DialogGuardOptions {
   /**
    * Also run when the dialog closes **with** a value (submit). By default a guard only
    * runs for dismissals — Escape, backdrop, close icon, navigation — so a successful
-   * save never asks "discard changes?".
+   * save (a value, or any completed {@link DialogHandle.action}) never asks "discard changes?".
    */
   always?: boolean;
 }
@@ -140,6 +140,11 @@ export function injectDialog<TResult = unknown>(): DialogHandle<TResult> {
   return handle;
 }
 
+/** No value and not a completed action — what the user would lose work to. */
 function isDismissal(attempt: DialogCloseAttempt): boolean {
-  return attempt.result === undefined && attempt.source !== 'parent-closed';
+  return (
+    attempt.result === undefined &&
+    attempt.source !== 'action' &&
+    attempt.source !== 'parent-closed'
+  );
 }
