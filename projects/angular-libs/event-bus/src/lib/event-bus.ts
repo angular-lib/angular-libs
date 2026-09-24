@@ -20,6 +20,7 @@ import {
   EventBusPlugin,
   EventKey,
   OnOptions,
+  PluginContext,
   PluginHooks,
   Projection,
   ProjectionOptions,
@@ -85,6 +86,13 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
   #delivering = false;
   #destroyed = false;
   #subscriptionCount = 0;
+  readonly #pluginContext: PluginContext<TEventMap, THeaders> = {
+    hydrate: (key, payload, options) => {
+      const latest = this.#latestSignal(key);
+      if (untracked(latest)) return;
+      latest.set({ key, payload, headers: options?.headers, origin: 'storage', timestamp: options?.timestamp ?? Date.now() });
+    },
+  };
 
   constructor() {
     inject(DestroyRef).onDestroy(() => {
@@ -115,7 +123,7 @@ export class ALEventBus<TEventMap extends object, THeaders extends object = Reco
   protected use(...plugins: EventBusPlugin<TEventMap, THeaders, any>[]): void;
   protected use(...plugins: EventBusPlugin<TEventMap, THeaders, any>[]): unknown {
     const added = runInInjectionContext(this.#injector, () =>
-      plugins.map((plugin) => plugin(this) ?? {}),
+      plugins.map((plugin) => plugin(this, this.#pluginContext) ?? {}),
     );
     this.#plugins.push(...added);
     this.#pipeline = this.#plugins.reduceRight<(event: AnyEvent) => void>(

@@ -1,7 +1,7 @@
 {
   "name": "@angular-libs/event-bus",
   "version": "0.3.0",
-  "description": "A typed, signal-based event bus service for Angular 20+, with plugins, projections with undo, and async resources. No RxJS.",
+  "description": "A typed, signal-based event bus service for Angular 20+, with plugins, projections with undo, persistence, and async resources. No RxJS.",
   "keywords": [
     "angular",
     "event-bus",
@@ -12,7 +12,8 @@
     "typescript",
     "event-emitter",
     "plugins",
-    "undo"
+    "undo",
+    "persistence"
   ],
   "license": "MIT",
   "author": "Angular-Libs",

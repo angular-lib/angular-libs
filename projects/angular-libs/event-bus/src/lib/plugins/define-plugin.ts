@@ -1,6 +1,6 @@
 import { Type, inject } from '@angular/core';
 import type { ALEventBus } from '../event-bus';
-import { EventBusPlugin, PluginHooks } from '../event-bus.models';
+import { EventBusPlugin, PluginContext, PluginHooks } from '../event-bus.models';
 
 /**
  * Defines your own plugin. The factory runs in the bus's injection context, so it can `inject()`.
@@ -25,7 +25,7 @@ import { EventBusPlugin, PluginHooks } from '../event-bus.models';
  * ```
  */
 export function definePlugin<TEventMap extends object, THeaders extends object = Record<string, unknown>, TApi = void>(
-  factory: (bus: ALEventBus<TEventMap, THeaders>) => PluginHooks<TEventMap, THeaders, TApi> | void,
+  factory: (bus: ALEventBus<TEventMap, THeaders>, context: PluginContext<TEventMap, THeaders>) => PluginHooks<TEventMap, THeaders, TApi> | void,
 ): EventBusPlugin<TEventMap, THeaders, TApi> {
   return factory;
 }

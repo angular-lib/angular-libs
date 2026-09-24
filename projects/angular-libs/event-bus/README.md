@@ -9,6 +9,7 @@ A typed, signal-based event bus service for Angular. No RxJS.
 - 🌀 **Async resources**: `onToResource()` maps events to Angular's Resource API, with loading/error state and abort.
 - 🧩 **Plugins**: logger, debounce and cross-tab sync built in, or write your own — with an API of their own if you like.
 - ↩️ **Projections with undo**: derive state from events, with snapshot undo/redo.
+- 💾 **Persistence**: keep selected events or projections across reloads.
 - 🧹 **Automatic cleanup**: `on()` stops with the component or service that called it.
 
 ## Installation
@@ -147,6 +148,13 @@ bus.cart.clearHistory(); bus.cart.reset();
 
 Undo restores the whole previous state, whichever event produced it. Return the same state object from a reducer to mean "no change" (no history entry).
 
+Add `persist` to keep the state across reloads (undo history is not saved):
+
+```ts
+cart = this.projection(initialCart, reducers, { persist: 'my-app-cart' });
+// or { persist: { key: 'my-app-cart', version: 2, storage: sessionStorage } }
+```
+
 ## Plugins
 
 Add plugins in your bus constructor with `use()`. They run in the order you list them.
@@ -170,6 +178,7 @@ export class AppEventBus extends ALEventBus<AppEventMap> {
 | `withLogger({ enabled?, filter? })` | Logs each event as a collapsed console group. `enabled` defaults to `isDevMode()`. |
 | `withDebounce(keys, ms)` | Delivers only the latest of each key after `ms` of quiet. |
 | `withCrossTabSync({ channel, keys? })` | Mirrors events and resets to other tabs via `BroadcastChannel`. Received events have `origin: 'remote'` and are never sent back — even combined with debounce. Payloads must be structured-cloneable. No-op during SSR. |
+| `withPersistence({ key, keys, version?, storage? })` | Saves the latest payload of `keys` and restores it on startup. See [Persistence](#persistence). |
 | `withBubbling()` | For a bus provided in a component: also delivers its events to the parent (e.g. root) instance. |
 
 Keys in plugin options are checked against your event map.
@@ -206,6 +215,25 @@ export class AppEventBus extends ALEventBus<AppEventMap> {
 | `api` | Returned by `use(plugin)`. |
 
 `event.key` narrows `event.payload`. A throwing hook is logged; a throwing `handle` lets the event continue unchanged.
+
+The factory's second argument, `context`, has `hydrate(key, payload)`: it sets the latest event of a key without running handlers or plugins — for plugins that restore saved state.
+
+## Persistence
+
+```ts
+this.use(withPersistence({ key: 'my-app-events', keys: ['theme:changed', 'user:preferences'] }));
+
+// after a reload:
+theme = bus.onToSignal('theme:changed', { defaultValue: 'light' }); // the saved theme, immediately
+```
+
+- Restoring does **not** run handlers or other plugins — `on('user:login', () => navigate(...))` won't fire again on every reload. Restored events have `origin: 'storage'`; signals, `latest()`, `combineLatestToSignal` and `onToResource` see them (so a resource loads for the restored value).
+- `resetEvent(key)` / `resetAllEvents()` remove saved values.
+- `version` (default 1): bump it when a payload's shape changes; data saved under another version is discarded, as is corrupt data and keys you removed from `keys`.
+- `storage` defaults to `localStorage`; pass `sessionStorage` or anything with `getItem`/`setItem`/`removeItem`. Without storage (SSR, blocked) it does nothing.
+- Values go through `JSON.stringify`/`JSON.parse` by default; pass `serialize`/`deserialize` for e.g. `Date`s: `deserialize: (text) => JSON.parse(text, reviver)`.
+- Anything in `localStorage` is readable by scripts on your origin. List only safe keys — never tokens or personal data.
+- `withCrossTabSync` shares events between open tabs; `withPersistence` keeps them between sessions. They work together.
 
 ## Scoped buses
 
@@ -281,6 +309,6 @@ When generating code that uses `@angular-libs/event-bus`:
 4. Bind state with `bus.onToSignal(key, { transform, defaultValue })` and `bus.combineLatestToSignal([...keys])`; derive with `computed()`. Do not use RxJS subjects.
 5. Load data on events with `bus.onToResource(key, { transform, loader })`.
 6. Use `this.projection(initial, reducers, { undo })` inside the bus class for state built from several events, counters or undo/redo.
-7. Add plugins in the bus constructor: `this.use(withLogger(), withDebounce(...), withCrossTabSync(...))`. Write custom ones with `definePlugin(() => ({ handle, onAfterEmit, api }))`.
+7. Add plugins in the bus constructor: `this.use(withLogger(), withDebounce(...), withCrossTabSync(...), withPersistence(...))`. Write custom ones with `definePlugin(() => ({ handle, onAfterEmit, api }))`.
 
 </details>

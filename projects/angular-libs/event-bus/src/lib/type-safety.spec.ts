@@ -5,6 +5,7 @@ import { withCrossTabSync } from './plugins/cross-tab-sync';
 import { definePlugin } from './plugins/define-plugin';
 import { withDebounce } from './plugins/debounce';
 import { withLogger } from './plugins/logger';
+import { withPersistence } from './plugins/persistence';
 import { TestEventBus, TestEventMap } from './testing/test-bus';
 
 @Injectable()
@@ -34,6 +35,13 @@ class TypedBus extends ALEventBus<TestEventMap, { traceId?: string }> {
     void api;
     const nothing: void = this.use(withLogger(), withDebounce('search:typed', 1));
     void nothing;
+    this.use(withPersistence({ key: 'app', keys: ['theme:changed'], version: 2, storage: sessionStorage }));
+    // @ts-expect-error unknown key in persistence options
+    this.use(withPersistence({ key: 'app', keys: ['theme:chnaged'] }));
+    this.projection(0, { 'count:changed': (n, by) => n + by }, { persist: 'counter' });
+    this.projection(0, { 'count:changed': (n, by) => n + by }, { persist: { key: 'counter', version: 2 } });
+    // @ts-expect-error persist needs a key
+    this.projection(0, {}, { persist: { version: 2 } });
     // @ts-expect-error unknown key in plugin options
     this.use(withDebounce('search:typo', 300));
     // @ts-expect-error unknown key in cross-tab keys
