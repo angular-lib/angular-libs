@@ -53,12 +53,24 @@ export function isClickInsideDialog(el: HTMLElement, event: MouseEvent): boolean
 
 let scrollLockCount = 0;
 let previousBodyOverflow = '';
+let previousBodyPaddingRight = '';
 
+/**
+ * Locks page scroll for modal dialogs. Pads `<body>` by the scrollbar width it hides
+ * so the page does not shift sideways when the dialog opens.
+ */
 export function lockBodyScroll(): void {
   if (typeof document === 'undefined') return;
   if (scrollLockCount === 0) {
-    previousBodyOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const body = document.body;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    previousBodyOverflow = body.style.overflow;
+    previousBodyPaddingRight = body.style.paddingRight;
+    if (scrollbarWidth > 0) {
+      const current = parseFloat(getComputedStyle(body).paddingRight) || 0;
+      body.style.paddingRight = `${current + scrollbarWidth}px`;
+    }
+    body.style.overflow = 'hidden';
   }
   scrollLockCount += 1;
 }
@@ -68,5 +80,6 @@ export function unlockBodyScroll(): void {
   scrollLockCount = Math.max(0, scrollLockCount - 1);
   if (scrollLockCount === 0) {
     document.body.style.overflow = previousBodyOverflow;
+    document.body.style.paddingRight = previousBodyPaddingRight;
   }
 }

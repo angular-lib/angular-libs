@@ -5,6 +5,8 @@
 export * from './lib/dialog-ref';
 export * from './lib/dialog.types';
 export * from './lib/dialog.service';
+export * from './lib/define-dialog';
+export * from './lib/inject-dialog';
 export * from './lib/al-dialog';
 export * from './lib/provide-dialog';
 export * from './lib/define-plugin';
@@ -19,3 +21,4 @@ export * from './lib/plugins/snap-to-edge.plugin';
 export * from './lib/plugins/fullscreen.plugin';
 export * from './lib/actions';
 export * from './lib/components/default-dialog.component';
+export * from './lib/components/dialog-parts';

@@ -11,7 +11,14 @@ import {
   type WritableSignal,
 } from '@angular/core';
 import { Location } from '@angular/common';
-import { DialogRef } from './dialog-ref';
+import { DialogRef, type DialogOutcome } from './dialog-ref';
+import {
+  isDialogDefinition,
+  resolveDefinitionOptions,
+  type AnyDialogDefinition,
+  type DialogDefinition,
+  type DialogDefinitionArgs,
+} from './define-dialog';
 import { setPosition, bringToFront } from './actions';
 import {
   DIALOG_CONFIG,
@@ -31,6 +38,7 @@ import {
   type DialogAnimation,
   type ProvideDialogConfig,
   type DialogStrings,
+  type ComponentInputs,
 } from './dialog.types';
 import { mergePlugins, resolveBehaviorPlugins } from './behavior-resolver';
 import { popoverPlugin } from './plugins/popover.plugin';
@@ -131,13 +139,67 @@ export class DialogService {
   }
 
   /**
+   * Opens a modal dialog from a {@link defineDialog} definition. Required inputs are
+   * enforced; per-call options override the definition's.
+   *
+   * @example
+   * ```ts
+   * const ref = dialog.open(EditUserDialog, { user }, { size: 'lg' });
+   * const outcome = await ref.outcome;
+   * ```
+   */
+  open<TComponent, TResult, TPreset extends PropertyKey>(
+    definition: DialogDefinition<TComponent, TResult, TPreset>,
+    ...args: DialogDefinitionArgs<TComponent, TPreset>
+  ): DialogRef<TResult, TComponent>;
+  /**
    * Opens a modal component dialog (default).
    */
   open<TComponent, TResult = InferDialogResult<TComponent>>(
     component: Type<TComponent>,
-    options: DialogOptions<TComponent> = {},
-  ): DialogRef<TResult, TComponent> {
-    return this.openInternal(component, options, { intent: 'open' });
+    options?: DialogOptions<TComponent>,
+  ): DialogRef<TResult, TComponent>;
+  open(
+    target: Type<unknown> | DialogDefinition<unknown, unknown, PropertyKey>,
+    inputsOrOptions?: object,
+    callOptions?: object,
+  ): DialogRef<unknown, unknown> {
+    if (isDialogDefinition(target)) {
+      if (!('component' in target)) {
+        throw new Error('[DialogService] Lazy dialog definitions must be opened with run().');
+      }
+      return this.openInternal(
+        target.component,
+        resolveDefinitionOptions(target, inputsOrOptions, callOptions),
+        { intent: 'open' },
+      );
+    }
+    return this.openInternal(target, (inputsOrOptions ?? {}) as DialogOptions<unknown>, {
+      intent: 'open',
+    });
+  }
+
+  /**
+   * Opens a definition (eager or lazy) and resolves with its {@link DialogOutcome}.
+   *
+   * @example
+   * ```ts
+   * const outcome = await dialog.run(EditUserDialog, { user });
+   * if (outcome.ok) save(outcome.value);
+   * ```
+   */
+  async run<TComponent, TResult, TPreset extends PropertyKey>(
+    definition: AnyDialogDefinition<TComponent, TResult, TPreset>,
+    ...args: DialogDefinitionArgs<TComponent, TPreset>
+  ): Promise<DialogOutcome<TResult>> {
+    const component = 'component' in definition ? definition.component : await loadLazy(definition);
+    const [inputs, options] = args;
+    const ref = this.openInternal<TComponent, TResult>(
+      component,
+      resolveDefinitionOptions(definition, inputs, options),
+      { intent: 'open' },
+    );
+    return ref.outcome;
   }
 
   /**
@@ -171,37 +233,21 @@ export class DialogService {
 
   /**
    * Modal confirm dialog. Resolves `true` on primary, `false` on secondary/dismiss.
+   *
+   * With `onConfirm`, the primary button runs the handler first (spinner, dismiss
+   * blocked, inline error + retry on failure) and resolves `true` only on success.
    */
   async confirm(options: ConfirmOptions = {}): Promise<boolean> {
     const strings = this.resolveMergedStrings(options.strings);
     const title = options.title ?? strings.confirmTitle ?? 'Confirm';
-    const ref = this.open<DefaultDialogComponent, boolean>(DefaultDialogComponent, {
-      inputs: {
-        title,
-        subtitle: options.subtitle,
-        contentText: options.message,
-        primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
-        secondaryButtonText: options.cancelText ?? strings.cancel ?? 'Cancel',
-        showCloseIcon: true,
-        primaryResult: true,
-        secondaryResult: false,
-      },
-      width: options.width,
-      size: options.size ?? 'sm',
-      disableClose: options.disableClose,
-      closeOnEscape: options.closeOnEscape,
-      closeOnBackdrop: options.closeOnBackdrop,
-      hasBackdrop: options.hasBackdrop,
-      backdropClass: options.backdropClass,
-      fullscreenBelow: options.fullscreenBelow,
-      role: options.role ?? 'alertdialog',
-      panelClass: options.panelClass,
-      contentClass: options.contentClass,
-      ariaLabel: options.ariaLabel ?? title,
-      ariaDescribedBy: options.ariaDescribedBy,
-      animation: options.animation,
-      closeOnNavigation: true,
-      restoreFocus: true,
+    const ref = this.openChrome<boolean>(options, title, {
+      primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
+      secondaryButtonText: options.cancelText ?? strings.cancel ?? 'Cancel',
+      primaryResult: true,
+      secondaryResult: false,
+      tone: options.tone ?? 'default',
+      confirmHandler: options.onConfirm,
+      errorText: options.errorText ?? strings.error,
     });
 
     const { result, source } = await ref.closed;
@@ -217,33 +263,41 @@ export class DialogService {
   async alert(options: ConfirmOptions = {}): Promise<void> {
     const strings = this.resolveMergedStrings(options.strings);
     const title = options.title ?? strings.alertTitle ?? 'Alert';
-    const ref = this.open<DefaultDialogComponent, true>(DefaultDialogComponent, {
-      inputs: {
-        title,
-        subtitle: options.subtitle,
-        contentText: options.message,
-        primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
-        showCloseIcon: true,
-        primaryResult: true,
-      },
-      width: options.width,
-      size: options.size ?? 'sm',
-      disableClose: options.disableClose,
-      closeOnEscape: options.closeOnEscape,
-      closeOnBackdrop: options.closeOnBackdrop,
-      hasBackdrop: options.hasBackdrop,
-      backdropClass: options.backdropClass,
-      fullscreenBelow: options.fullscreenBelow,
-      role: options.role ?? 'alertdialog',
-      panelClass: options.panelClass,
-      contentClass: options.contentClass,
-      ariaLabel: options.ariaLabel ?? title,
-      ariaDescribedBy: options.ariaDescribedBy,
-      animation: options.animation,
+    const ref = this.openChrome<true>(options, title, {
+      primaryButtonText: options.confirmText ?? strings.ok ?? 'OK',
+      primaryResult: true,
+      tone: options.tone ?? 'default',
+    });
+    await ref.closed;
+  }
+
+  /** Shared DefaultDialog modal for {@link confirm} / {@link alert}. */
+  private openChrome<TResult>(
+    options: ConfirmOptions,
+    title: string,
+    inputs: ComponentInputs<DefaultDialogComponent>,
+  ): DialogRef<TResult, DefaultDialogComponent> {
+    const {
+      title: _title,
+      message,
+      subtitle,
+      confirmText: _confirmText,
+      cancelText: _cancelText,
+      tone: _tone,
+      onConfirm: _onConfirm,
+      errorText: _errorText,
+      strings: _strings,
+      ...modal
+    } = options;
+    return this.open<DefaultDialogComponent, TResult>(DefaultDialogComponent, {
+      ...modal,
+      inputs: { title, subtitle, contentText: message, showCloseIcon: true, ...inputs },
+      size: modal.size ?? 'sm',
+      role: modal.role ?? 'alertdialog',
+      ariaLabel: modal.ariaLabel ?? title,
       closeOnNavigation: true,
       restoreFocus: true,
     });
-    await ref.closed;
   }
 
   /**
@@ -440,11 +494,22 @@ export class DialogService {
     applyClasses(dialogEl, mergedOptions.panelClass);
     applyClasses(dialogEl, mergedOptions.backdropClass);
 
+    // Before content creation: title parts check these when they are constructed.
+    if (mergedOptions.ariaLabel) {
+      dialogEl.setAttribute('aria-label', mergedOptions.ariaLabel);
+    }
+    if (mergedOptions.role) {
+      dialogEl.setAttribute('role', mergedOptions.role);
+    }
+
     if (mergedOptions.hasBackdrop === false) {
       dialogEl.classList.add('al-dialog-no-backdrop');
     }
     if (mergedOptions.fullscreenBelow) {
       dialogEl.classList.add(`al-dialog-fullscreen-below-${mergedOptions.fullscreenBelow}`);
+    }
+    if (mergedOptions.sheetBelow && isModal) {
+      dialogEl.classList.add(`al-dialog-sheet-below-${mergedOptions.sheetBelow}`);
     }
 
     const sizeKeys = ['width', 'minWidth', 'maxWidth', 'height', 'minHeight', 'maxHeight'] as const;
@@ -541,12 +606,6 @@ export class DialogService {
       restoreFocus: mergedOptions.restoreFocus !== false,
       autoFocus: mergedOptions.autoFocus,
     });
-    if (mergedOptions.ariaLabel) {
-      dialogEl.setAttribute('aria-label', mergedOptions.ariaLabel);
-    }
-    if (mergedOptions.role) {
-      dialogEl.setAttribute('role', mergedOptions.role);
-    }
 
     const pluginTeardowns =
       mergedOptions.plugins?.map((p) =>
@@ -664,4 +723,20 @@ function focusRemainingDialog(openDialogs: DialogRef<any, any>[]): void {
   if (openDialogs.length > 0 && document.activeElement === document.body) {
     openDialogs[openDialogs.length - 1]?.dialogEl?.focus();
   }
+}
+
+const lazyComponents = new WeakMap<object, Promise<Type<any>>>();
+
+/** Loads a lazy definition once; later runs reuse the same component. */
+function loadLazy<TComponent>(
+  definition: Exclude<AnyDialogDefinition<TComponent, any, any>, DialogDefinition<TComponent, any, any>>,
+): Promise<Type<TComponent>> {
+  let pending = lazyComponents.get(definition);
+  if (!pending) {
+    pending = definition.load();
+    // Drop failed loads so a retry can succeed (e.g. flaky network chunk).
+    pending.catch(() => lazyComponents.delete(definition));
+    lazyComponents.set(definition, pending);
+  }
+  return pending as Promise<Type<TComponent>>;
 }

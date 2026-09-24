@@ -111,3 +111,42 @@
   background: var(--al-action-btn-hover-bg, #f0f0f0);
   color: var(--al-action-btn-hover-color, #333);
 }
+
+.al-btn:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+.al-btn-danger {
+  background: var(--al-btn-danger-bg, #dc2626);
+  color: var(--al-btn-danger-color, white);
+}
+.al-btn-danger:hover:not(:disabled) {
+  background: var(--al-btn-danger-hover-bg, #b91c1c);
+}
+.al-btn-spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-inline-end: 0.4em;
+  vertical-align: -0.1em;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: al-btn-spin 0.7s linear infinite;
+}
+@keyframes al-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .al-btn-spinner {
+    animation-duration: 2s;
+  }
+}
+.al-dialog-error {
+  margin: 0;
+  padding: 8px 16px;
+  color: var(--al-dialog-error-color, #b91c1c);
+  font-size: 0.875rem;
+}

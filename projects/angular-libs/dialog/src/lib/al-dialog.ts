@@ -59,6 +59,11 @@ export class AlDialog {
   private readonly el = inject<ElementRef<HTMLDialogElement>>(ElementRef).nativeElement;
   private readonly destroyRef = inject(DestroyRef);
 
+  /** The host `<dialog>` element. */
+  get element(): HTMLDialogElement {
+    return this.el;
+  }
+
   /** When true, opens the dialog (`showModal` / `show`); when false, closes it. */
   readonly open = input(false, { transform: booleanAttribute });
   /**

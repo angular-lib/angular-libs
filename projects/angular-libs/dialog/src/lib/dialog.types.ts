@@ -7,6 +7,7 @@ import {
   type Signal,
 } from '@angular/core';
 import type { DialogRef, CloseSource } from './dialog-ref';
+import type { DialogHandle } from './inject-dialog';
 
 /**
  * Maps component signal inputs (`input()`, `model()`) to raw primitive/object types.
@@ -25,19 +26,33 @@ export interface DialogResultBrand<TResult> {
   ɵdialogResult?: TResult;
 }
 
+/** Result types of public `DialogRef` / {@link DialogHandle} properties, wrapped in tuples. */
+type RefResultOf<TComponent> = {
+  [K in keyof TComponent]: TComponent[K] extends DialogRef<infer R, any>
+    ? [R]
+    : TComponent[K] extends DialogHandle<infer R>
+      ? [R]
+      : never;
+}[keyof TComponent];
+
 /**
  * Infers the dialog result type from a component.
  *
- * Looks for a public `dialogRef: DialogRef<R>` property first, then
- * {@link DialogResultBrand} (`ɵdialogResult` on the instance type).
+ * Looks for a public `dialogRef: DialogRef<R>` property first, then any public
+ * `DialogRef<R>` / `injectDialog<R>()` property, then {@link DialogResultBrand}
+ * (`ɵdialogResult` on the instance type).
  */
 export type InferDialogResult<TComponent> = TComponent extends {
   dialogRef: DialogRef<infer R, any>;
 }
   ? R
-  : TComponent extends DialogResultBrand<infer R>
-    ? R
-    : unknown;
+  : [RefResultOf<TComponent>] extends [never]
+    ? TComponent extends DialogResultBrand<infer R>
+      ? R
+      : unknown
+    : RefResultOf<TComponent> extends [infer R]
+      ? R
+      : unknown;
 
 export interface DialogPluginContext<TComponent = any> {
   element: HTMLDialogElement;
@@ -145,6 +160,10 @@ export interface DialogStrings {
   ok?: string;
   /** Default secondary button label for confirm. */
   cancel?: string;
+  /** Shown when a confirm `onConfirm` handler throws. */
+  error?: string;
+  /** Accessible name of the {@link Toaster} region. */
+  notifications?: string;
 }
 
 export type ToastPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -219,6 +238,11 @@ export interface DialogConfigBase {
    * (`sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px).
    */
   fullscreenBelow?: DialogBreakpoint;
+  /**
+   * Present the modal as a bottom sheet below this breakpoint (slides up, rounded top,
+   * safe-area padding). Takes precedence over {@link fullscreenBelow} on small screens.
+   */
+  sheetBelow?: DialogBreakpoint;
   /** Explicit ARIA role. {@link DialogService.confirm} / {@link DialogService.alert} default to `alertdialog`. */
   role?: DialogRole;
   panelClass?: string | string[];
@@ -271,12 +295,26 @@ export interface DialogOptions<TComponent = unknown> extends DialogConfigBase {
 export interface WindowOptions<TComponent = unknown>
   extends Omit<DialogOptions<TComponent>, 'modal'> {}
 
+/** Visual intent of the primary action. */
+export type DialogTone = 'default' | 'danger';
+
 export interface ConfirmOptions {
   title?: string;
   message?: string;
   subtitle?: string;
   confirmText?: string;
   cancelText?: string;
+  /** `'danger'` styles the primary button as destructive. */
+  tone?: DialogTone;
+  /**
+   * Runs when the user confirms. While it is pending the button shows a spinner,
+   * dismiss is blocked and `aria-busy` is set. If it throws, the error is shown in
+   * the dialog and the user can retry or cancel; `confirm()` only resolves `true`
+   * after it succeeds.
+   */
+  onConfirm?: () => unknown;
+  /** Error text when `onConfirm` throws. Defaults to `strings.error`. */
+  errorText?: string | ((error: unknown) => string);
   width?: string;
   size?: DialogSizePreset | (string & {});
   disableClose?: boolean;
@@ -285,6 +323,7 @@ export interface ConfirmOptions {
   hasBackdrop?: boolean;
   backdropClass?: string | string[];
   fullscreenBelow?: DialogBreakpoint;
+  sheetBelow?: DialogBreakpoint;
   /** Defaults to `alertdialog` for confirm / alert. */
   role?: DialogRole;
   panelClass?: string | string[];

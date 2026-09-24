@@ -1,4 +1,4 @@
-import { Injector, signal, type WritableSignal } from '@angular/core';
+import { Injector, computed, signal, type Signal, type WritableSignal } from '@angular/core';
 import type { DialogOptions, DialogSurfaceState } from './dialog.types';
 import {
   setPosition,
@@ -31,6 +31,7 @@ import {
  * - `'auto-close'`: closed by auto-close / toast timer
  * - `'navigation'`: closed because the router navigated
  * - `'primary'` / `'secondary'`: DefaultDialog footer actions
+ * - `'action'`: closed by a completed {@link injectDialog} action
  *
  * Consumers may provide custom strings for app-specific close actions.
  */
@@ -43,12 +44,45 @@ export type CloseSource =
   | 'navigation'
   | 'primary'
   | 'secondary'
+  | 'action'
   | (string & {});
 
 export interface DialogCloseEvent<TResult = any> {
   result?: TResult;
   source: CloseSource;
 }
+
+/**
+ * Discriminated close result: `ok` is `true` exactly when the dialog closed with a value
+ * (`result !== undefined`). Dismissals (Escape, backdrop, close icon, navigation) are `ok: false`.
+ *
+ * @example
+ * ```ts
+ * const outcome = await dialog.run(EditUserDialog, { user });
+ * if (outcome.ok) save(outcome.value);
+ * ```
+ */
+export type DialogOutcome<TResult> =
+  | { ok: true; value: TResult; source: CloseSource }
+  | { ok: false; reason: CloseSource };
+
+/** Maps a {@link DialogCloseEvent} to a {@link DialogOutcome}. */
+export function toDialogOutcome<TResult>(event: DialogCloseEvent<TResult>): DialogOutcome<TResult> {
+  return event.result === undefined
+    ? { ok: false, reason: event.source }
+    : { ok: true, value: event.result, source: event.source };
+}
+
+/** What a close guard sees. */
+export interface DialogCloseAttempt<TResult = any> {
+  source: CloseSource;
+  result: TResult | undefined;
+}
+
+/** Return `false` (or resolve to `false`) to keep the dialog open. */
+export type DialogCloseGuard<TResult = any> = (
+  attempt: DialogCloseAttempt<TResult>,
+) => Promise<boolean | void> | boolean | void;
 
 /**
  * Handle returned by {@link DialogService.open} / {@link DialogService.window} for one dialog.
@@ -75,6 +109,17 @@ export class DialogRef<TResult = any, TComponent = any> {
 
   /** Reactive surface state for window chrome and consumers. */
   public readonly state: WritableSignal<DialogSurfaceState> = signal('open');
+
+  private readonly pendingCount = signal(0);
+
+  /**
+   * `true` while an action tracked by {@link injectDialog} (or a confirm `onConfirm`) runs.
+   * A busy dialog ignores every close request except a parent cascade.
+   */
+  public readonly busy: Signal<boolean> = computed(() => this.pendingCount() > 0);
+
+  private readonly guards = new Set<DialogCloseGuard<TResult>>();
+  private outcomePromise?: Promise<DialogOutcome<TResult>>;
 
   /** @internal Captured opener for restore-focus. */
   _opener: HTMLElement | null = null;
@@ -182,8 +227,42 @@ export class DialogRef<TResult = any, TComponent = any> {
     return isFullscreen(this);
   }
 
+  /** Resolves with a {@link DialogOutcome} once the dialog has closed. */
+  get outcome(): Promise<DialogOutcome<TResult>> {
+    return (this.outcomePromise ??= this.closed.then(toDialogOutcome));
+  }
+
+  /**
+   * Registers a close guard. Guards run after `beforeClose` and plugin hooks, in
+   * registration order; the first `false` keeps the dialog open.
+   *
+   * @returns a function that removes the guard.
+   */
+  addCloseGuard(guard: DialogCloseGuard<TResult>): () => void {
+    this.guards.add(guard);
+    return () => this.guards.delete(guard);
+  }
+
+  /**
+   * @internal
+   * Marks the dialog busy (`aria-busy`, dismiss blocked) while `work` runs.
+   */
+  async _trackBusy<T>(work: () => T | Promise<T>): Promise<T> {
+    this.pendingCount.update((n) => n + 1);
+    this.dialogEl?.setAttribute('aria-busy', 'true');
+    try {
+      return await work();
+    } finally {
+      this.pendingCount.update((n) => n - 1);
+      if (this.pendingCount() === 0) this.dialogEl?.removeAttribute('aria-busy');
+    }
+  }
+
   async close(result?: TResult, source: CloseSource = 'manual') {
     if (!this.dialogEl?.open || this.isClosing) {
+      return;
+    }
+    if (this.busy() && source !== 'parent-closed') {
       return;
     }
 
@@ -210,6 +289,13 @@ export class DialogRef<TResult = any, TComponent = any> {
             this.isClosing = false;
             return;
           }
+        }
+      }
+
+      for (const guard of [...this.guards]) {
+        if ((await guard({ source, result })) === false) {
+          this.isClosing = false;
+          return;
         }
       }
     } catch (e) {

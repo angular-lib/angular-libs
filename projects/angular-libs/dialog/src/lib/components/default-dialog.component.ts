@@ -1,7 +1,7 @@
 import { Component, inject, input, output, signal, computed, DestroyRef, Type } from '@angular/core';
 import { CommonModule, NgComponentOutlet } from '@angular/common';
 import { DialogRef } from '../dialog-ref';
-import type { ComponentInputs } from '../dialog.types';
+import type { ComponentInputs, DialogTone } from '../dialog.types';
 
 @Component({
   selector: 'al-default-dialog',
@@ -39,10 +39,10 @@ import type { ComponentInputs } from '../dialog.types';
                 type="button"
                 class="al-action-icon"
                 (click)="onToggleMaximize($event)"
-                [attr.aria-label]="isMaximized ? restoreTooltip() : maximizeTooltip()"
-                [title]="isMaximized ? restoreTooltip() : maximizeTooltip()"
+                [attr.aria-label]="maximized() ? restoreTooltip() : maximizeTooltip()"
+                [title]="maximized() ? restoreTooltip() : maximizeTooltip()"
               >
-                @if (isMaximized) {
+                @if (maximized()) {
                   <svg width="1em" height="1em" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <path d="M3 5v9h9V5H3zm8 8H4V6h7v7zM5 5h1V4h7v7h-1v1h2V3H5v2z" />
                   </svg>
@@ -81,6 +81,7 @@ import type { ComponentInputs } from '../dialog.types';
                 type="button"
                 class="al-action-icon"
                 (click)="onCloseIcon()"
+                [attr.aria-disabled]="busy() || null"
                 [attr.aria-label]="closeTooltip()"
                 [title]="closeTooltip()"
               >
@@ -109,19 +110,44 @@ import type { ComponentInputs } from '../dialog.types';
         }
       </section>
 
+      @if (error()) {
+        <p class="al-dialog-error" role="alert">{{ error() }}</p>
+      }
+
       <footer class="al-dialog-footer">
         @if (closeButtonText()) {
-          <button type="button" class="al-btn al-btn-close" (click)="onCloseIcon()">
+          <button
+            type="button"
+            class="al-btn al-btn-close"
+            [disabled]="busy()"
+            (click)="onCloseIcon()"
+          >
             {{ closeButtonText() }}
           </button>
         }
         @if (secondaryButtonText()) {
-          <button type="button" class="al-btn al-btn-secondary" (click)="onSecondary()">
+          <button
+            type="button"
+            class="al-btn al-btn-secondary"
+            [disabled]="busy()"
+            (click)="onSecondary()"
+          >
             {{ secondaryButtonText() }}
           </button>
         }
         @if (primaryButtonText()) {
-          <button type="button" class="al-btn al-btn-primary" (click)="onPrimary()">
+          <button
+            type="button"
+            class="al-btn"
+            [class.al-btn-primary]="tone() !== 'danger'"
+            [class.al-btn-danger]="tone() === 'danger'"
+            [disabled]="busy()"
+            [attr.aria-busy]="busy() || null"
+            (click)="onPrimary()"
+          >
+            @if (busy()) {
+              <span class="al-btn-spinner" aria-hidden="true"></span>
+            }
             {{ primaryButtonText() }}
           </button>
         }
@@ -163,6 +189,16 @@ export class DefaultDialogComponent<TComponent = any, TResult = unknown> {
   secondaryButtonText = input<string>();
   closeButtonText = input<string>();
 
+  /** `'danger'` styles the primary button as destructive. */
+  tone = input<DialogTone>('default');
+  /**
+   * Runs before the primary action closes the dialog. While pending, buttons are
+   * disabled and dismiss is blocked; a throw keeps the dialog open with an error.
+   */
+  confirmHandler = input<() => unknown>();
+  /** Error text when {@link confirmHandler} throws. */
+  errorText = input<string | ((error: unknown) => string)>();
+
   /** Result passed to `DialogRef.close` when primary is clicked. Defaults to `true`. */
   primaryResult = input<TResult | boolean>(true as TResult);
   /** Result passed to `DialogRef.close` when secondary is clicked. Defaults to `false`. */
@@ -180,6 +216,13 @@ export class DefaultDialogComponent<TComponent = any, TResult = unknown> {
 
   protected isNonModal = this.dialogRef?.options.modal === false;
   protected readonly isFullscreenState = signal(this.isFullscreen());
+  /** Re-evaluates on every `state` change; reads the layout state for the answer. */
+  protected readonly maximized = computed(() => {
+    this.dialogRef?.state();
+    return this.isMaximized;
+  });
+  protected readonly busy = computed(() => this.dialogRef?.busy() ?? false);
+  protected readonly error = signal<string | null>(null);
 
   /** Header renders only when there is a title, subtitle, or any window action. */
   protected readonly showHeader = computed(
@@ -214,9 +257,26 @@ export class DefaultDialogComponent<TComponent = any, TResult = unknown> {
     this.dialogRef?.close(result);
   }
 
-  onPrimary() {
+  async onPrimary() {
+    if (this.busy()) return;
     this.primaryAction.emit();
-    this.dialogRef?.close(this.primaryResult() as TResult, 'primary');
+    const handler = this.confirmHandler();
+    if (handler && this.dialogRef) {
+      this.error.set(null);
+      try {
+        await this.dialogRef._trackBusy(handler);
+      } catch (e) {
+        this.error.set(this.describeError(e));
+        return;
+      }
+    }
+    await this.dialogRef?.close(this.primaryResult() as TResult, 'primary');
+  }
+
+  private describeError(error: unknown): string {
+    const text = this.errorText();
+    if (typeof text === 'function') return text(error);
+    return text ?? 'Something went wrong. Please try again.';
   }
 
   onSecondary() {
