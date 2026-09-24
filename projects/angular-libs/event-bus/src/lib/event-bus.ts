@@ -12,6 +12,7 @@ import {
   isDevMode,
   Type,
   InjectionToken,
+  untracked,
 } from '@angular/core';
 import {
   type CombineLatestOptions,
@@ -421,17 +422,21 @@ export class ALEventBus<
 
     this.isEmitting = true;
     try {
-      this.processEmit(key, payload as TEventMap[K], options as EmitOptions<THeaders> | undefined);
+      // Subscribers and plugins are side effects. Run them untracked so an `effect()` that emits does
+      // not start depending on every signal a subscriber happens to read.
+      untracked(() => {
+        this.processEmit(key, payload as TEventMap[K], options as EmitOptions<THeaders> | undefined);
 
-      // Drain the queue of any nested emissions triggered during the main dispatch cycle.
-      while (this.eventQueue.length > 0) {
-        const next = this.eventQueue.shift()!;
-        this.processEmit(
-          next.key,
-          next.payload as TEventMap[typeof next.key],
-          next.options as EmitOptions<THeaders> | undefined
-        );
-      }
+        // Drain the queue of any nested emissions triggered during the main dispatch cycle.
+        while (this.eventQueue.length > 0) {
+          const next = this.eventQueue.shift()!;
+          this.processEmit(
+            next.key,
+            next.payload as TEventMap[typeof next.key],
+            next.options as EmitOptions<THeaders> | undefined
+          );
+        }
+      });
     } finally {
       this.isEmitting = false;
       // Empty after a normal drain. After a throw, drop the rest so it can't fire on a later, unrelated emit.

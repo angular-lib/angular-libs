@@ -1,4 +1,4 @@
-import { Injectable, runInInjectionContext, EnvironmentInjector } from '@angular/core';
+import { Injectable, runInInjectionContext, EnvironmentInjector, effect, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus, createEventBusHooks } from './event-bus';
 import { ALEventBusPlugin, BusEvent } from './event-bus.models';
@@ -329,6 +329,21 @@ describe('ALEventBus Basic/Core Functionality', () => {
     eventBus.emit('user:login', { userId: '1', username: 'ana' });
 
     expect(received).toEqual(['login']);
+  });
+
+  it('should not let an emitting effect track signals read by subscribers', () => {
+    const unrelated = signal(0);
+    let deliveries = 0;
+    eventBus.on('simple:event', { callback: () => { unrelated(); }, unsubscribeOn: 'manual' });
+    eventBus.on('simple:event', { callback: () => { deliveries++; }, unsubscribeOn: 'manual' });
+
+    TestBed.runInInjectionContext(() => effect(() => { eventBus.emit('simple:event'); }));
+    TestBed.tick();
+    expect(deliveries).toBe(1);
+
+    unrelated.set(1);
+    TestBed.tick();
+    expect(deliveries).toBe(1);
   });
 
   it('should support resetEvent(key) to clear a single event without affecting others', () => {
