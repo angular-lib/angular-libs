@@ -327,6 +327,9 @@ export class DialogService {
 
   /**
    * Transient toast using DefaultDialog chrome + auto-close.
+   *
+   * Prefer {@link Toaster} for notifications: one live region, queue, actions,
+   * promise toasts, swipe / Escape dismiss.
    */
   toast(message: string, options: ToastOptions = {}): DialogRef<undefined, DefaultDialogComponent> {
     const { duration, pauseOnHover, title, position = 'bottom-right', ...rest } = options;

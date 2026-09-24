@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import type { DialogRef, CloseSource } from './dialog-ref';
 import type { DialogHandle } from './inject-dialog';
+import type { ToasterConfig } from './toaster';
 
 /**
  * Maps component signal inputs (`input()`, `model()`) to raw primitive/object types.
@@ -279,6 +280,8 @@ export interface GlobalDialogConfig extends DialogConfigBase {
    * Accepts a static object, a {@link Signal}, or a sync factory — resolved when a dialog opens.
    */
   strings?: DialogStringsSource;
+  /** Defaults for {@link Toaster}: position, duration, maxVisible. */
+  toaster?: ToasterConfig;
 }
 
 export interface ProvideDialogConfig extends GlobalDialogConfig {}

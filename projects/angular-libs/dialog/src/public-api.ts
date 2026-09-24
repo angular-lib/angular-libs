@@ -7,6 +7,7 @@ export * from './lib/dialog.types';
 export * from './lib/dialog.service';
 export * from './lib/define-dialog';
 export * from './lib/inject-dialog';
+export * from './lib/toaster';
 export * from './lib/al-dialog';
 export * from './lib/provide-dialog';
 export * from './lib/define-plugin';

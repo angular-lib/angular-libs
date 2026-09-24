@@ -567,3 +567,213 @@ dialog.al-dialog .al-btn[aria-disabled='true'] {
 dialog.al-dialog .al-dialog-error {
   color: var(--al-dialog-error-color);
 }
+
+/*
+ * Toaster — notification regions (one per corner). Tokens live on `.al-toaster`
+ * because regions are appended to `document.body`, outside any dialog.
+ */
+.al-toaster {
+  --al-toast-bg: #ffffff;
+  --al-toast-color: #1f2937;
+  --al-toast-border: 1px solid rgba(15, 23, 42, 0.1);
+  --al-toast-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+  --al-toast-radius: 10px;
+  --al-toast-accent: #2563eb;
+  --al-toast-success: #16a34a;
+  --al-toast-warning: #d97706;
+  --al-toast-error: #dc2626;
+  --al-toast-width: min(360px, calc(100vw - 32px));
+  --al-toast-gap: 8px;
+  --al-toaster-inset: 16px;
+  --al-toast-font-family: system-ui, -apple-system, sans-serif;
+
+  position: fixed;
+  inset: auto;
+  z-index: 10050;
+  width: var(--al-toast-width);
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--al-toast-color);
+  font-family: var(--al-toast-font-family);
+  overflow: visible;
+  pointer-events: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .al-toaster {
+    --al-toast-bg: #1f1f1f;
+    --al-toast-color: #ececec;
+    --al-toast-border: 1px solid rgba(255, 255, 255, 0.1);
+    --al-toast-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --al-toast-accent: #60a5fa;
+    --al-toast-success: #4ade80;
+    --al-toast-warning: #fbbf24;
+    --al-toast-error: #f87171;
+  }
+}
+
+.al-toaster > ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--al-toast-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.al-toaster-top-left { top: var(--al-toaster-inset); left: var(--al-toaster-inset); }
+.al-toaster-top-right { top: var(--al-toaster-inset); right: var(--al-toaster-inset); }
+.al-toaster-bottom-left { bottom: var(--al-toaster-inset); left: var(--al-toaster-inset); }
+.al-toaster-bottom-right { bottom: var(--al-toaster-inset); right: var(--al-toaster-inset); }
+.al-toaster-top-center { top: var(--al-toaster-inset); left: 50%; translate: -50% 0; }
+.al-toaster-bottom-center { bottom: var(--al-toaster-inset); left: 50%; translate: -50% 0; }
+
+.al-toast {
+  --al-toast-tone: var(--al-toast-accent);
+  --al-toast-enter-y: 8px;
+
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 10px 12px 12px;
+  border: var(--al-toast-border);
+  border-inline-start: 4px solid var(--al-toast-tone);
+  border-radius: var(--al-toast-radius);
+  background: var(--al-toast-bg);
+  box-shadow: var(--al-toast-shadow);
+  pointer-events: auto;
+  touch-action: pan-y;
+  translate: var(--al-toast-swipe, 0) 0;
+  transition:
+    opacity 0.2s ease,
+    translate 0.2s ease;
+}
+
+.al-toaster[class*='al-toaster-top'] .al-toast { --al-toast-enter-y: -8px; }
+
+@starting-style {
+  .al-toast {
+    opacity: 0;
+    translate: 0 var(--al-toast-enter-y);
+  }
+}
+
+.al-toast.al-toast-leaving {
+  opacity: 0;
+  translate: 0 var(--al-toast-enter-y);
+}
+
+.al-toast:focus-visible {
+  outline: 2px solid var(--al-toast-accent);
+  outline-offset: 2px;
+}
+
+.al-toast-success { --al-toast-tone: var(--al-toast-success); }
+.al-toast-warning { --al-toast-tone: var(--al-toast-warning); }
+.al-toast-error { --al-toast-tone: var(--al-toast-error); }
+
+.al-toast-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--al-toast-tone);
+  color: var(--al-toast-bg);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.al-toast-info .al-toast-icon::before { content: 'i'; }
+.al-toast-success .al-toast-icon::before { content: '✓'; }
+.al-toast-warning .al-toast-icon::before { content: '!'; }
+.al-toast-error .al-toast-icon::before { content: '×'; }
+
+.al-toast-loading .al-toast-icon {
+  background: transparent;
+  border: 2px solid var(--al-toast-tone);
+  border-inline-end-color: transparent;
+  box-sizing: border-box;
+  animation: al-toast-spin 0.7s linear infinite;
+}
+
+@keyframes al-toast-spin {
+  to { rotate: 360deg; }
+}
+
+.al-toast-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.al-toast-title {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.875rem;
+}
+
+.al-toast-message {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.al-toast-action {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--al-toast-accent);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.al-toast-close {
+  flex: none;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.125rem;
+  line-height: 1.4;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.al-toast-close:hover,
+.al-toast-close:focus-visible {
+  opacity: 1;
+}
+
+.al-toaster-announcer {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .al-toast {
+    transition: none;
+  }
+  .al-toast-loading .al-toast-icon {
+    animation-duration: 2s;
+  }
+}
