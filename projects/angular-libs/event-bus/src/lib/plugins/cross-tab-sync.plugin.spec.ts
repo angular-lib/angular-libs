@@ -2,6 +2,7 @@ import { Injectable } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ALEventBus } from '../event-bus';
 import { crossTabSyncPlugin } from './cross-tab-sync.plugin';
+import { debouncePlugin } from './debounce.plugin';
 
 interface TestEventMap {
   'user:login': { userId: string };
@@ -81,6 +82,35 @@ describe('crossTabSyncPlugin', () => {
     // busB re-emitted locally (tagged with the sync header) but must NOT re-broadcast it back out
     const channelB = MockBroadcastChannel.instances[1];
     expect(channelB.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('should not echo debounced inbound emits back to the sender (no cross-tab ping-pong)', () => {
+    vi.useFakeTimers();
+    try {
+      @Injectable()
+      class DebouncedSyncBus extends ALEventBus<TestEventMap> {
+        constructor() {
+          super();
+          this.registerPlugin(crossTabSyncPlugin());
+          this.registerPlugin(debouncePlugin([{ key: 'theme:changed', delay: 100 }]));
+        }
+      }
+      const busA = TestBed.runInInjectionContext(() => new DebouncedSyncBus());
+      const busB = TestBed.runInInjectionContext(() => new DebouncedSyncBus());
+      const [channelA, channelB] = MockBroadcastChannel.instances;
+
+      busA.emit('theme:changed', 'dark');
+      vi.advanceTimersByTime(1000);
+
+      expect(channelA.postMessage).toHaveBeenCalledTimes(1);
+      expect(channelB.postMessage).not.toHaveBeenCalled();
+      expect(busB.latest('theme:changed')?.payload).toBe('dark');
+
+      busA.ngOnDestroy();
+      busB.ngOnDestroy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('should broadcast a reset via onReset, and apply incoming remote resets without re-broadcasting (loop guard)', () => {

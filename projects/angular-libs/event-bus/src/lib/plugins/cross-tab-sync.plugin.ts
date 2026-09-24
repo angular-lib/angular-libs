@@ -48,6 +48,9 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
   // Kept out-of-band so internal flags never leak into consumer-visible headers.
   let isApplyingRemoteReset = false;
   let isApplyingRemoteEmit = false;
+  // Options objects of inbound re-emits. Their identity survives plugins that re-emit later (e.g.
+  // debounce), where the synchronous `isApplyingRemoteEmit` window has already closed.
+  const remoteEmitOptions = new WeakSet<object>();
 
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
     channel = new BroadcastChannel(channelName);
@@ -89,9 +92,11 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
         if (keys && !keys.includes(String(key))) {
           return;
         }
+        const emitOptions = { headers };
+        remoteEmitOptions.add(emitOptions);
         isApplyingRemoteEmit = true;
         try {
-          busInstance.emit(key, payload, headers ? { headers } : undefined);
+          busInstance.emit(key, payload, emitOptions);
         } finally {
           isApplyingRemoteEmit = false;
         }
@@ -99,6 +104,7 @@ export function crossTabSyncPlugin(options: CrossTabSyncPluginOptions = {}): ALE
     },
     onAfterEmit(key, payload, emitOptions) {
       if (!channel || isApplyingRemoteEmit) return;
+      if (emitOptions && remoteEmitOptions.has(emitOptions)) return;
       const keyStr = String(key);
 
       // Filter by keys if specified
