@@ -9,16 +9,22 @@ function ngAdd(options = {}) {
         context.logger.info(`Using project "${name}"`);
         const projectPath = project.sourceRoot || 'src';
         const serviceContent = `import { Injectable } from '@angular/core';
-import { ALEventBus } from '@angular-libs/event-bus';
+import { ALEventBus, withLogger } from '@angular-libs/event-bus';
 import { AppEventMap } from './event-bus.models';
 
 @Injectable({ providedIn: 'root' })
-export class AppEventBus extends ALEventBus<AppEventMap> {}
+export class AppEventBus extends ALEventBus<AppEventMap> {
+  constructor() {
+    super();
+    this.use(withLogger());
+  }
+}
 `;
         const servicePath = `${projectPath}/app/event-bus/app-event-bus.service.ts`;
         writeIfMissing(tree, context, servicePath, serviceContent);
         const modelsContent = `export interface AppEventMap {
-  'user:login': { userId: number, userName: string };
+  'user:login': { userId: string; userName: string };
+  'user:logout': void;
 }
 `;
         const modelsPath = `${projectPath}/app/event-bus/event-bus.models.ts`;

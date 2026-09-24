@@ -1,7 +1,7 @@
 {
   "name": "@angular-libs/event-bus",
-  "version": "0.2.8",
-  "description": "A modern, strongly-typed, signal-based event bus service for Angular 20+ applications.",
+  "version": "0.3.0",
+  "description": "A typed, signal-based event bus service for Angular 20+, with middleware, projections with undo, and async resources. No RxJS.",
   "keywords": [
     "angular",
     "event-bus",
@@ -10,7 +10,9 @@
     "state-management",
     "pubsub",
     "typescript",
-    "event-emitter"
+    "event-emitter",
+    "middleware",
+    "undo"
   ],
   "license": "MIT",
   "author": "Angular-Libs",
