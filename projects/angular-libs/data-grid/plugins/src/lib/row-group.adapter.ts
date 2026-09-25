@@ -9,7 +9,7 @@ import {
   collectAllGroupIds,
   type DisplayRow,
   type RowGroupConfig,
-} from '@angular-libs/data-grid/internals';
+} from '@angular-libs/data-grid/plugin';
 
 export interface RowGroupAdapter {
   readonly columns: Signal<readonly string[]>;

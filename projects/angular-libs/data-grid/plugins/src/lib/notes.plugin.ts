@@ -5,7 +5,7 @@ import type {
 import {
   isDataDisplayRow,
   type DisplayRow,
-} from '@angular-libs/data-grid/internals';
+} from '@angular-libs/data-grid/plugin';
 import {
   closeNotePopover,
   openNotePopover,

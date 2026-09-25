@@ -1,80 +1,114 @@
 /**
- * Plugin-author API — `@angular-libs/data-grid/plugin`
+ * ɵ backing exports for `@angular-libs/data-grid/plugin`.
  *
- * Contracts for first-/third-party plugins. Consumers should import from
- * `@angular-libs/data-grid`; feature factories from `@angular-libs/data-grid/plugins`.
+ * NOT an entry point. Re-exported (ɵ-prefixed) from the primary entry so the
+ * secondary entry imports every symbol via the package specifier and each
+ * class / token is declared exactly once in dist. The unprefixed names live in
+ * `plugin/src/public-api.ts` — add new symbols to BOTH files.
+ *
+ * Every name here must start with `ɵ` (enforced by `package-layout.spec.ts`).
  */
 
 export {
-  DataGridSlotRegistry,
-  activatePlugins,
-  dedupePlugins,
-  notifyPlugins,
+  DataGridSlotRegistry as ɵDataGridSlotRegistry,
+  activatePlugins as ɵactivatePlugins,
+  dedupePlugins as ɵdedupePlugins,
+  notifyPlugins as ɵnotifyPlugins,
 } from './lib/plugins/types';
 export type {
-  DataGridPlugin,
-  DataGridPluginContext,
-  DataGridSlotId,
-  DataGridSidebarSlotItem,
-  DataGridStatusBarSlotItem,
-  DataGridToolbarActionParams,
-  DataGridToolbarSlotItem,
-  FindFeatureConfig,
-  InfiniteScrollFeatureConfig,
+  DataGridPlugin as ɵDataGridPlugin,
+  DataGridPluginContext as ɵDataGridPluginContext,
+  DataGridSlotId as ɵDataGridSlotId,
+  DataGridSidebarSlotItem as ɵDataGridSidebarSlotItem,
+  DataGridStatusBarSlotItem as ɵDataGridStatusBarSlotItem,
+  DataGridToolbarActionParams as ɵDataGridToolbarActionParams,
+  DataGridToolbarSlotItem as ɵDataGridToolbarSlotItem,
+  FindFeatureConfig as ɵFindFeatureConfig,
+  InfiniteScrollFeatureConfig as ɵInfiniteScrollFeatureConfig,
 } from './lib/plugins/types';
 
-export { GridKernel } from './lib/kernel/grid-kernel';
-export type { GridKernelOptions } from './lib/kernel/grid-kernel';
+export { GridKernel as ɵGridKernel } from './lib/kernel/grid-kernel';
+export type { GridKernelOptions as ɵGridKernelOptions } from './lib/kernel/grid-kernel';
 
-export { GridCapabilities, ROW_GROUP_ADAPTER, TREE_DATA_ADAPTER } from './lib/plugins/capabilities';
+export {
+  GridCapabilities as ɵGridCapabilities,
+  ROW_GROUP_ADAPTER as ɵROW_GROUP_ADAPTER,
+  TREE_DATA_ADAPTER as ɵTREE_DATA_ADAPTER,
+} from './lib/plugins/capabilities';
 export type {
-  AggregateContribution,
-  CellDecoratorContext,
-  CellDecoratorContribution,
-  ContextMenuContribution,
-  DisplayViewContribution,
-  InteractionContribution,
-  OverlayContribution,
-  OverlayLayout,
-  RowModelContext,
-  RowModelDataStage,
-  RowModelDisplayBuilder,
+  AggregateContribution as ɵAggregateContribution,
+  CellDecoratorContext as ɵCellDecoratorContext,
+  CellDecoratorContribution as ɵCellDecoratorContribution,
+  ContextMenuContribution as ɵContextMenuContribution,
+  DisplayViewContribution as ɵDisplayViewContribution,
+  InteractionContribution as ɵInteractionContribution,
+  OverlayContribution as ɵOverlayContribution,
+  OverlayLayout as ɵOverlayLayout,
+  RowModelContext as ɵRowModelContext,
+  RowModelDataStage as ɵRowModelDataStage,
+  RowModelDisplayBuilder as ɵRowModelDisplayBuilder,
 } from './lib/plugins/capabilities';
 
-export { FocusController, focusRealmOf } from './lib/controllers/focus';
-export type { FocusCell, FocusControllerOptions, FocusRealm } from './lib/controllers/focus';
+export {
+  FocusController as ɵFocusController,
+  focusRealmOf as ɵfocusRealmOf,
+} from './lib/controllers/focus';
+export type {
+  FocusCell as ɵFocusCell,
+  FocusControllerOptions as ɵFocusControllerOptions,
+  FocusRealm as ɵFocusRealm,
+} from './lib/controllers/focus';
 
-export { composeDataGridApiHost } from './lib/api/compose-host';
-export type { ComposedDataGridApiHost, DataGridLocaleHost } from './lib/api/compose-host';
+export { composeDataGridApiHost as ɵcomposeDataGridApiHost } from './lib/api/compose-host';
+export type {
+  ComposedDataGridApiHost as ɵComposedDataGridApiHost,
+  DataGridLocaleHost as ɵDataGridLocaleHost,
+} from './lib/api/compose-host';
 
 export type {
-  BoundCellRangeAdapter,
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-  DataGridApiHost,
-  DataGridClipboardHost,
-  DataGridColumnsHost,
-  DataGridEditingHost,
-  DataGridFindHost,
-  DataGridLocaleApiHost,
-  DataGridRowGroupHost,
-  DataGridSelectionHost,
-  DataGridSideBarApiHost,
-  DataGridViewportHost,
-  PluginLifecycle,
+  DataGridApiHost as ɵDataGridApiHost,
+  DataGridClipboardHost as ɵDataGridClipboardHost,
+  DataGridColumnsHost as ɵDataGridColumnsHost,
+  DataGridEditingHost as ɵDataGridEditingHost,
+  DataGridFindHost as ɵDataGridFindHost,
+  DataGridLocaleApiHost as ɵDataGridLocaleApiHost,
+  DataGridRowGroupHost as ɵDataGridRowGroupHost,
+  DataGridSelectionHost as ɵDataGridSelectionHost,
+  DataGridSideBarApiHost as ɵDataGridSideBarApiHost,
+  DataGridViewportHost as ɵDataGridViewportHost,
+  PluginLifecycle as ɵPluginLifecycle,
 } from './lib/api/grid-api';
 
 export {
-  cellInNormalizedRange,
-  moveFocusWithinGrid,
-  normalizeCellRange,
-  singleCellRange,
+  cellInNormalizedRange as ɵcellInNormalizedRange,
+  moveFocusWithinGrid as ɵmoveFocusWithinGrid,
+  normalizeCellRange as ɵnormalizeCellRange,
+  singleCellRange as ɵsingleCellRange,
 } from './lib/utils/cell-range';
-export type { NormalizedCellRange } from './lib/utils/cell-range';
+export type { NormalizedCellRange as ɵNormalizedCellRange } from './lib/utils/cell-range';
 
+// Row-model authoring helpers (display rows, grouping, tree, aggregates, column defs).
 export {
-  isCellRangeAdapter,
-  isRowGroupAdapter,
-  isTreeDataAdapter,
-  pickAdapter,
-} from './lib/create-grid';
+  buildDisplayRows as ɵbuildDisplayRows,
+  wrapDataRows as ɵwrapDataRows,
+  collectTreeGroupIds as ɵcollectTreeGroupIds,
+  isDataDisplayRow as ɵisDataDisplayRow,
+  isGroupDisplayRow as ɵisGroupDisplayRow,
+  isPluginDisplayRow as ɵisPluginDisplayRow,
+  stepDisplayIndexSkippingPlugins as ɵstepDisplayIndexSkippingPlugins,
+  resolveDisplayRowHeight as ɵresolveDisplayRowHeight,
+} from './lib/utils/row-display';
+export type {
+  CustomDisplayRow as ɵCustomDisplayRow,
+  DataDisplayRow as ɵDataDisplayRow,
+  DisplayRow as ɵDisplayRow,
+  GroupDisplayRow as ɵGroupDisplayRow,
+  RowGroupConfig as ɵRowGroupConfig,
+  TreeDataConfig as ɵTreeDataConfig,
+} from './lib/utils/row-display';
+export { collectAllGroupIds as ɵcollectAllGroupIds } from './lib/utils/collect-group-ids';
+export {
+  aggregateColumn as ɵaggregateColumn,
+  formatAggregateValue as ɵformatAggregateValue,
+} from './lib/utils/editors';
+export { flattenColumnDefs as ɵflattenColumnDefs } from './lib/utils/column-groups';

@@ -2,7 +2,7 @@ import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { GridCapabilities } from '@angular-libs/data-grid/plugin';
-import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
+import type { CustomDisplayRow } from '@angular-libs/data-grid/plugin';
 import {
   buildMasterDetailDisplayRows,
   createMasterDetailAdapter,

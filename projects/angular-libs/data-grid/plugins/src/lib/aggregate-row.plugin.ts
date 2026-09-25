@@ -3,7 +3,7 @@ import type {
   DataGridPlugin,
   DataGridPluginContext,
 } from '@angular-libs/data-grid/plugin';
-import { aggregateColumn } from '@angular-libs/data-grid/internals';
+import { aggregateColumn } from '@angular-libs/data-grid/plugin';
 
 /**
  * Registers an aggregate footer contribution (capability).

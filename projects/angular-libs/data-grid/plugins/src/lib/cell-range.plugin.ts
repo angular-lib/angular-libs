@@ -23,7 +23,7 @@ import {
   isDataDisplayRow,
   stepDisplayIndexSkippingPlugins,
   type DisplayRow,
-} from '@angular-libs/data-grid/internals';
+} from '@angular-libs/data-grid/plugin';
 
 /** Held adapter — single contiguous cell range (OVERVIEW §5). */
 export interface CellRangeAdapter {

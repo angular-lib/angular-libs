@@ -156,3 +156,17 @@ export {
 export { coerceCellEditValue, isBlankCellInput } from './lib/utils/coerce-cell-value';
 export { defaultGridLocale, mergeGridLocale, toolbarLabelsFromLocale } from './lib/locale/default-locale';
 export type { DataGridLocale } from './lib/locale/default-locale';
+
+/*
+ * ---------------------------------------------------------------------------
+ * ɵ — secondary-entry plumbing. NOT public API; no semver guarantees.
+ *
+ * `@angular-libs/data-grid/plugin` and `@angular-libs/data-grid/internals`
+ * re-export these under their unprefixed names. Keeping every declaration in
+ * the primary bundle means each class / injection token exists exactly once
+ * in dist (no duplicate `GridKernel`, `DataGridApi`, … across FESM files).
+ * Import from the secondary entries, never these ɵ names.
+ * ---------------------------------------------------------------------------
+ */
+export * from './plugin-api';
+export * from './internals-api';

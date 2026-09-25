@@ -104,7 +104,7 @@ If it is **core table behavior** that should exist without an opt-in package, it
 ### Plugin (`@angular-libs/data-grid/plugins`)
 
 **Opt-in features** that register via slots / capabilities. Authoring contracts:
-[`@angular-libs/data-grid/plugin`](./src/plugin-api.ts) — see [PLUGINS.md](./PLUGINS.md).
+[`@angular-libs/data-grid/plugin`](./plugin/src/public-api.ts) — see [PLUGINS.md](./PLUGINS.md).
 
 | Kind | Examples |
 | --- | --- |
@@ -248,8 +248,26 @@ Skipped from the idea list: **C. Two-tier API** (binder + separate headless prod
 | --- | --- |
 | `@angular-libs/data-grid` | Consumer surface: binder, `createGrid`, `DataGridApi`, editing, locale, chrome |
 | `@angular-libs/data-grid/plugins` | Feature factories + `defaultGridPlugins` + sidebar panel components |
-| `@angular-libs/data-grid/plugin` | Plugin-authoring contracts (slots, capabilities, kernel, focus, adapters) |
-| `@angular-libs/data-grid/internals` | Unstable test/tooling (pipeline, column layout, hosts, row display) |
+| `@angular-libs/data-grid/plugin` | Plugin-authoring contracts (slots, capabilities, kernel, focus, adapters) + helpers (cell range, display rows, grouping/tree, aggregates, `flattenColumnDefs`) |
+| `@angular-libs/data-grid/internals` | Unstable test/tooling only (pipeline, column layout, hosts, virtual window, session) |
+
+**Single declaration rule.** Every class, token and function is declared in the
+primary entry. Secondary entries import core **only** via the package specifier
+`'@angular-libs/data-grid'` — never a relative path into `../src` (that would
+re-bundle `GridKernel`, `DataGridApi`, … into each FESM/`.d.ts` and break
+`instanceof`, DI tokens and nominal types).
+
+- `/plugin` and `/internals` own no code: `plugin/src/public-api.ts` /
+  `internals/src/public-api.ts` re-export `ɵ`-prefixed primary exports under
+  their real names (`export { ɵGridKernel as GridKernel } from '@angular-libs/data-grid'`).
+- The `ɵ` names come from `src/plugin-api.ts` / `src/internals-api.ts`, pulled into
+  `src/public-api.ts` in a marked "ɵ — secondary-entry plumbing" section. `ɵ` = not
+  public API; never import them directly. New symbol → add to both files.
+- `/plugins` imports `@angular-libs/data-grid` + `/plugin` only (not `/internals`).
+- Dependency direction: `plugins → plugin → primary`, `internals → primary`;
+  primary never imports a secondary entry (outside specs).
+- Gated by `src/package-layout.spec.ts`; verify dist with
+  the root `build:data-grid` script (each core class appears in one FESM file only).
 
 Optional later: `…/plugins/enterprise` **only** if bundle size demands it (I / P3).
 

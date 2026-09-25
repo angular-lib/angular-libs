@@ -3,7 +3,7 @@ import {
   buildDisplayRows,
   collectTreeGroupIds,
   type TreeDataConfig,
-} from '@angular-libs/data-grid/internals';
+} from '@angular-libs/data-grid/plugin';
 import { createTreeDataAdapter, type TreeDataAdapter } from './tree-data.adapter';
 
 export type { TreeDataAdapter } from './tree-data.adapter';
