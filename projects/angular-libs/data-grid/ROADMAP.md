@@ -121,7 +121,7 @@ Prioritized product lista lives in [OVERVIEW.md](./OVERVIEW.md) §7. Snapshot:
 ## Consumer shape (canonical)
 
 ```ts
-import { applyCellEdit, createGrid } from '@angular-libs/data-grid';
+import { applyCellEdit, createGrid, mergeRowsById } from '@angular-libs/data-grid';
 import {
   defaultGridPlugins,
   rowDragPlugin,
@@ -146,7 +146,7 @@ groups.setColumns(['role']);
   [data]="rows()"
   [(selectedIds)]="selected"
   (cellEdit)="rows.set(applyCellEdit(rows(), $event, idOf))"
-  (paste)="rows.set($event.suggestedRows)"
+  (paste)="rows.set(mergeRowsById(rows(), $event.suggestedRows, idOf, $event.rowIds))"
 />
 ```
 

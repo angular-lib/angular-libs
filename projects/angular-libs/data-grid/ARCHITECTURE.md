@@ -291,7 +291,7 @@ display-view flags (`nestedWidget`, `regionId`).
 ## Consumer DX (canonical)
 
 ```ts
-import { applyCellEdit, createGrid } from '@angular-libs/data-grid';
+import { applyCellEdit, createGrid, mergeRowsById } from '@angular-libs/data-grid';
 import { form } from '@angular/forms/signals';
 import {
   defaultGridPlugins,
@@ -321,7 +321,7 @@ groups.setColumns(['role']);
   [(rowEditSession)]="session"
   [(selectedIds)]="selected"
   (cellEdit)="rows.set(applyCellEdit(rows(), $event, idOf))"
-  (paste)="rows.set($event.suggestedRows)"
+  (paste)="rows.set(mergeRowsById(rows(), $event.suggestedRows, idOf, $event.rowIds))"
 />
 ```
 

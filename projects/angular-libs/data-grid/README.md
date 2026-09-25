@@ -82,8 +82,9 @@ field-based id (`rowId: (r) => r.id`) whenever rows change.
 - `grid.applyTransaction()` **throws** without an explicit `rowId` (update/remove
   payloads have no source index to match on).
 - `(paste)` events carry `rowIds` aligned with `suggestedRows`; write back with
-  `mergeRowsById(rows(), e.suggestedRows, idOf, e.rowIds)` (required for
-  index-based ids, harmless otherwise).
+  `mergeRowsById(rows(), e.suggestedRows, idOf, e.rowIds)`. Always merge —
+  `suggestedRows` holds only the filtered / sorted rows, so `rows.set(e.suggestedRows)`
+  would drop rows hidden by a filter.
 
 Compose plugins once on `createGrid`. Toggle chrome via held adapters
 (e.g. `sideBar.setEnabled(false)`) or controller UX signals
