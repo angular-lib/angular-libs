@@ -17,7 +17,7 @@ export interface AutosizePluginOptions {
  * plugins: [...defaultGridPlugins(), autosizePlugin()]
  * ```
  */
-export function autosizePlugin<T = unknown>(
+export function autosizePlugin<T = any>(
   options: AutosizePluginOptions = {},
 ): DataGridPlugin<T> {
   const order = options.order ?? 91;

@@ -25,6 +25,15 @@ export function isCustomRendererComponent<T>(column: ColumnDef<T>): boolean {
   return !!column.cellRenderer;
 }
 
+/**
+ * Built-in column aggregate.
+ *
+ * Blank values (`null` / `undefined` / `''`) are skipped by every built-in:
+ * - `count` — number of non-blank values (SQL `COUNT(column)`)
+ * - `sum` / `avg` / `min` / `max` — over finite numbers only (numbers or numeric
+ *   strings; `NaN` / `Infinity` / booleans / objects are ignored). `avg` / `min` /
+ *   `max` return `null` when no numeric value exists; `sum` returns `0`.
+ */
 export function aggregateColumn<T>(
   rows: readonly T[],
   column: ColumnDef<T>,
@@ -37,24 +46,65 @@ export function aggregateColumn<T>(
   if (typeof fn === 'function') {
     return fn(values, rows);
   }
-  const nums = values
-    .map((v) => (typeof v === 'number' ? v : Number(v)))
-    .filter((n) => !Number.isNaN(n));
+
+  if (fn === 'count') {
+    let count = 0;
+    for (const v of values) {
+      if (v != null && v !== '') {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Loop (no `Math.min(...nums)` spread — that overflows the stack on large sets).
+  let n = 0;
+  let sum = 0;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of values) {
+    const num = toAggregateNumber(v);
+    if (num === null) {
+      continue;
+    }
+    n++;
+    sum += num;
+    if (num < min) {
+      min = num;
+    }
+    if (num > max) {
+      max = num;
+    }
+  }
 
   switch (fn) {
-    case 'count':
-      return rows.length;
     case 'sum':
-      return nums.reduce((a, b) => a + b, 0);
+      return sum;
     case 'avg':
-      return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+      return n ? sum / n : null;
     case 'min':
-      return nums.length ? Math.min(...nums) : null;
+      return n ? min : null;
     case 'max':
-      return nums.length ? Math.max(...nums) : null;
+      return n ? max : null;
     default:
       return null;
   }
+}
+
+/** Finite number for aggregation, or `null` for blank / non-numeric values. */
+function toAggregateNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) {
+      return null;
+    }
+    const num = Number(text);
+    return Number.isFinite(num) ? num : null;
+  }
+  return null;
 }
 
 export function formatAggregateValue<T = unknown>(
@@ -64,8 +114,15 @@ export function formatAggregateValue<T = unknown>(
   if (value == null) {
     return '';
   }
-  if (column?.valueFormatter) {
-    return column.valueFormatter(value, null as T, -1);
+  // Aggregates have no row: `valueFormatter` gets `row: undefined`, `rowIndex: -1`.
+  // Formatters that dereference `row` throw → fall back to default formatting.
+  // `count` is a tally, not a column value — never run the column formatter on it.
+  if (column?.valueFormatter && column.aggFunc !== 'count') {
+    try {
+      return column.valueFormatter(value, undefined as T, -1);
+    } catch {
+      // fall through
+    }
   }
   if (typeof value === 'number') {
     return value.toLocaleString(undefined, { maximumFractionDigits: 2 });

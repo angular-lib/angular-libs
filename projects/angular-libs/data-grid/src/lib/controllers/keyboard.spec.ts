@@ -316,4 +316,70 @@ describe('FocusController keyboard matrix (KEYBOARD.md)', () => {
       expect(focus.getFocus()).toEqual({ rowIndex: 2, columnId: 'c', realm: 'body' });
     });
   });
+
+  describe('No focus yet', () => {
+    it('ArrowDown lands on the default cell (row 0), not row 1', () => {
+      const focus = createFocus();
+      expect(focus.handleKeydown(key('ArrowDown'))).toBe(true);
+      expect(focus.getFocus()).toEqual({ rowIndex: 0, columnId: 'a', realm: 'body' });
+    });
+  });
+
+  describe('reconcile (focus follows row identity)', () => {
+    function rowModel(initial: string[], cols = ['a', 'b', 'c']) {
+      const model = { rows: initial, cols };
+      const changes: Array<[unknown, unknown]> = [];
+      const focus = createFocus({
+        getRowCount: () => model.rows.length,
+        getColumnIds: () => model.cols,
+        getRowKey: (i) => model.rows[i],
+        findRowIndex: (k) => model.rows.indexOf(k),
+        onFocusChange: (cell, reason) => changes.push([cell, reason]),
+      });
+      return { model, focus, changes };
+    }
+
+    it('remaps the focused index after a sort', () => {
+      const { model, focus, changes } = rowModel(['r1', 'r2', 'r3', 'r4']);
+      focus.focusCell(1, 'b');
+      model.rows = ['r4', 'r3', 'r2', 'r1'];
+      expect(focus.reconcile()).toBe(true);
+      expect(focus.getFocus()).toEqual({ rowIndex: 2, columnId: 'b', realm: 'body' });
+      expect(changes.at(-1)?.[1]).toBe('reconcile');
+      expect(focus.reconcile()).toBe(false);
+    });
+
+    it('clamps to the last row when the focused row is filtered out past the end', () => {
+      const { model, focus } = rowModel(Array.from({ length: 60 }, (_, i) => `r${i}`));
+      focus.focusCell(50, 'a');
+      model.rows = ['r0', 'r1', 'r2', 'r3', 'r4'];
+      focus.reconcile();
+      expect(focus.getFocus()).toEqual({ rowIndex: 4, columnId: 'a', realm: 'body' });
+    });
+
+    it('moves to the neighbouring column when the focused column is hidden', () => {
+      const { model, focus } = rowModel(['r1', 'r2']);
+      focus.focusCell(0, 'c');
+      model.cols = ['a', 'b'];
+      focus.reconcile();
+      expect(focus.getFocus()?.columnId).toBe('b');
+    });
+
+    it('falls back to the header when no body rows remain', () => {
+      const { model, focus } = rowModel(['r1']);
+      focus.focusCell(0, 'a');
+      model.rows = [];
+      focus.reconcile();
+      expect(focus.getFocus()).toEqual({ rowIndex: 0, columnId: 'a', realm: 'header' });
+    });
+
+    it('re-anchors lastFocus while focus is cleared (Tab re-entry)', () => {
+      const { model, focus } = rowModel(['r1', 'r2', 'r3']);
+      focus.focusCell(0, 'a');
+      focus.setFocus(null);
+      model.rows = ['r3', 'r2', 'r1'];
+      expect(focus.reconcile()).toBe(false);
+      expect(focus.restoreOrFocusDefault()).toEqual({ rowIndex: 2, columnId: 'a', realm: 'body' });
+    });
+  });
 });

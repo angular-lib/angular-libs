@@ -19,21 +19,17 @@ import {
   reconcileHiddenColumnIds,
 } from '../../utils/column-layout';
 import { FocusController } from '../../controllers/focus';
-import {
-  masterDetailAriaDetailsOf,
-  masterDetailRegionId,
-  pluginMasterRowId,
-  selectRowAriaLabelOf,
-} from '../../hosts/binder-template.helpers';
+import { selectRowAriaLabelOf } from '../../hosts/binder-template.helpers';
 import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
 import { parseGridState, serializeGridState } from '../../utils/state';
 import { flattenColumnDefs, buildLeafGroupMap, buildVisibleGroupHeaderRow, resolveColumnOrGroupDefs, sameColumnGroup } from '../../utils/column-groups';
-import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
 import { parseClipboardMatrix, tileMatrix } from '../../utils/clipboard-paste';
 import {
   findPlugin,
   masterDetailPlugin,
+  masterDetailRegionId,
+  ROW_GROUP_ADAPTER,
   MasterDetailDefaultView,
   rowGroupPlugin,
   sideBarPlugin,
@@ -96,7 +92,7 @@ describe('data-grid utils', () => {
   it('filters, quick-filters, and sorts rows', () => {
     const resolved = resolveColumns(columns);
     const byId = new Map(resolved.map((c) => [c.id, c]));
-    const filtered = filterRows(people, { name: 'a' }, byId);
+    const filtered = filterRows(people, { name: { kind: 'text', conditions: [{ op: 'contains', value: 'a' }] } }, byId);
     expect(filtered.map((p) => p.name)).toEqual(['Ada', 'Grace', 'Alan']);
 
     const quick = quickFilterRows(people, 'york', resolved);
@@ -112,15 +108,19 @@ describe('data-grid utils', () => {
     expect(csv).toContain('Ada');
 
     const raw = serializeGridState({
+      version: 1,
       sorts: [{ columnId: 'age', direction: 'desc' }],
-      filters: { name: 'Ada' },
+      filters: { name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } },
       quickFilter: 'x',
       hiddenColumnIds: ['city'],
       columnOrder: ['age', 'name'],
       widthOverrides: { name: 120 },
       columnPins: { name: 'left' },
       pageIndex: 1,
+      pageSize: 25,
+      selectedIds: [],
       activeSidePanel: 'filters',
+      slices: {},
     });
     const parsed = parseGridState(raw);
     expect(parsed?.hiddenColumnIds).toEqual(['city']);
@@ -169,22 +169,23 @@ describe('data-grid utils', () => {
     expect(widths['name']).toBe(100);
     expect(widths['city']).toBe(300);
 
-    const { tracks, widthsPx } = resolveColumnTracks(cols, {}, { select: true });
-    expect(tracks).toBe('40px 100px minmax(80px, 1fr)');
+    const { tracks, widthsPx } = resolveColumnTracks(cols, {}, { select: true }, 400);
+    expect(tracks).toBe('40px 100px 260px');
     expect(widthsPx['name']).toBe(100);
-    expect(widthsPx['city']).toBeNull();
+    expect(widthsPx['city']).toBe(260);
 
-    // After resize lock (all fixed), last unpinned column fills leftover space.
+    // Resized (overridden) columns stay at their px width; no fill past them.
     const locked = resolveColumnTracks(
       cols,
       { name: 120, city: 200 },
       { select: true, rowEdit: true },
+      800,
     );
-    expect(locked.tracks).toBe('40px 120px minmax(200px, 1fr) 132px');
+    expect(locked.tracks).toBe('40px 120px 200px 132px');
     expect(locked.widthsPx['city']).toBe(200);
 
-    const withoutActions = resolveColumnTracks(cols, {}, { select: true });
-    const withActions = resolveColumnTracks(cols, {}, { select: true, rowEdit: true });
+    const withoutActions = resolveColumnTracks(cols, {}, { select: true }, 400);
+    const withActions = resolveColumnTracks(cols, {}, { select: true, rowEdit: true }, 400);
     expect(withoutActions.tracks).not.toBe(withActions.tracks);
     expect(withActions.tracks.endsWith(' 132px')).toBe(true);
 
@@ -209,16 +210,6 @@ describe('data-grid utils', () => {
     expect(selectRowAriaLabelOf('Select row', 4, '  ')).toBe('Select row 5');
     expect(selectRowAriaLabelOf('Select row', 2)).toBe('Select row 3');
     expect(masterDetailRegionId(1)).toBe('al-dg-detail-1');
-    expect(
-      masterDetailAriaDetailsOf(
-        [
-          { kind: 'data', id: 'd:1', rowId: 1, row: { id: 1 }, dataIndex: 0, level: 0 },
-          { kind: 'plugin', pluginKind: 'masterDetail', id: 'md:1' },
-        ],
-        1,
-      ),
-    ).toBe('al-dg-detail-1');
-    expect(pluginMasterRowId({ id: 'md:9', payload: { masterRowId: 9 } })).toBe('9');
   });
 
   it('normalizes dates and navigates focus', () => {
@@ -308,6 +299,7 @@ describe('data-grid utils', () => {
       injector: null as never,
       slots: null as never,
       capabilities: null as never,
+      adapters: null as never,
     };
     expect(() => activatePlugins([badSetup, good], ctx)).not.toThrow();
     expect(() =>
@@ -346,7 +338,6 @@ describe('data-grid utils', () => {
     expect(header[0]).toMatchObject({ label: 'A', colspan: 2 });
     expect(header[1]?.columnId).toBe('age');
 
-    expect(parseSetFilter(serializeSetFilter(['Ada', 'Alan']))).toEqual(['Ada', 'Alan']);
     expect(parseClipboardMatrix('a\tb\nc\td')).toEqual([
       ['a', 'b'],
       ['c', 'd'],
@@ -421,7 +412,11 @@ describe('data-grid utils', () => {
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '  ')).toBeNull();
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '42')).toBe(42);
     expect(coerceCellEditValue({ field: 'salary', type: 'number' }, '$70,000')).toBe(70000);
-    expect(coerceCellEditValue({ field: 'salary', type: 'number' }, '1.234,56')).toBe(1234.56);
+    expect(
+      coerceCellEditValue({ field: 'salary', type: 'number' }, '1.234,56', undefined, {
+        numberLocale: 'de-DE',
+      }),
+    ).toBe(1234.56);
 
     const prev = new Date(2024, 4, 1);
     const next = coerceCellEditValue({ field: 'born', type: 'date' }, '2024-05-02', prev);
@@ -433,8 +428,8 @@ describe('data-grid utils', () => {
     const resolved = resolveColumns(columns);
     const byId = new Map(resolved.map((c) => [c.id, c]));
     const ids = collectAllGroupIds(people, ['city', 'active'], byId);
-    expect(ids.some((id) => id.includes('city=London'))).toBe(true);
-    expect(ids.some((id) => id.includes('active=true'))).toBe(true);
+    expect(ids).toContain('g/city=s%3ALondon');
+    expect(ids).toContain('g/city=s%3ALondon/active=b%3Atrue');
   });
 
   it('cycles sort asc → desc → none (clear)', () => {
@@ -586,7 +581,7 @@ class HostGrid {
     rowId: (row: Person) => row.id,
     selection: 'multi',
     viewport: { pagination: true, pageSize: 2, virtual: false },
-    chrome: { showToolbar: true },
+    chrome: { showToolbar: true, filterDebounceMs: 0 },
     plugins: [sideBarPlugin<Person>()],
   });
 }
@@ -651,7 +646,7 @@ describe('DataGrid', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: 'Ada' });
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } });
   });
 
   it('uses a single roving tabindex=0 inside the grid frame', async () => {
@@ -812,7 +807,7 @@ describe('row pipeline + display model', () => {
     const byId = new Map(resolved.map((c) => [c.id, c]));
     const rows = runClientRowPipeline({
       data: people,
-      filters: { name: 'a' },
+      filters: { name: { kind: 'text', conditions: [{ op: 'contains', value: 'a' }] } },
       quickFilter: '',
       externalFilter: null,
       sorts: [{ columnId: 'age', direction: 'asc' }],
@@ -832,7 +827,7 @@ describe('row pipeline + display model', () => {
     });
     const { processedRows, displayRows } = grid.computeRowModel({
       data: people,
-      filters: { city: 'London' },
+      filters: { city: { kind: 'text', conditions: [{ op: 'contains', value: 'London' }] } },
       quickFilter: '',
       externalFilter: null,
       sorts: [{ columnId: 'age', direction: 'desc' }],
@@ -961,10 +956,8 @@ describe('row pipeline + display model', () => {
     expect(payload?.rows.map((p) => p.id)).toEqual([2, 3, 1]);
   });
 
-  it('collects tree group path ids', () => {
-    expect(collectTreeGroupIds(people, (row) => row.path ?? [])).toEqual(
-      expect.arrayContaining(['t/UK', 't/UK/London', 't/US', 't/US/New York', 't/UK/Manchester']),
-    );
+  it('collects tree group path ids (parents only — leaves are not collapsible)', () => {
+    expect(collectTreeGroupIds(people, (row) => row.path ?? [])).toEqual(['t/s%3AUK', 't/s%3AUS']);
   });
 
   it('Ctrl/Cmd+A only consumes the event when select-all is handled', () => {
@@ -1214,7 +1207,7 @@ describe('DataGrid master-detail UI', () => {
       { columnId: 'number', direction: 'desc' },
     ]);
 
-    host.grid.api()!.setFilterModel({ name: 'Olivia' });
+    host.grid.api()!.setFilterModel({ name: { kind: 'text', conditions: [{ op: 'contains', value: 'Olivia' }] } });
     fixture.detectChanges();
     await fixture.whenStable();
     expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
@@ -1444,7 +1437,7 @@ describe('DataGrid master-detail + pagination', () => {
 
 describe('DataGrid master-detail + cell range', () => {
   it('Shift+arrow range skips the open detail panel', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -1476,8 +1469,8 @@ describe('DataGrid master-detail + cell range', () => {
     fixture.detectChanges();
     const api = fixture.componentInstance.grid.api()!;
     api.focusCell(0, 'name');
-    expect(api.extendCellRange(1, 0)).toBe(true);
-    expect(api.getCellRange()).toEqual({
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)!.extendRange(1, 0)).toBe(true);
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toEqual({
       anchor: { rowIndex: 0, columnId: 'name' },
       active: { rowIndex: 2, columnId: 'name' },
     });
@@ -1525,7 +1518,7 @@ describe('DataGrid server-side + master-detail', () => {
 });
 
 describe('createGrid + controller binding', () => {
-  it('exposes rowGroup adapter from held plugin', () => {
+  it('getAdapter is null until a grid binds the controller', () => {
     const groups = rowGroupPlugin<Person>({ columns: ['city'] });
     const grid = createGrid({
       columns,
@@ -1533,10 +1526,7 @@ describe('createGrid + controller binding', () => {
       selection: 'multi',
       plugins: [groups],
     });
-    expect(grid.rowGroup).toBe(groups);
-    expect(grid.rowGroup?.columns()).toEqual(['city']);
-    groups.setColumns(['name']);
-    expect(grid.rowGroup?.columns()).toEqual(['name']);
+    expect(grid.getAdapter(ROW_GROUP_ADAPTER)).toBeNull();
   });
 
   it('updates plugins via setPlugins', () => {
@@ -1549,7 +1539,6 @@ describe('createGrid + controller binding', () => {
     expect(grid.plugins()).toHaveLength(1);
     grid.setPlugins([groups, statusBarPlugin()]);
     expect(grid.plugins()).toHaveLength(2);
-    expect(grid.rowGroup).toBe(groups);
   });
 
   it('renders from [controller] without columns/plugins inputs', async () => {
@@ -1673,6 +1662,9 @@ describe('createGrid + controller binding', () => {
 
     const host = fixture.componentInstance;
     expect(fixture.nativeElement.querySelector('[data-testid="al-dg-status-bar"]')).toBeFalsy();
+    expect(host.grid.getAdapter(ROW_GROUP_ADAPTER)?.columns()).toEqual(['city']);
+    host.groups.setColumns(['name']);
+    expect(host.grid.getAdapter(ROW_GROUP_ADAPTER)?.columns()).toEqual(['name']);
 
     host.grid.setPlugins([host.groups, statusBarPlugin()]);
     fixture.detectChanges();
@@ -1796,7 +1788,7 @@ describe('createGrid + controller binding', () => {
         columns,
         rowId: (r: Person) => r.id,
         viewport: { virtual: false },
-        chrome: { floatingFilters: true },
+        chrome: { floatingFilters: true, filterDebounceMs: 0 },
         plugins: [this.sideBar],
       });
     }
@@ -1829,9 +1821,9 @@ describe('createGrid + controller binding', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: 'Ada' });
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } });
 
-    fixture.componentInstance.grid.api()?.setFilterModel({ age: '36' });
+    fixture.componentInstance.grid.api()?.setFilterModel({ age: { kind: 'number', conditions: [{ op: 'equals', value: 36 }] } });
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -1845,7 +1837,9 @@ describe('createGrid + controller binding', () => {
     await fixture.whenStable();
 
     expect(el.querySelector('[data-testid="al-dg-filter-card-name"]')).toBeFalsy();
-    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ age: '36' });
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({
+      age: { kind: 'number', conditions: [{ op: 'equals', value: 36 }] },
+    });
   });
 
   it('custom tool panel: inputs + api.openToolPanel', async () => {
@@ -1998,7 +1992,7 @@ describe('createGrid + controller binding', () => {
   });
 
   it('cellRangePlugin Shift+arrow extends range and prefers range for copy', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2032,8 +2026,8 @@ describe('createGrid + controller binding', () => {
     expect(api).toBeTruthy();
 
     api!.focusCell(0, 'name');
-    expect(api!.extendCellRange(0, 1)).toBe(true);
-    expect(api!.getCellRange()).toEqual({
+    expect(api!.getAdapter(CELL_RANGE_ADAPTER)!.extendRange(0, 1)).toBe(true);
+    expect(api!.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toEqual({
       anchor: { rowIndex: 0, columnId: 'name' },
       active: { rowIndex: 0, columnId: 'age' },
     });
@@ -2042,12 +2036,12 @@ describe('createGrid + controller binding', () => {
     expect(text).toContain('Ada');
     expect(text).toContain('36');
 
-    api!.clearCellRange();
-    expect(api!.getCellRange()).toBeNull();
+    api!.getAdapter(CELL_RANGE_ADAPTER)?.clearRange();
+    expect(api!.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
   });
 
   it('does not start a cell range from set-filter label clicks', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2081,12 +2075,13 @@ describe('createGrid + controller binding', () => {
 
     const el: HTMLElement = fixture.nativeElement;
     const gridEl = el.querySelector('al-data-grid') as HTMLElement;
-    const details = el.querySelector<HTMLDetailsElement>(
-      '[data-testid="al-dg-filter-name"] [data-testid="al-dg-set-filter"]',
+    const trigger = el.querySelector<HTMLButtonElement>(
+      '[data-testid="al-dg-filter-name"] [data-testid="al-dg-set-filter-trigger"]',
     );
-    expect(details).toBeTruthy();
-    details!.open = true;
+    expect(trigger).toBeTruthy();
+    trigger!.click();
     fixture.detectChanges();
+    await fixture.whenStable();
 
     const label = el.querySelector<HTMLLabelElement>(
       '[data-testid="al-dg-filter-name"] .al-dg-filter-field__set-item',
@@ -2106,12 +2101,12 @@ describe('createGrid + controller binding', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
+    expect(fixture.componentInstance.grid.api()?.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
     expect(gridEl.querySelector('[data-testid="al-dg-range-ring"]')).toBeNull();
   });
 
   it('opens cell context menu on right-click even with cellRangePlugin', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2166,7 +2161,7 @@ describe('createGrid + controller binding', () => {
 
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeTruthy();
     // Right-click must not start a range selection.
-    expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
+    expect(fixture.componentInstance.grid.api()?.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
   });
 });
 
@@ -2253,7 +2248,7 @@ describe('DataGrid editing API + auto-apply', () => {
   });
 
   it('Escape from an editor cancels edit without clearing the cell range', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2280,8 +2275,8 @@ describe('DataGrid editing API + auto-apply', () => {
     const host = fixture.componentInstance;
     const api = host.grid.api()!;
     api.focusCell(0, 'name');
-    expect(api.extendCellRange(0, 1)).toBe(true);
-    expect(api.getCellRange()).toBeTruthy();
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)!.extendRange(0, 1)).toBe(true);
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeTruthy();
 
     const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
     grid.api.startEditingCell(1, 'age');
@@ -2297,10 +2292,10 @@ describe('DataGrid editing API + auto-apply', () => {
     fixture.detectChanges();
 
     expect(grid.editSyncHost.editingCell()).toBeNull();
-    expect(api.getCellRange()).toBeTruthy();
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeTruthy();
 
     grid.onEscapeKey(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(api.getCellRange()).toBeNull();
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
   });
 
   it('Space on a focused boolean cell toggles the value', async () => {

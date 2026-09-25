@@ -4,6 +4,7 @@ import {
   emptyColumnLayout,
   materializeColumnLayout,
   moveColumn,
+  reconcileColumnLayout,
   resolveColumnTracks,
   setColumnPin,
   CHROME_TRACK,
@@ -20,10 +21,20 @@ import {
   type HeaderGroupCell,
 } from '../utils/column-groups';
 import { estimateColumnWidth } from '../utils/autosize';
-import { downloadCsv, rowsToCsv } from '../utils/csv';
-import { collectSetFilterValues } from '../utils/filter-rows';
+import { downloadCsv, rowsToCsvExport, type CsvExportOptions } from '../utils/csv';
+import {
+  EMPTY_SET_FILTER_OPTIONS,
+  collectSetFilterValues,
+  type SetFilterOptions,
+} from '../utils/filter-rows';
+import {
+  normalizeFilterModel,
+  resolveFilterKind,
+  sanitizeFilterState,
+  type ColumnFilterModel,
+} from '../utils/filter-model';
 import { nextSortDirection } from '../utils/sort-rows';
-import { createEmptyGridState } from '../utils/state';
+import { GRID_STATE_VERSION, jsonEqual, sanitizeGridState } from '../utils/state';
 import type { ColumnLayoutDeps } from './binder-surface';
 import {
   ariaSortOf,
@@ -38,6 +49,7 @@ import type {
   DataGridFilterState,
   DataGridState,
   ResolvedColumn,
+  SetGridStateOptions,
   SortState,
 } from '../components/data-grid/data-grid.types';
 
@@ -51,11 +63,27 @@ import type {
 export class ColumnLayoutHost<T> {
   readonly sorts: WritableSignal<SortState[]> = signal<SortState[]>([]);
   readonly filters: WritableSignal<DataGridFilterState> = signal<DataGridFilterState>({});
-  /** Order + explicit pins — single layout source of truth. */
-  readonly columnLayout: WritableSignal<ColumnLayout> = signal<ColumnLayout>(emptyColumnLayout());
+  /**
+   * Order + explicit pins — single layout source of truth. Reconciled with the
+   * column defs whenever they change (surviving ids keep order / pin, new ids
+   * append with their def pin) — no binder effect.
+   */
+  readonly columnLayout: WritableSignal<ColumnLayout> = linkedSignal<
+    ResolvedColumn<T>[],
+    ColumnLayout
+  >({
+    source: () => this.resolvedColumns(),
+    computation: (cols, previous) => {
+      const prev = previous?.value ?? emptyColumnLayout();
+      return cols.length ? reconcileColumnLayout(prev, cols) : prev;
+    },
+    equal: jsonEqual,
+  });
   readonly widthOverrides: WritableSignal<Record<string, number>> = signal<Record<string, number>>(
     {},
   );
+  /** True while a column resize drag is active (`stateChange` waits for the drop). */
+  readonly resizing: WritableSignal<boolean> = signal(false);
 
   private headerDragFrom: number | null = null;
 
@@ -96,21 +124,50 @@ export class ColumnLayoutHost<T> {
     return this.orderedColumns().filter((c) => !hidden.has(c.id));
   });
 
+  /** Stable id list for per-cell helpers (range / ARIA) — avoid `.map` per cell. */
+  readonly visibleColumnIds: Signal<string[]> = computed(() =>
+    this.visibleColumns().map((c) => c.id),
+  );
+
   readonly filterableColumns: Signal<ResolvedColumn<T>[]> = computed(() =>
     this.orderedColumns().filter((c) => !!c.filter),
   );
 
-  /** Set-filter option lists for sidebar / shared filter field (keyed by column id). */
-  readonly setFilterOptionsById: Signal<Map<string, string[]>> = computed(() => {
-    const map = new Map<string, string[]>();
-    const rows = this.s.data();
-    for (const col of this.filterableColumns()) {
-      if (col.filter === 'set') {
-        map.set(col.id, collectSetFilterValues(rows, col));
-      }
-    }
-    return map;
+  /** Per-column lazy set-filter option computeds (rebuilt when column defs change). */
+  private readonly setFilterOptionCache = computed(() => {
+    this.columnsById();
+    return new Map<string, Signal<SetFilterOptions>>();
   });
+
+  /**
+   * Distinct set-filter values for one column — computed on first read and
+   * memoized until `[data]` / columns change (closed dropdowns cost nothing).
+   */
+  getSetFilterOptions(columnId: string): SetFilterOptions {
+    const cache = this.setFilterOptionCache();
+    let options = cache.get(columnId);
+    if (!options) {
+      const column = this.columnsById().get(columnId);
+      if (!column || resolveFilterKind(column) !== 'set') {
+        return EMPTY_SET_FILTER_OPTIONS;
+      }
+      options = computed(() => collectSetFilterValues(this.s.data(), column));
+      cache.set(columnId, options);
+    }
+    return options();
+  }
+
+  private readonly setFilterOptionGetters = new Map<string, () => SetFilterOptions>();
+
+  /** Stable (per column id) getter for `DataGridFilterField.setOptions`. */
+  readonly setFilterOptionsFn = (columnId: string): (() => SetFilterOptions) => {
+    let getter = this.setFilterOptionGetters.get(columnId);
+    if (!getter) {
+      getter = () => this.getSetFilterOptions(columnId);
+      this.setFilterOptionGetters.set(columnId, getter);
+    }
+    return getter;
+  };
 
   readonly hasFilters: Signal<boolean> = computed(() =>
     this.resolvedColumns().some((c) => !!c.filter),
@@ -139,26 +196,29 @@ export class ColumnLayoutHost<T> {
     return w;
   });
 
-  /** CSS Grid track list — flex columns use `fr`, no viewport width measure. */
+  /**
+   * CSS Grid track list — every track resolved to px against the measured
+   * scrollport width, so rows lay out identically whatever is rendered.
+   */
   readonly columnTrackLayout: Signal<ColumnTrackLayout> = computed(() =>
-    resolveColumnTracks(this.visibleColumns(), this.widthOverrides(), {
-      drag: this.s.rowDragEnabled(),
-      select: this.s.showSelection(),
-      rowEdit: this.reserveRowEditColumn(),
-    }),
+    resolveColumnTracks(
+      this.visibleColumns(),
+      this.widthOverrides(),
+      {
+        drag: this.s.rowDragEnabled(),
+        select: this.s.showSelection(),
+        rowEdit: this.reserveRowEditColumn(),
+      },
+      this.s.viewportWidth(),
+    ),
   );
 
   readonly gridTemplateColumns: Signal<string> = computed(() => this.columnTrackLayout().tracks);
 
-  /** Pixel widths for pin offsets / resize; flex tracks are null → use minWidth. */
-  readonly resolvedWidths: Signal<Record<string, number>> = computed(() => {
-    const { widthsPx } = this.columnTrackLayout();
-    const out: Record<string, number> = {};
-    for (const col of this.visibleColumns()) {
-      out[col.id] = widthsPx[col.id] ?? col.minWidth;
-    }
-    return out;
-  });
+  /** Rendered pixel widths (same numbers as the tracks) for pin offsets / resize. */
+  readonly resolvedWidths: Signal<Record<string, number>> = computed(
+    () => this.columnTrackLayout().widthsPx,
+  );
 
   constructor(private readonly s: ColumnLayoutDeps<T>) {}
 
@@ -190,8 +250,6 @@ export class ColumnLayoutHost<T> {
 
     this.sorts.set(sorts);
     this.s.publishSort({ sorts });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onSortChange', { sorts });
   }
 
@@ -206,35 +264,41 @@ export class ColumnLayoutHost<T> {
       : this.sorts().filter((entry) => entry.columnId !== column.id);
     this.sorts.set(sorts);
     this.s.publishSort({ sorts });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onSortChange', { sorts });
   }
 
-  setFilter(columnId: string, value: string): void {
-    const next = { ...this.filters(), [columnId]: value };
-    if (!value) {
+  /** Set (or with `null` / an empty model, clear) one column's filter. */
+  setColumnFilter(columnId: string, model: ColumnFilterModel | null): void {
+    const normalized = normalizeFilterModel(model);
+    const next = { ...this.filters() };
+    if (normalized) {
+      next[columnId] = normalized;
+    } else if (columnId in next) {
       delete next[columnId];
+    } else {
+      return;
     }
+    this.applyFilters(next);
+  }
+
+  getColumnFilter(columnId: string): ColumnFilterModel | null {
+    return this.filters()[columnId] ?? null;
+  }
+
+  private applyFilters(next: DataGridFilterState): void {
     this.filters.set(next);
     this.s.publishFilter({ filters: next });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onFilterChange', { filters: next });
   }
 
   setQuickFilter(value: string): void {
     this.s.quickFilter.set(value);
-    this.s.emitState();
-    this.s.emitQueryIfServer();
   }
 
   clearFilters(): void {
     this.filters.set({});
     this.s.quickFilter.set('');
     this.s.publishFilter({ filters: {} });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onFilterChange', { filters: {} });
   }
 
@@ -242,12 +306,9 @@ export class ColumnLayoutHost<T> {
     return { ...this.filters() };
   }
 
+  /** Replace all column filters; invalid / empty models are dropped. */
   setFilterModel(filters: DataGridFilterState): void {
-    this.filters.set({ ...filters });
-    this.s.publishFilter({ filters: this.filters() });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
-    this.s.notifyPlugins('onFilterChange', { filters: this.filters() });
+    this.applyFilters(sanitizeFilterState(filters));
   }
 
   getSortModel(): SortState[] {
@@ -257,8 +318,6 @@ export class ColumnLayoutHost<T> {
   setSortModel(sorts: SortState[]): void {
     this.sorts.set([...sorts]);
     this.s.publishSort({ sorts: this.sorts() });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onSortChange', { sorts: this.sorts() });
   }
 
@@ -281,12 +340,10 @@ export class ColumnLayoutHost<T> {
     }
     const next = [...set];
     this.s.hiddenColumnIds.set(next);
-    this.s.emitState();
   }
 
   showAllColumns(): void {
     this.s.hiddenColumnIds.set([]);
-    this.s.emitState();
   }
 
   onColumnVisibility(event: { columnId: string; visible: boolean }): void {
@@ -327,7 +384,6 @@ export class ColumnLayoutHost<T> {
   applyColumnLayout(layout: ColumnLayout): void {
     this.columnLayout.set(layout);
     this.s.publishColumnOrder({ columnOrder: layout.order });
-    this.s.emitState();
   }
 
   startResize(event: PointerEvent, column: ResolvedColumn<T>): void {
@@ -351,8 +407,9 @@ export class ColumnLayoutHost<T> {
   }
 
   /**
-   * Lock every column to its rendered px width, then drag `columnIds`.
+   * Lock only `columnIds` to their rendered px width, then drag them.
    * Delta is split evenly (1 column = normal resize; many = group resize).
+   * Other columns keep their sizing — flex columns absorb the change.
    */
   beginResize(event: PointerEvent, columnIds: readonly string[]): void {
     event.preventDefault();
@@ -362,18 +419,16 @@ export class ColumnLayoutHost<T> {
     }
 
     const byId = this.columnsById();
-    const locked: Record<string, number> = { ...this.widthOverrides() };
-    const root = this.s.hostElement();
-    for (const col of this.visibleColumns()) {
-      const el = root.querySelector(
-        `[data-testid="al-dg-col-${CSS.escape(col.id)}"]`,
-      ) as HTMLElement | null;
-      locked[col.id] = Math.max(
-        col.minWidth,
-        Math.round(el?.getBoundingClientRect().width ?? locked[col.id] ?? col.minWidth),
+    const rendered = this.resolvedWidths();
+    const locked: Record<string, number> = {};
+    for (const id of columnIds) {
+      const col = byId.get(id);
+      locked[id] = Math.max(
+        col?.minWidth ?? 48,
+        rendered[id] ?? this.widthOverrides()[id] ?? col?.minWidth ?? 48,
       );
     }
-    this.widthOverrides.set(locked);
+    this.widthOverrides.set({ ...this.widthOverrides(), ...locked });
 
     const targets = columnIds.map((id) => ({
       id,
@@ -383,6 +438,7 @@ export class ColumnLayoutHost<T> {
     const startTotal = targets.reduce((sum, t) => sum + t.start, 0);
     const minTotal = targets.reduce((sum, t) => sum + t.min, 0);
 
+    this.resizing.set(true);
     attachColumnResize({
       startX: event.clientX,
       startWidth: startTotal,
@@ -397,7 +453,7 @@ export class ColumnLayoutHost<T> {
           return next;
         });
       },
-      onEnd: () => this.s.emitState(),
+      onEnd: () => this.resizing.set(false),
     });
   }
 
@@ -451,19 +507,32 @@ export class ColumnLayoutHost<T> {
       next[col.id] = estimateColumnWidth(col, rows);
     }
     this.widthOverrides.set(next);
-    this.s.emitState();
   }
 
-  exportCsv(filename = 'data-grid.csv'): string {
-    const csv = rowsToCsv(this.s.processedRows(), this.visibleColumns());
-    downloadCsv(filename, csv);
+  /**
+   * Download processed rows (filter + sort order) as CSV; returns the text
+   * (without BOM). A string argument is the filename.
+   */
+  exportCsv(filenameOrOptions: string | CsvExportOptions<T> = {}): string {
+    const options: CsvExportOptions<T> =
+      typeof filenameOrOptions === 'string' ? { filename: filenameOrOptions } : filenameOrOptions;
+    const byId = this.columnsById();
+    const columns = options.columnKeys
+      ? options.columnKeys.flatMap((id) => byId.get(id) ?? [])
+      : this.visibleColumns().filter((c) => !c.suppressExport);
+    const rows = options.onlySelected
+      ? this.s.processedRows().filter((row) => this.s.isRowSelected(row))
+      : this.s.processedRows();
+    const csv = rowsToCsvExport(rows, columns, options);
+    downloadCsv(options.filename ?? 'data-grid.csv', csv, { bom: options.bom });
     return csv;
   }
 
+  /** Reactive snapshot (read inside `computed` — `api.state` memoizes it). */
   getState(): DataGridState {
     const layout = this.columnLayout();
-    const extras = this.s.getStateExtras();
     return {
+      version: GRID_STATE_VERSION,
       sorts: this.sorts(),
       filters: this.filters(),
       quickFilter: this.s.quickFilter(),
@@ -471,32 +540,63 @@ export class ColumnLayoutHost<T> {
       columnOrder: [...layout.order],
       widthOverrides: this.widthOverrides(),
       columnPins: { ...layout.pin },
-      pageIndex: extras.pageIndex,
-      activeSidePanel: extras.activeSidePanel,
+      ...this.s.getStateExtras(),
     };
   }
 
-  setState(state: Partial<DataGridState>): void {
-    const base = { ...createEmptyGridState(), ...this.getState(), ...state };
-    this.sorts.set(base.sorts);
-    this.filters.set(base.filters);
-    this.s.quickFilter.set(base.quickFilter);
-    this.s.hiddenColumnIds.set(base.hiddenColumnIds);
-    this.columnLayout.set({
-      order: base.columnOrder ?? [],
-      pin: base.columnPins ?? {},
-    });
-    this.widthOverrides.set(base.widthOverrides);
-    this.s.applyStateExtras({
-      pageIndex: base.pageIndex,
-      activeSidePanel: base.activeSidePanel,
-    });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
-  }
-
-  setFilterOptions(column: ResolvedColumn<T>): string[] {
-    return collectSetFilterValues(this.s.data(), column);
+  /**
+   * Apply a partial, possibly untrusted snapshot: invalid fields, `ignore`d keys
+   * and unknown column ids are skipped. `initial` (mount-time `initialState`)
+   * is silent; otherwise sort / filter changes publish + notify plugins.
+   */
+  setState(
+    state: Partial<DataGridState>,
+    options: SetGridStateOptions = {},
+    initial = false,
+  ): void {
+    const cols = this.resolvedColumns();
+    const next = sanitizeGridState(state, cols.length ? new Set(cols.map((c) => c.id)) : null);
+    for (const key of options.ignore ?? []) {
+      delete next[key];
+    }
+    const sortsChanged = !!next.sorts && !jsonEqual(next.sorts, this.sorts());
+    const filtersChanged = !!next.filters && !jsonEqual(next.filters, this.filters());
+    if (sortsChanged) {
+      this.sorts.set(next.sorts!);
+    }
+    if (filtersChanged) {
+      this.filters.set(next.filters!);
+    }
+    if (next.quickFilter !== undefined) {
+      this.s.quickFilter.set(next.quickFilter);
+    }
+    if (next.hiddenColumnIds) {
+      this.s.hiddenColumnIds.set(next.hiddenColumnIds);
+    }
+    if (next.columnOrder || next.columnPins) {
+      const layout = this.columnLayout();
+      const requested = {
+        order: next.columnOrder ?? layout.order,
+        pin: next.columnPins ?? layout.pin,
+      };
+      this.columnLayout.set(cols.length ? reconcileColumnLayout(requested, cols) : requested);
+    }
+    if (next.widthOverrides) {
+      this.widthOverrides.set(next.widthOverrides);
+    }
+    // After filters: a filter change resets the page, the restored index wins.
+    this.s.applyStateExtras(next, initial);
+    if (initial) {
+      return;
+    }
+    if (sortsChanged) {
+      this.s.publishSort({ sorts: this.sorts() });
+      this.s.notifyPlugins('onSortChange', { sorts: this.sorts() });
+    }
+    if (filtersChanged) {
+      this.s.publishFilter({ filters: this.filters() });
+      this.s.notifyPlugins('onFilterChange', { filters: this.filters() });
+    }
   }
 
   getColumnsById(): Map<string, ColumnDef<any>> {

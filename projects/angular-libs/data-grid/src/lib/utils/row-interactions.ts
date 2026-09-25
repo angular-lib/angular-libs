@@ -30,11 +30,18 @@ export function isRowDragAllowed(options: {
   );
 }
 
+/**
+ * Build the `(rowReorder)` payload. `fromIndex` / `toIndex` index `processedRows`
+ * (the dragged list); `rows` / `rowIds` are the **full source** order with the
+ * dragged row moved next to the drop target — safe to assign back to `[data]`
+ * even when rows are hidden. Ids use source indices (`rowId(row, sourceIndex)`).
+ */
 export function buildRowReorderEvent<T>(
   processedRows: readonly T[],
   fromIndex: number,
   toIndex: number,
   rowId: (row: T, index: number) => string | number,
+  sourceRows: readonly T[] = processedRows,
 ): RowReorderEvent<T> | null {
   if (!isValidRowReorder(fromIndex, toIndex)) {
     return null;
@@ -47,13 +54,31 @@ export function buildRowReorderEvent<T>(
   ) {
     return null;
   }
-  const fromRow = processedRows[fromIndex]!;
-  const toRow = processedRows[toIndex]!;
-  const fromId = rowId(fromRow, fromIndex);
-  const toId = rowId(toRow, toIndex);
-  const rows = moveItem(processedRows, fromIndex, toIndex);
+  const sourceFrom = sourceIndexOf(processedRows[fromIndex]!, fromIndex, sourceRows, rowId);
+  const sourceTo = sourceIndexOf(processedRows[toIndex]!, toIndex, sourceRows, rowId);
+  if (sourceFrom < 0 || sourceTo < 0 || sourceFrom === sourceTo) {
+    return null;
+  }
+  const fromId = rowId(sourceRows[sourceFrom]!, sourceFrom);
+  const toId = rowId(sourceRows[sourceTo]!, sourceTo);
+  const rows = moveItem(sourceRows, sourceFrom, sourceTo);
   const rowIds = rows.map((row, index) => rowId(row, index));
   return { fromIndex, toIndex, fromId, toId, rowIds, rows };
+}
+
+/** Source index of a processed row: by reference, else by row id. */
+function sourceIndexOf<T>(
+  row: T,
+  processedIndex: number,
+  sourceRows: readonly T[],
+  rowId: (row: T, index: number) => string | number,
+): number {
+  const byRef = sourceRows.indexOf(row);
+  if (byRef >= 0) {
+    return byRef;
+  }
+  const id = rowId(row, processedIndex);
+  return sourceRows.findIndex((candidate, index) => rowId(candidate, index) === id);
 }
 
 /**

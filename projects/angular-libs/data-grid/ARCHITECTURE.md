@@ -61,10 +61,16 @@ createDataGridSession(…)                ← runtime root (mounted grid)
 3. Prefer `capabilities` / `slots` over reaching into the component.
 4. Editing is **kernel-adjacent** (always available), not an optional chrome plugin.
 5. Plugin activation is **imperative** on `GridKernel` only — never from an Angular
-   `effect` (slot/capability writes would re-trigger it). Chrome toggles use held
-   adapters (`sideBar.setEnabled`); rare list changes use `setPlugins` →
-   `api.recomposePlugins`. Open tool-panel state uses `linkedSignal`, never an
-   effect that writes `activeSidePanel`.
+   `effect` that tracks slot/capability writes. Chrome toggles use held
+   adapters (`sideBar.setEnabled`); rare list changes use `setPlugins` — the
+   binder forwards the controller's plugin signal to `kernel.recomposePlugins`
+   (untracked, identity diff: only added / removed instances set up / torn down).
+   Each plugin's registrations are scoped and rolled back if its `setup` throws;
+   setup / cleanup / interaction / hook errors go to Angular's `ErrorHandler`.
+   Open tool-panel state uses `linkedSignal`, never an effect that writes
+   `activeSidePanel`.
+6. `[controller]` is static per `<al-data-grid>` — binding another controller is
+   reported and ignored; recreate the grid instead.
 
 ---
 
@@ -104,7 +110,7 @@ If it is **core table behavior** that should exist without an opt-in package, it
 ### Plugin (`@angular-libs/data-grid/plugins`)
 
 **Opt-in features** that register via slots / capabilities. Authoring contracts:
-[`@angular-libs/data-grid/plugin`](./src/plugin-api.ts) — see [PLUGINS.md](./PLUGINS.md).
+[`@angular-libs/data-grid/plugin`](./plugin/src/public-api.ts) — see [PLUGINS.md](./PLUGINS.md).
 
 | Kind | Examples |
 | --- | --- |
@@ -248,20 +254,44 @@ Skipped from the idea list: **C. Two-tier API** (binder + separate headless prod
 | --- | --- |
 | `@angular-libs/data-grid` | Consumer surface: binder, `createGrid`, `DataGridApi`, editing, locale, chrome |
 | `@angular-libs/data-grid/plugins` | Feature factories + `defaultGridPlugins` + sidebar panel components |
-| `@angular-libs/data-grid/plugin` | Plugin-authoring contracts (slots, capabilities, kernel, focus, adapters) |
-| `@angular-libs/data-grid/internals` | Unstable test/tooling (pipeline, column layout, hosts, row display) |
+| `@angular-libs/data-grid/plugin` | Plugin-authoring contracts (slots, capabilities, kernel, focus, adapters) + helpers (cell range, display rows, grouping/tree, aggregates, `flattenColumnDefs`) |
+| `@angular-libs/data-grid/internals` | Unstable test/tooling only (pipeline, column layout, hosts, virtual window, session) |
+
+**Single declaration rule.** Every class, token and function is declared in the
+primary entry. Secondary entries import core **only** via the package specifier
+`'@angular-libs/data-grid'` — never a relative path into `../src` (that would
+re-bundle `GridKernel`, `DataGridApi`, … into each FESM/`.d.ts` and break
+`instanceof`, DI tokens and nominal types).
+
+- `/plugin` and `/internals` own no code: `plugin/src/public-api.ts` /
+  `internals/src/public-api.ts` re-export `ɵ`-prefixed primary exports under
+  their real names (`export { ɵGridKernel as GridKernel } from '@angular-libs/data-grid'`).
+- The `ɵ` names come from `src/plugin-api.ts` / `src/internals-api.ts`, pulled into
+  `src/public-api.ts` in a marked "ɵ — secondary-entry plumbing" section. `ɵ` = not
+  public API; never import them directly. New symbol → add to both files.
+- `/plugins` imports `@angular-libs/data-grid` + `/plugin` only (not `/internals`).
+- Dependency direction: `plugins → plugin → primary`, `internals → primary`;
+  primary never imports a secondary entry (outside specs).
+- Gated by `src/package-layout.spec.ts`; verify dist with
+  the root `build:data-grid` script (each core class appears in one FESM file only).
 
 Optional later: `…/plugins/enterprise` **only** if bundle size demands it (I / P3).
 
-`DataGridApi` feature methods are thin façades — prefer held adapters
-(`groups.setColumns`, `ranges.clearRange`). `bind*Adapter` is `@internal`.
+Core knows no specific plugin: feature state lives on held adapters
+(`groups.setColumns`, `ranges.clearRange`), published per grid via
+`context.adapters.register(KEY, adapter)` and discovered with typed keys
+(`api.getAdapter(ROW_GROUP_ADAPTER)` / `grid.getAdapter(…)`). Core-owned seams a
+plugin can fill: `registerCellWidget` (Enter / Space on a cell, e.g. the
+master-detail expand toggle), `registerRowAria` (`aria-details`),
+`registerRangeSelection` (range paint / ARIA / Escape / Shift+arrow / copy) and
+display-view flags (`nestedWidget`, `regionId`).
 
 ---
 
 ## Consumer DX (canonical)
 
 ```ts
-import { applyCellEdit, createGrid } from '@angular-libs/data-grid';
+import { applyCellEdit, createGrid, mergeRowsById } from '@angular-libs/data-grid';
 import { form } from '@angular/forms/signals';
 import {
   defaultGridPlugins,
@@ -291,7 +321,7 @@ groups.setColumns(['role']);
   [(rowEditSession)]="session"
   [(selectedIds)]="selected"
   (cellEdit)="rows.set(applyCellEdit(rows(), $event, idOf))"
-  (paste)="rows.set($event.suggestedRows)"
+  (paste)="rows.set(mergeRowsById(rows(), $event.suggestedRows, idOf, $event.rowIds))"
 />
 ```
 
@@ -304,7 +334,7 @@ Host owns `rows` and (for full-row edit) the Signal Forms tree; plugins own feat
 | 0 Governance & docs | ✅ |
 | 1 Plugins-only flags + error isolation | ✅ |
 | 2 Controller / `runGridRowModel` | ✅ |
-| 3 Split API hosts + `getAdapter` | ✅ `composeDataGridApiHost` from behavioral hosts; typed `getAdapter` / guards |
+| 3 Split API hosts + `getAdapter` | ✅ `composeDataGridApiHost` from behavioral hosts; typed `adapterKey` registry |
 | 4 Chrome extraction | ✅ toolbar / find / status / sidebar shell; panels in plugins |
 | 5 Editing seams | ✅ host `rowForm` canonical (docs) + `RowEditSession` |
 | 6 Interactions + display views | ✅ view registry overrides `group`; exclusive display builders |
@@ -324,7 +354,7 @@ Binder = Angular IO + template + keyboard coordinators. Runtime state lives on s
 
 | Item | Status |
 | --- | --- |
-| Reactive `setPlugins` recomposition (id-key) | ✅ |
+| Reactive `setPlugins` recomposition (instance identity, once per change) | ✅ |
 | `api.getLocale()` + localized plugin chrome | ✅ |
 | Tree adapter + exclusive display builders | ✅ |
 | Row reorder `fromId`/`toId` + drag gating | ✅ |

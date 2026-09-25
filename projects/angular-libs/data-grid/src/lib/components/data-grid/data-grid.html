@@ -22,6 +22,7 @@
             [findActiveIndex]="viewportHost.findActiveIndex()"
             [slotItems]="resolvedToolbarActions()"
             [labels]="toolbarLabels()"
+            [debounceMs]="controller().chrome.filterDebounceMs()"
             (quickFilterChange)="columnLayoutHost.setQuickFilter($event)"
             (findQueryChange)="viewportHost.setFindQuery($event)"
             (findNext)="viewportHost.findNext()"
@@ -32,7 +33,7 @@
         <div
           class="al-data-grid__frame"
           role="grid"
-          [attr.tabindex]="viewportHost.focusedCell() ? -1 : 0"
+          [attr.tabindex]="frameTabIndex()"
           [attr.aria-rowcount]="ariaRowCount()"
           [attr.aria-colcount]="colSpan()"
           [attr.aria-label]="resolvedLocale().gridAriaLabel"
@@ -111,8 +112,8 @@
                         <input
                           type="checkbox"
                           tabindex="-1"
-                          [checked]="selectionHost.allVisibleSelected()"
-                          [indeterminate]="selectionHost.someVisibleSelected() && !selectionHost.allVisibleSelected()"
+                          [checked]="selectionHost.selectAllState().checked"
+                          [indeterminate]="selectionHost.selectAllState().indeterminate"
                           (change)="selectionHost.toggleSelectAll($event)"
                           [attr.aria-label]="resolvedLocale().selectAllAriaLabel"
                           data-testid="al-dg-select-all"
@@ -200,12 +201,13 @@
                         @if (col.filter) {
                           <al-data-grid-filter-field
                             [column]="$any(col)"
-                            [value]="columnLayoutHost.filters()[col.id] ?? ''"
-                            [setOptions]="columnLayoutHost.setFilterOptions(col)"
+                            [model]="columnLayoutHost.filters()[col.id] ?? null"
+                            [setOptions]="columnLayoutHost.setFilterOptionsFn(col.id)"
                             [ariaLabel]="resolvedLocale().filterColumnAriaLabel + ' ' + col.header"
                             [locale]="resolvedLocale()"
+                            [debounceMs]="controller().chrome.filterDebounceMs()"
                             variant="floating"
-                            (valueChange)="columnLayoutHost.setFilter(col.id, $event)"
+                            (modelChange)="columnLayoutHost.setColumnFilter(col.id, $event)"
                           />
                         }
                       </div>
@@ -323,7 +325,8 @@
                       class="al-data-grid__row"
                       role="row"
                       [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
-                      [attr.aria-details]="masterAriaDetails(id)"
+                      [attr.aria-details]="rowAriaDetails(row, id)"
+                      [attr.aria-expanded]="item.hasChildren ? !!item.expanded : null"
                       [attr.data-testid]="'al-dg-row-' + id"
                       [class]="rowClasses(row, rowIndex)"
                       [class.al-data-grid__row--selected]="selectionHost.isSelected(id)"
@@ -406,6 +409,18 @@
                           (dblclick)="onCellDblClick(row, id, rowIndex, col, value, $event)"
                           (contextmenu)="onCellContextMenu(row, id, rowIndex, col, value, $event, displayIndex)"
                         >
+                          @if (item.hasChildren && item.groupId && col === columnLayoutHost.visibleColumns()[0]) {
+                            <button
+                              type="button"
+                              class="al-data-grid__group-toggle"
+                              tabindex="-1"
+                              [attr.data-testid]="'al-dg-tree-toggle-' + id"
+                              [attr.aria-expanded]="!!item.expanded"
+                              (click)="viewportHost.toggleGroup(item.groupId); $event.stopPropagation()"
+                            >
+                              {{ item.expanded ? '▼' : '▶' }}
+                            </button>
+                          }
                           @if (rowEditing && col.editable && field) {
                             @if (booleanCol) {
                               <input
@@ -414,7 +429,7 @@
                                 [formField]="$any(field)"
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
-                                (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
                                 (keydown.tab)="editSyncHost.onRowEditorTab($event)"
                                 (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               />
@@ -429,7 +444,7 @@
                                 [alTooltipDelay]="0"
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
-                                (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
                                 (keydown.tab)="editSyncHost.onRowEditorTab($event)"
                                 (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               >
@@ -437,17 +452,38 @@
                                   <option [value]="opt">{{ opt }}</option>
                                 }
                               </select>
+                            } @else if (editSyncHost.isNumberEditor(col)) {
+                              <!-- Text + inputmode: type=number returns "" for locale input like "1,5". -->
+                              <input
+                                class="al-data-grid__edit-input"
+                                type="text"
+                                inputmode="decimal"
+                                autocomplete="off"
+                                [class.al-data-grid__edit-input--invalid]="
+                                  editSyncHost.fieldInvalid(field) || !!editSyncHost.rowTextDrafts.error(col.id)
+                                "
+                                [attr.aria-invalid]="
+                                  editSyncHost.fieldInvalid(field) || editSyncHost.rowTextDrafts.error(col.id) ? 'true' : null
+                                "
+                                [attr.data-al-caret]="editSyncHost.caretHint(id, col.id)"
+                                [value]="editSyncHost.rowTextDrafts.text(col.id, field)"
+                                (input)="editSyncHost.rowTextDrafts.input(col, field, $any($event.target).value)"
+                                [alTooltip]="editSyncHost.rowTextDrafts.error(col.id) ?? editSyncHost.fieldError(field)"
+                                alTooltipVariant="error"
+                                alTooltipPosition="bottom"
+                                [alTooltipDelay]="0"
+                                (click)="$event.stopPropagation()"
+                                (dblclick)="$event.stopPropagation()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
+                                (keydown.tab)="editSyncHost.onRowEditorTab($event)"
+                                (keydown.escape)="editSyncHost.onEditorEscape($event)"
+                              />
                             } @else {
                               <input
                                 class="al-data-grid__edit-input"
                                 [class.al-data-grid__edit-input--invalid]="editSyncHost.fieldInvalid(field)"
-                                [type]="
-                                  col.type === 'number' || col.filter === 'number' || col.cellEditor === 'number'
-                                    ? 'number'
-                                    : isDateColumn(col) || col.cellEditor === 'date'
-                                      ? 'date'
-                                      : 'text'
-                                "
+                                [type]="isDateColumn(col) || col.cellEditor === 'date' ? 'date' : 'text'"
+                                [attr.data-al-caret]="editSyncHost.caretHint(id, col.id)"
                                 [formField]="$any(field)"
                                 [alTooltip]="editSyncHost.fieldError(field)"
                                 alTooltipVariant="error"
@@ -455,7 +491,7 @@
                                 [alTooltipDelay]="0"
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
-                                (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
                                 (keydown.tab)="editSyncHost.onRowEditorTab($event)"
                                 (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               />
@@ -463,7 +499,7 @@
                           } @else if (editing && customEditorType(col); as Editor) {
                             <div
                               class="al-data-grid__editor-host"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col); $event.preventDefault(); $event.stopPropagation()"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event); $event.stopPropagation()"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (focusout)="editSyncHost.onEditorHostFocusOut($event, row, id, rowIndex, col)"
@@ -482,7 +518,7 @@
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
                               (change)="editSyncHost.editDraft.set($any($event.target).value); editSyncHost.commitEdit(row, id, rowIndex, col)"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col); $event.preventDefault()"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
@@ -495,11 +531,12 @@
                             <input
                               class="al-data-grid__edit-input"
                               type="date"
+                              [attr.aria-invalid]="editSyncHost.editError() ? 'true' : null"
                               [value]="editSyncHost.editDraft()"
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
-                              (input)="editSyncHost.editDraft.set($any($event.target).value)"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col)"
+                              (input)="editSyncHost.onEditorInput($any($event.target).value)"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
@@ -507,16 +544,21 @@
                           } @else if (editing) {
                             <input
                               class="al-data-grid__edit-input"
-                              [type]="
-                                col.type === 'number' || col.filter === 'number' || col.cellEditor === 'number'
-                                  ? 'number'
-                                  : 'text'
-                              "
+                              type="text"
+                              [attr.inputmode]="editSyncHost.isNumberEditor(col) ? 'decimal' : null"
+                              [attr.autocomplete]="editSyncHost.isNumberEditor(col) ? 'off' : null"
+                              [class.al-data-grid__edit-input--invalid]="!!editSyncHost.editError()"
+                              [attr.aria-invalid]="editSyncHost.editError() ? 'true' : null"
+                              [alTooltip]="editSyncHost.editError()"
+                              alTooltipVariant="error"
+                              alTooltipPosition="bottom"
+                              [alTooltipDelay]="0"
+                              [attr.data-al-caret]="editSyncHost.caretHint(id, col.id)"
                               [value]="editSyncHost.editDraft()"
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
-                              (input)="editSyncHost.editDraft.set($any($event.target).value)"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col)"
+                              (input)="editSyncHost.onEditorInput($any($event.target).value)"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
@@ -597,13 +639,13 @@
                       @case ('plugin') {
                         @let pluginFocused = viewportHost.isBodyRowFocused(displayIndex);
                         @let pluginHeight = item.height ?? rowHeight();
-                        @let detailWidget = isNestedDetailRow(item);
                         @if (session.kernel.capabilities.getDisplayView(item.pluginKind); as view) {
+                          @let detailWidget = !!view.nestedWidget;
                           <div
                             class="al-data-grid__row"
                             [class.al-data-grid__row--detail]="detailWidget"
                             role="row"
-                            [attr.id]="detailRegionId(item)"
+                            [attr.id]="pluginRowRegionId(view, item)"
                             [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
                             [class.al-data-grid__row--focused]="pluginFocused && !detailWidget"
@@ -710,7 +752,7 @@
             <al-data-grid-status-bar
               [pagination]="pagination()"
               [showRowCount]="showPaginationRowCount()"
-              [rowCount]="session.processedRows().length"
+              [rowCount]="viewportHost.totalRowCount()"
               [pageIndex]="viewportHost.pageIndex()"
               [totalPages]="viewportHost.totalPages()"
               [slotItems]="session.kernel.statusBarSlotItems()"
@@ -739,18 +781,16 @@
         [hiddenColumnIds]="hiddenColumnIds()"
         [filters]="columnLayoutHost.filters()"
         [quickFilter]="quickFilter()"
-        [groupColumnIds]="viewportHost.rowGroupColumnIds()"
         [locale]="resolvedLocale()"
-        [setFilterOptionsById]="columnLayoutHost.setFilterOptionsById()"
+        [setFilterOptions]="columnLayoutHost.setFilterOptionsFn"
         (openPanelChange)="viewportHost.activeSidePanel.set($event)"
         (visibilityChange)="columnLayoutHost.onColumnVisibility($event)"
         (reorder)="columnLayoutHost.onPanelReorder($event)"
         (showAll)="columnLayoutHost.showAllColumns()"
         (autoSize)="columnLayoutHost.autoSizeColumns()"
-        (filterChange)="columnLayoutHost.setFilter($event.columnId, $event.value)"
+        (filterChange)="columnLayoutHost.setColumnFilter($event.columnId, $event.model)"
         (quickFilterChange)="columnLayoutHost.setQuickFilter($event)"
         (clearAll)="columnLayoutHost.clearFilters()"
-        (groupColumnsChange)="viewportHost.setRowGroupColumns($event)"
       />
     </ng-template>
 
@@ -758,6 +798,7 @@
       <div
         class="al-data-grid__ctx"
         role="menu"
+        tabindex="-1"
         data-testid="al-dg-context-menu"
         [style.left.px]="menu.left"
         [style.top.px]="menu.top"

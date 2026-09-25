@@ -3,18 +3,27 @@
  * The viewport virtualizes `DisplayRow[]`, not raw `T[]`.
  */
 
-import { getCellValue } from './cell-value';
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
+import { bucketByGroupField, groupValueLabel, groupValueTag, rowGroupId, treeNodeId } from './group-key';
 
 export interface DataDisplayRow<T> {
   kind: 'data';
-  /** Stable track id for the view (may include path prefix for trees). */
+  /** Stable track id for the view. */
   id: string;
   rowId: string | number;
   row: T;
   /** Index within the filtered+sorted data list. */
   dataIndex: number;
   level: number;
+  /**
+   * Tree data: this row's node id when it has child nodes — pass to
+   * `toggleGroup` / collapse sets. Absent on leaves and in flat / grouped grids.
+   */
+  groupId?: string;
+  /** Tree data: true when this row's node has children (shows an expand toggle). */
+  hasChildren?: boolean;
+  /** Tree data: children are shown (only meaningful with `hasChildren`). */
+  expanded?: boolean;
 }
 
 export interface GroupDisplayRow {
@@ -65,19 +74,26 @@ export interface BuildDisplayRowsOptions<T> {
   treeData?: TreeDataConfig<T> | null;
 }
 
+function dataRow<T>(
+  row: T,
+  dataIndex: number,
+  rowId: (row: T, index: number) => string | number,
+  level: number,
+): DataDisplayRow<T> {
+  const id = rowId(row, dataIndex);
+  return { kind: 'data', id: `d:${String(id)}`, rowId: id, row, dataIndex, level };
+}
+
 /** Flat 1:1 wrap when no group/tree config. */
 export function wrapDataRows<T>(
   rows: readonly T[],
   rowId: (row: T, index: number) => string | number,
 ): DisplayRow<T>[] {
-  return rows.map((row, dataIndex) => ({
-    kind: 'data' as const,
-    id: `d:${String(rowId(row, dataIndex))}`,
-    rowId: rowId(row, dataIndex),
-    row,
-    dataIndex,
-    level: 0,
-  }));
+  const out: DisplayRow<T>[] = new Array(rows.length);
+  for (let dataIndex = 0; dataIndex < rows.length; dataIndex++) {
+    out[dataIndex] = dataRow(rows[dataIndex]!, dataIndex, rowId, 0);
+  }
+  return out;
 }
 
 export function buildDisplayRows<T>(options: BuildDisplayRowsOptions<T>): DisplayRow<T>[] {
@@ -104,47 +120,31 @@ function buildGroupedDisplayRows<T>(
   const walk = (
     subset: readonly { row: T; dataIndex: number }[],
     depth: number,
-    pathPrefix: string,
+    path: readonly (readonly [string, string])[],
   ): void => {
     const field = groupColumns[depth];
     if (!field) {
       for (const item of subset) {
-        out.push({
-          kind: 'data',
-          id: `d:${String(rowId(item.row, item.dataIndex))}`,
-          rowId: rowId(item.row, item.dataIndex),
-          row: item.row,
-          dataIndex: item.dataIndex,
-          level: depth,
-        });
+        out.push(dataRow(item.row, item.dataIndex, rowId, depth));
       }
       return;
     }
 
-    const column = columnsById.get(field);
-    const buckets = new Map<string, { row: T; dataIndex: number }[]>();
-    for (const item of subset) {
-      const raw = column ? getCellValue(item.row, column, item.dataIndex) : (item.row as Record<string, unknown>)[field];
-      const key = raw == null || raw === '' ? '(blank)' : String(raw);
-      const list = buckets.get(key) ?? [];
-      list.push(item);
-      buckets.set(key, list);
-    }
-
-    for (const [key, children] of buckets) {
-      const groupId = `${pathPrefix}/${field}=${key}`;
+    for (const bucket of bucketByGroupField(subset, field, columnsById.get(field))) {
+      const groupPath = [...path, [field, bucket.tag] as const];
+      const groupId = rowGroupId(groupPath);
       const expanded = !collapsedGroupIds.has(groupId);
       out.push({
         kind: 'group',
         id: groupId,
         field,
-        key,
+        key: bucket.label,
         level: depth,
         expanded,
-        childCount: children.length,
+        childCount: bucket.items.length,
       });
       if (expanded) {
-        walk(children, depth + 1, groupId);
+        walk(bucket.items, depth + 1, groupPath);
       }
     }
   };
@@ -152,105 +152,107 @@ function buildGroupedDisplayRows<T>(
   walk(
     rows.map((row, dataIndex) => ({ row, dataIndex })),
     0,
-    'g',
+    [],
   );
   return out;
 }
 
 interface TreeNode<T> {
-  name: string;
+  id: string;
+  label: string;
   children: Map<string, TreeNode<T>>;
+  /** Data rows whose path is exactly this node (usually 0 or 1). */
   rows: { row: T; dataIndex: number }[];
+  /** Data rows at or below this node. */
+  size: number;
 }
 
+/**
+ * Tree model (AG-like): the row at a path **is** that node. Group rows are
+ * synthesized only for missing ancestors ("filler" nodes); a data row whose
+ * node has children carries `hasChildren` / `expanded` / `groupId`.
+ */
 function buildTreeDisplayRows<T>(
   rows: readonly T[],
   rowId: (row: T, index: number) => string | number,
   treeData: TreeDataConfig<T>,
   collapsedGroupIds: ReadonlySet<string>,
 ): DisplayRow<T>[] {
-  const root: TreeNode<T> = { name: '', children: new Map(), rows: [] };
+  const root: TreeNode<T> = { id: '', label: '', children: new Map(), rows: [], size: 0 };
+  const rootRows: { row: T; dataIndex: number }[] = [];
 
   rows.forEach((row, dataIndex) => {
     const path = treeData.getDataPath(row);
     if (!path.length) {
-      root.rows.push({ row, dataIndex });
+      rootRows.push({ row, dataIndex });
       return;
     }
     let node = root;
-    for (let i = 0; i < path.length; i++) {
-      const segment = path[i] ?? '';
-      let next = node.children.get(segment);
+    const tags: string[] = [];
+    for (const segment of path) {
+      const tag = groupValueTag(segment);
+      tags.push(tag);
+      let next = node.children.get(tag);
       if (!next) {
-        next = { name: segment, children: new Map(), rows: [] };
-        node.children.set(segment, next);
+        next = {
+          id: treeNodeId(tags),
+          label: groupValueLabel(segment),
+          children: new Map(),
+          rows: [],
+          size: 0,
+        };
+        node.children.set(tag, next);
       }
+      next.size++;
       node = next;
-      if (i === path.length - 1) {
-        node.rows.push({ row, dataIndex });
-      }
     }
+    node.rows.push({ row, dataIndex });
   });
 
   const out: DisplayRow<T>[] = [];
 
-  const walk = (node: TreeNode<T>, depth: number, pathPrefix: string): void => {
-    for (const [name, child] of node.children) {
-      const groupId = `${pathPrefix}/${name}`;
-      const expanded = !collapsedGroupIds.has(groupId);
-      const childCount = countLeaves(child);
-      out.push({
-        kind: 'group',
-        id: groupId,
-        field: 'path',
-        key: name,
-        level: depth,
-        expanded,
-        childCount,
-      });
-      if (expanded) {
-        // Emit this node's own leaves before descendants (parent before children).
-        for (const item of child.rows) {
-          out.push({
-            kind: 'data',
-            id: `d:${groupId}:${String(rowId(item.row, item.dataIndex))}`,
-            rowId: rowId(item.row, item.dataIndex),
-            row: item.row,
-            dataIndex: item.dataIndex,
-            level: depth + 1,
-          });
-        }
-        walk(child, depth + 1, groupId);
-      }
-    }
-    // Root-only rows (empty path) after path groups at this level.
-    if (node === root) {
-      for (const item of node.rows) {
+  const walk = (node: TreeNode<T>, depth: number): void => {
+    for (const child of node.children.values()) {
+      const hasChildren = child.children.size > 0;
+      const expanded = !hasChildren || !collapsedGroupIds.has(child.id);
+      if (!child.rows.length) {
+        // Filler: no row at this path — synthesize a group header.
         out.push({
-          kind: 'data',
-          id: `d:${String(rowId(item.row, item.dataIndex))}`,
-          rowId: rowId(item.row, item.dataIndex),
-          row: item.row,
-          dataIndex: item.dataIndex,
+          kind: 'group',
+          id: child.id,
+          field: 'path',
+          key: child.label,
           level: depth,
+          expanded,
+          childCount: child.size,
         });
+      } else {
+        child.rows.forEach((item, i) => {
+          const display = dataRow(item.row, item.dataIndex, rowId, depth);
+          // Duplicate paths: only the first row owns the node's toggle.
+          if (hasChildren && i === 0) {
+            display.groupId = child.id;
+            display.hasChildren = true;
+            display.expanded = expanded;
+          }
+          out.push(display);
+        });
+      }
+      if (hasChildren && expanded) {
+        walk(child, depth + 1);
       }
     }
   };
 
-  walk(root, 0, 't');
+  walk(root, 0);
+  // Root-only rows (empty path) after path nodes.
+  for (const item of rootRows) {
+    out.push(dataRow(item.row, item.dataIndex, rowId, 0));
+  }
   return out;
 }
 
-function countLeaves<T>(node: TreeNode<T>): number {
-  let n = node.rows.length;
-  for (const child of node.children.values()) {
-    n += countLeaves(child);
-  }
-  return n;
-}
-
-/** All tree group header ids for Collapse-all (path prefixes). */
+/** All collapsible tree node ids for Collapse-all (every proper path prefix). */
 export function collectTreeGroupIds<T>(
   rows: readonly T[],
   getDataPath: (row: T) => readonly string[],
@@ -258,10 +260,10 @@ export function collectTreeGroupIds<T>(
   const ids = new Set<string>();
   for (const row of rows) {
     const path = getDataPath(row);
-    let prefix = 't';
-    for (const segment of path) {
-      prefix = `${prefix}/${segment ?? ''}`;
-      ids.add(prefix);
+    const tags: string[] = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      tags.push(groupValueTag(path[i]));
+      ids.add(treeNodeId(tags));
     }
   }
   return [...ids];

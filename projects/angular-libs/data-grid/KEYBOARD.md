@@ -8,7 +8,19 @@ Edit start/stop policies: OVERVIEW §5b.
 Roving `tabindex`: only the focused cell is `tabindex="0"`; others `-1`. Arrow
 keys move focus inside the grid; **Tab is not captured** by `FocusController`
 (page citizen — default browser Tab / Shift+Tab leave or enter the grid via
-roving tabindex + `restoreOrFocusDefault`).
+roving tabindex + `restoreOrFocusDefault`). Whenever the focused cell is not
+rendered (virtualized away, loading, column hidden) the grid frame is the tab
+stop (`tabindex="0"`); focusing it restores the last / default cell.
+
+Focus follows **row identity** (`DisplayRow.id`): after sort / filter / paging /
+column hide it is re-anchored to the same row (or clamped to the nearest valid
+row / column). DOM focus follows only when it was on this grid's own cell.
+
+**Scope:** grid keys run only when the event target is this grid's own
+cell / header (or the frame). Toolbar, pager, sidebar, menus and nested detail
+grids keep their native keys. Inside an editor (`isEditorEventTarget`, incl.
+custom editor hosts) only Escape (and fullRow ←→ hand-off) reach the grid.
+Escape acts only when focus is inside this grid, or to close this grid's menu.
 
 Cell `aria-selected`: `true` when the row is selected **or** the cell is inside
 the active cell range (`cellRangePlugin`); omitted otherwise.
@@ -24,17 +36,17 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Ctrl/Cmd+Home / End | First / last **row** (same column) |
 | PageUp / PageDown | Jump by viewport-sized page |
 | Enter / F2 | Start cell/row edit (group row or master-detail expand column: Enter toggles expand) |
-| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; Space reserved for selection except boolean cells) |
+| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; caret after the seed; AltGr chars count; Space reserved for selection except boolean cells) |
 | Space | Toggle row selection (group or expand column: expand/collapse; focused boolean cell: toggle value) |
 | Shift+F2 | Notes editor (`notesPlugin`) — does **not** start cell/row edit |
 | Escape | Cancel edit (does not clear range); second Escape clears range / close context menu |
-| Ctrl/Cmd+A | Select all visible rows when `selection: 'multi'` |
+| Ctrl/Cmd+A | Select all rows in the `selectAll` scope (default: filtered) when `selection: 'multi'` |
 
 ## Body — edit (cell editor open)
 
 | Key | Action |
 | --- | --- |
-| Enter | Commit (`excel`: commit + move down) |
+| Enter | Commit (`excel`: commit + move down); ignored during IME composition; invalid draft stays open (`aria-invalid`) |
 | Tab / Shift+Tab | `tabEditing: 'commitAndMove'` → commit + next/prev cell (wrap); **fullRow** walks cells without committing the row; `'browser'` → leave page (default) |
 | Escape | Cancel edit (range stays); second Escape clears range |
 | ← → (fullRow + `arrowEditing: 'moveHorizontal'`) | Move to adjacent cell editor |
@@ -50,6 +62,14 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Enter | Toggle sort on **leaf** headers: asc → desc → none (Shift+Enter multi-sort) |
 | Alt+↓ | Open lean column menu (pin / sort / autosize / hide) — leaf headers |
 | Escape | Close menu |
+
+## Column / context menu
+
+| Key | Action |
+| --- | --- |
+| ↑ ↓ / Home / End | Move between items (first item focused on open; custom templates: the menu) |
+| Enter / Space | Activate the item (never reaches the grid) |
+| Escape / Tab | Close; focus returns to the invoking header / cell |
 
 ## Floating filters
 

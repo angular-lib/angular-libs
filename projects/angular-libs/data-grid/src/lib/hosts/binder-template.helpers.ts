@@ -6,7 +6,8 @@
 import { focusRealmOf, type FocusCell } from '../controllers/focus';
 import { cellInNormalizedRange, normalizeCellRange } from '../utils/cell-range';
 import { resolveCellClass } from '../utils/cell-value';
-import type { DisplayRow } from '../utils/row-display';
+import type { CustomDisplayRow } from '../utils/row-display';
+import type { DisplayViewContribution } from '../plugins/capabilities';
 import type {
   CellRange,
   ColumnDef,
@@ -14,40 +15,12 @@ import type {
   SortState,
 } from '../components/data-grid/data-grid.types';
 
-export function masterDetailRegionId(rowId: string | number): string {
-  return `al-dg-detail-${String(rowId)}`;
-}
-
-export function masterDetailAriaDetailsOf<T>(
-  rows: readonly DisplayRow<T>[],
-  rowId: string | number,
+/** Row-shell DOM id from a display view's `regionId` (e.g. an `aria-details` target). */
+export function pluginRowRegionIdOf(
+  view: DisplayViewContribution,
+  item: CustomDisplayRow,
 ): string | null {
-  const id = `md:${String(rowId)}`;
-  const open = rows.some(
-    (row) => row.kind === 'plugin' && row.pluginKind === 'masterDetail' && row.id === id,
-  );
-  return open ? masterDetailRegionId(rowId) : null;
-}
-
-export function pluginMasterRowId(item: { id: string; payload?: unknown }): string | null {
-  const raw = item.payload;
-  if (raw && typeof raw === 'object' && 'masterRowId' in raw) {
-    const id = (raw as { masterRowId: string | number }).masterRowId;
-    return id == null ? null : String(id);
-  }
-  if (item.id.startsWith('md:')) {
-    return item.id.slice(3);
-  }
-  return null;
-}
-
-export function detailRegionIdOf(item: { id: string; payload?: unknown }): string | null {
-  const id = pluginMasterRowId(item);
-  return id == null ? null : masterDetailRegionId(id);
-}
-
-export function isMasterDetailPluginRow(item: { pluginKind?: string }): boolean {
-  return item.pluginKind === 'masterDetail';
+  return view.regionId?.(item) ?? null;
 }
 
 export function columnWidthOf<T>(
@@ -162,11 +135,16 @@ export function ariaRowCountOf(
   return headerRows + displayRowCount;
 }
 
+/**
+ * 1-based `aria-rowindex` for a body row. `rowOffset` = rows before the current
+ * page (pagination), so indices stay absolute across pages.
+ */
 export function ariaBodyRowIndexOf(
   headerRows: number,
   displayIndex: number,
+  rowOffset = 0,
 ): number {
-  return headerRows + displayIndex + 1;
+  return headerRows + rowOffset + displayIndex + 1;
 }
 
 /**

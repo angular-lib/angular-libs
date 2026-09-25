@@ -9,7 +9,7 @@ export type FindPluginOptions = FindFeatureConfig;
 /**
  * Enables Find chrome + owns keyboard shortcuts via interaction capability.
  */
-export function findPlugin<T = unknown>(options: FindPluginOptions = {}): DataGridPlugin<T> {
+export function findPlugin<T = any>(options: FindPluginOptions = {}): DataGridPlugin<T> {
   return {
     id: 'find',
     setup(context: DataGridPluginContext<T>): () => void {

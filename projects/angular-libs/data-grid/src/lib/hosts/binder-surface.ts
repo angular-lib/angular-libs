@@ -54,8 +54,6 @@ export interface BinderPublishSurface<T> {
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
     payload: unknown,
   ): void;
-  emitState(): void;
-  emitQueryIfServer(): void;
   pluginContext(): DataGridPluginContext<T>;
   effectivePlugins(): readonly DataGridPlugin<T>[];
 }
@@ -75,18 +73,33 @@ export interface ColumnLayoutDeps<T> {
   processedRows(): readonly T[];
   data(): readonly T[];
   hostElement(): HTMLElement;
+  /** Scrollport inner width (px) — flex columns resolve against it. */
+  viewportWidth(): number;
+  /** CSV `onlySelected` export. */
+  isRowSelected(row: T): boolean;
   publishSort(event: SortChangeEvent): void;
   publishFilter(event: FilterChangeEvent): void;
   publishColumnOrder(event: ColumnOrderChangeEvent): void;
-  getStateExtras(): Pick<DataGridState, 'pageIndex' | 'activeSidePanel'>;
-  applyStateExtras(state: Pick<DataGridState, 'pageIndex' | 'activeSidePanel'>): void;
+  /** State owned outside the column host (viewport / selection / controller / plugins). */
+  getStateExtras(): Pick<DataGridState, GridStateExtraKey>;
+  /**
+   * Apply validated extras. `initial` = mount-time `initialState` (silent: no
+   * `selectionChange`); otherwise an API `setState`.
+   */
+  applyStateExtras(state: Partial<Pick<DataGridState, GridStateExtraKey>>, initial: boolean): void;
   notifyPlugins(
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
     payload: unknown,
   ): void;
-  emitState(): void;
-  emitQueryIfServer(): void;
 }
+
+/** {@link DataGridState} keys not owned by {@link ColumnLayoutDeps} consumers. */
+export type GridStateExtraKey =
+  | 'pageIndex'
+  | 'pageSize'
+  | 'selectedIds'
+  | 'activeSidePanel'
+  | 'slices';
 
 /** @deprecated Use ColumnLayoutDeps — host owns column state as of F1. */
 export type ColumnLayoutSurface<T> = ColumnLayoutDeps<T>;
@@ -98,6 +111,8 @@ export interface SelectionDeps<T> {
   rowClick: OutputEmitterRef<RowClickEvent<T>>;
   effectiveSelectionMode(): SelectionMode;
   effectiveRowClickSelects(): boolean;
+  /** Header select-all scope (`createGrid({ selectAll })`). */
+  selectAllScope(): 'filtered' | 'page' | 'all';
   isRowSelectableFn(): ((row: T, rowId: string | number) => boolean) | null | undefined;
   data(): readonly T[];
   effectiveRowId(): (row: T, index: number) => string | number;
@@ -147,6 +162,8 @@ export interface EditSyncDeps<T> {
   publishRowEditStart(payload: DataGridEventMap<T>['rowEditStart']): void;
   publishRowEdit(payload: DataGridEventMap<T>['rowEdit']): void;
   publishRowEditCancel(payload: DataGridEventMap<T>['rowEditCancel']): void;
+  /** Number / date parsing locale + validation messages. */
+  resolvedLocale(): DataGridLocale;
   /** After edit start/stop — sync DOM focus to focused cell / editor. */
   syncDomFocusAfterEdit(): void;
 }
@@ -170,6 +187,8 @@ export interface MenuDeps<T> {
   selectedIds(): Array<string | number>;
   resolvedLocale(): DataGridLocale;
   hostElement(): HTMLElement;
+  /** Component injector — menu focus is scheduled with `afterNextRender`. */
+  injector(): Injector;
   kernel(): GridKernel<T>;
   isRowEditing(rowId: string | number): boolean;
   rowForm(): FieldTree<T> | null;
@@ -199,6 +218,8 @@ export interface ViewportDeps<T> {
   rowHeight(): number;
   overscan(): number;
   serverSide(): boolean;
+  /** Server total row count (`GridController.serverRowCount`); `null` = unknown. */
+  serverRowCount(): number | null;
   displayRows(): readonly DisplayRow<T>[];
   processedRows(): readonly T[];
   visibleColumns(): readonly ResolvedColumn<T>[];
@@ -216,8 +237,6 @@ export interface ViewportDeps<T> {
   injector(): Injector;
   sideBarConfig(): boolean | SideBarConfig | null;
   sidebarSlotItems(): readonly { id: string }[];
-  emitState(): void;
-  emitQueryIfServer(): void;
   publishNearEnd(): void;
   publishFindMatches(matches: FindMatch[]): void;
   publishRowReorder(payload: RowReorderEvent<T>): void;

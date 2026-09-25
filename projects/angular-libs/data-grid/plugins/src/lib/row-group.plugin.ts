@@ -1,7 +1,9 @@
 import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
+import { collectAllGroupIds } from '@angular-libs/data-grid/plugin';
 import {
   buildGroupedRowsFromAdapter,
   createRowGroupAdapter,
+  ROW_GROUP_ADAPTER,
   type RowGroupAdapter,
 } from './row-group.adapter';
 import { DataGridRowGroupPanel } from './sidebar/row-group-panel';
@@ -17,9 +19,10 @@ export type RowGroupPlugin<T = unknown> = DataGridPlugin<T> & RowGroupAdapter;
 /**
  * Row grouping as a capability plugin + store-style adapter.
  *
- * Expand / collapse / clear are available on the adapter and {@link DataGridApi}
- * — no default toolbar buttons (compose your own via `registerToolbar` / `[toolbarActions]`).
+ * Group columns live on the held adapter (also `api.getAdapter(ROW_GROUP_ADAPTER)`);
+ * expand / collapse on the adapter and {@link DataGridApi} — no default toolbar buttons (compose your own via `registerToolbar` / `[toolbarActions]`).
  * Mutually exclusive with `treeDataPlugin` / `masterDetailPlugin` (one display builder).
+ * One instance may serve several grids — they share the adapter (same grouping).
  *
  * @example
  * ```ts
@@ -29,7 +32,7 @@ export type RowGroupPlugin<T = unknown> = DataGridPlugin<T> & RowGroupAdapter;
  * groups.clear();
  * ```
  */
-export function rowGroupPlugin<T = unknown>(
+export function rowGroupPlugin<T = any>(
   options: RowGroupPluginOptions = {},
 ): RowGroupPlugin<T> {
   const adapter = createRowGroupAdapter(options.columns ?? []);
@@ -51,7 +54,17 @@ export function rowGroupPlugin<T = unknown>(
       const cleanDisplay = context.capabilities.registerDisplayBuilder({
         id: 'rowGroup',
         build: (rows, ctx) =>
-          buildGroupedRowsFromAdapter(rows, adapter, ctx.columnsById, ctx.rowId),
+          buildGroupedRowsFromAdapter(
+            rows,
+            adapter,
+            ctx.columnsById,
+            ctx.rowId,
+            ctx.collapsedGroupIds,
+          ),
+        // The held adapter is the grid's expansion store while this builder is active.
+        expansion: adapter,
+        collectGroupIds: (rows, ctx) =>
+          collectAllGroupIds(rows, adapter.columns(), ctx.columnsById),
       });
 
       const cleanSidebar = context.slots.registerSidebar({
@@ -59,12 +72,21 @@ export function rowGroupPlugin<T = unknown>(
         label: locale().groupsPanelShortLabel,
         order: 30,
         component: DataGridRowGroupPanel,
+        inputs: { adapter },
       });
 
-      context.api.bindRowGroupAdapter(adapter);
+      const cleanAdapter = context.adapters.register(ROW_GROUP_ADAPTER, adapter);
+
+      // `state.slices.rowGroup` — persisted / restored with grid state.
+      const cleanState = context.capabilities.registerStateSlice({
+        key: 'rowGroup',
+        get: () => ({ columns: [...adapter.columns()], collapsedIds: [...adapter.collapsedIds()] }),
+        apply: (value) => applyRowGroupState(adapter, value),
+      });
 
       return () => {
-        context.api.bindRowGroupAdapter(null);
+        cleanState();
+        cleanAdapter();
         cleanSidebar();
         cleanDisplay();
       };
@@ -72,4 +94,22 @@ export function rowGroupPlugin<T = unknown>(
   };
 
   return plugin;
+}
+
+/** Validate + apply a persisted `rowGroup` slice (`{ columns, collapsedIds }`). */
+function applyRowGroupState(adapter: RowGroupAdapter, value: unknown): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  const { columns, collapsedIds } = value as { columns?: unknown; collapsedIds?: unknown };
+  const strings = (list: unknown): string[] | null =>
+    Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string') : null;
+  const nextColumns = strings(columns);
+  if (nextColumns) {
+    adapter.setColumns(nextColumns);
+  }
+  const collapsed = strings(collapsedIds);
+  if (collapsed) {
+    adapter.collapseAll(collapsed);
+  }
 }

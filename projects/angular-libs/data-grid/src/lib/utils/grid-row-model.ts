@@ -17,13 +17,13 @@ export interface GridRowModelInput<T> extends ClientRowPipelineInput<T> {
 }
 
 export interface GridRowModelResult<T> {
-  processedRows: T[];
+  processedRows: readonly T[];
   displayRows: DisplayRow<T>[];
 }
 
 /**
- * Source of truth for the client row model pipeline.
- * {@link DataGrid} should call this rather than re-implementing stages.
+ * Pure composition of the client row model stages (tests / tooling).
+ * The live session runs the same stage functions as chained computeds.
  */
 export function runGridRowModel<T>(
   input: GridRowModelInput<T>,

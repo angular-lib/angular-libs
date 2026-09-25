@@ -48,6 +48,7 @@ describe('notesPlugin', () => {
       injector: null as never,
       slots: {} as never,
       capabilities: caps,
+      adapters: null as never,
     });
 
     const col = { id: 'name', field: 'name' } as ColumnDef<Person>;

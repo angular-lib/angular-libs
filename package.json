@@ -9,6 +9,7 @@
     "build:pages": "ng build demo --configuration=production --base-href=/angular-libs/",
     "build:event-bus:schematics": "tsc -p projects/angular-libs/event-bus/schematics/tsconfig.json",
     "build:libs": "ng build @angular-libs/dialog && bun run build:event-bus:schematics && ng build @angular-libs/event-bus && ng build @angular-libs/shortcut && ng build @angular-libs/socket && ng build @angular-libs/store && ng build @angular-libs/translate && ng build @angular-libs/web && ng build @angular-libs/data-grid && ng build @angular-libs/form",
+    "build:data-grid": "ng build @angular-libs/data-grid",
     "watch": "ng build demo --watch --configuration development",
     "test": "ng test"
   },

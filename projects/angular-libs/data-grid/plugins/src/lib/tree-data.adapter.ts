@@ -3,6 +3,7 @@
  */
 
 import { computed, signal, type Signal } from '@angular/core';
+import { adapterKey } from '@angular-libs/data-grid';
 
 export interface TreeDataAdapter {
   readonly collapsedIds: Signal<ReadonlySet<string>>;
@@ -12,6 +13,9 @@ export interface TreeDataAdapter {
   collapseAll(allGroupIds: readonly string[]): void;
   collectAllGroupIds(rows: readonly unknown[]): string[];
 }
+
+/** Discovery key — `grid.getAdapter(TREE_DATA_ADAPTER)` / `api.getAdapter(…)`. */
+export const TREE_DATA_ADAPTER = adapterKey<TreeDataAdapter>('treeData');
 
 export function createTreeDataAdapter(
   collectAllGroupIds: (rows: readonly unknown[]) => string[] = () => [],

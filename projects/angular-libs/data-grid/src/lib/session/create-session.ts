@@ -7,6 +7,9 @@
 
 import {
   computed,
+  effect,
+  signal,
+  untracked,
   type EnvironmentInjector,
   type Injector,
   type OutputEmitterRef,
@@ -18,10 +21,16 @@ import { DataGridApi } from '../api/grid-api';
 import type { DataGridEventMap } from '../api/grid-events';
 import type { GridController } from '../create-grid';
 import { GridKernel } from '../kernel/grid-kernel';
+import { focusRealmOf } from '../controllers/focus';
+import { domFocusOnOwnCell } from '../a11y/grid-keydown';
 import { getCellValue } from '../utils/cell-value';
 import { applyCellEdit, applyRowEdit, mergeRowsById } from '../utils/apply-edit';
-import { runGridRowModel } from '../utils/grid-row-model';
-import type { DisplayRow } from '../utils/row-display';
+import { applyExternalFilter, filterRows, quickFilterRows } from '../utils/filter-rows';
+import { sortRows } from '../utils/sort-rows';
+import { reconcileHiddenColumnIds } from '../utils/column-layout';
+import { gridQueryEqual, gridStateEqual } from '../utils/state';
+import type { RowModelContext } from '../plugins/capabilities';
+import type { DataDisplayRow, DisplayRow } from '../utils/row-display';
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
 import { ColumnLayoutHost } from '../hosts/column-layout.host';
 import { EditSyncHost } from '../hosts/edit-sync.host';
@@ -29,13 +38,14 @@ import { MenuHost } from '../hosts/menu.host';
 import { SelectionHost } from '../hosts/selection.host';
 import { ViewportHost } from '../hosts/viewport.host';
 import type { HostWritable } from '../hosts/binder-surface';
-import { notifyPlugins, type DataGridPlugin } from '../plugins/types';
+import type { DataGridPlugin } from '../plugins/types';
 import type { DataGridLocale } from '../locale/default-locale';
 import {
   createPaintedOverlays,
   type PaintedOverlay,
 } from './painted-overlays';
 import type {
+  CellRange,
   CreateRowFormFn,
   DataGridContextMenuContext,
   DataGridContextMenuItems,
@@ -114,16 +124,21 @@ export interface GridSession<T> {
   readonly editSync: EditSyncHost<T>;
   readonly menu: MenuHost<T>;
   readonly viewport: ViewportHost<T>;
-  readonly processedRows: Signal<T[]>;
+  readonly processedRows: Signal<readonly T[]>;
   readonly displayRows: Signal<DisplayRow<T>[]>;
   /** @deprecated Prefer pagedDisplayRows on viewport — paste/reorder helpers. */
-  readonly pageRows: Signal<T[]>;
+  readonly pageRows: Signal<readonly T[]>;
   /** Capability + cell-range overlay paint layouts. */
   readonly paintedOverlays: Signal<PaintedOverlay[]>;
+  /** Active cell range from the registered range source (`registerRangeSelection`). */
+  getCellRange(): CellRange | null;
+  clearCellRange(): void;
   emitPaste(event: PasteEvent<T>): void;
   getQuery(): DataGridQuery;
-  emitState(): void;
-  emitQueryIfServer(): void;
+  /** Live state (`api.state`) — `(stateChange)` is derived from it. */
+  readonly state: Signal<DataGridState>;
+  /** Live query (`api.query`) — `(queryChange)` is derived from it in server mode. */
+  readonly query: Signal<DataGridQuery>;
   destroy(): void;
 }
 
@@ -143,20 +158,39 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   let menu!: MenuHost<T>;
   let viewport!: ViewportHost<T>;
 
-  const effectiveColumns = () => ctrl().columns;
-  const effectiveRowId = (): ((row: T, index: number) => string | number) => ctrl().rowId;
-  const effectiveSelectionMode = (): SelectionMode => ctrl().selection;
+  const effectiveColumns = () => ctrl().columns();
+  /**
+   * Row → index in the source `[data]` array. The `index` a grid `rowId` sees is
+   * always this source index — never a filtered / sorted / page position — so
+   * index-based ids agree between display rows, selection, edits and writes.
+   */
+  const sourceIndexByRow = computed(() => {
+    const rows = opts.data();
+    const map = new Map<T, number>();
+    for (let i = 0; i < rows.length; i++) {
+      if (!map.has(rows[i]!)) {
+        map.set(rows[i]!, i);
+      }
+    }
+    return map;
+  });
+  /** Source-index-aware rowId; `index` is only a fallback for rows not in `[data]`. */
+  const resolveRowId = (row: T, index: number): string | number =>
+    ctrl().rowId(row, sourceIndexByRow().get(row) ?? index);
+  const effectiveRowId = (): ((row: T, index: number) => string | number) => resolveRowId;
+  const effectiveSelectionMode = (): SelectionMode => ctrl().selection();
   const effectiveEditMode = (): EditMode => ctrl().editMode();
-  const effectiveEditInteraction = (): ResolvedEditInteraction => ctrl().editInteraction;
-  const effectiveRowClickSelects = (): boolean => ctrl().rowClickSelects;
-  const effectivePlugins = (): readonly DataGridPlugin<T>[] => ctrl().plugins();
+  const effectiveEditInteraction = (): ResolvedEditInteraction => ctrl().editInteraction();
+  const effectiveRowClickSelects = (): boolean => ctrl().rowClickSelects();
+  /** Plugins the kernel has set up (the kernel owns the active list). */
+  const effectivePlugins = (): readonly DataGridPlugin<T>[] => kernel.activePlugins();
   const effectiveRowEditSchema = () => opts.rowEditSchema() ?? ctrl().rowEditSchema;
   const effectiveCreateRowForm = () => opts.createRowForm() ?? ctrl().createRowForm;
 
   const pagination = () => ctrl().viewport.pagination();
-  const pageSize = () => ctrl().viewport.pageSize();
+  const pageSize = () => Math.max(1, Math.floor(ctrl().viewport.pageSize()) || 1);
   const virtual = () => ctrl().viewport.virtual();
-  const rowHeight = () => ctrl().viewport.rowHeight();
+  const rowHeight = () => Math.max(1, ctrl().viewport.rowHeight() || 1);
   const overscan = () => ctrl().viewport.overscan();
   const multiSort = () => ctrl().multiSort();
   const columnReorder = () => ctrl().chrome.columnReorder();
@@ -167,7 +201,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
     payload: unknown,
   ): void => {
-    notifyPlugins(effectivePlugins(), kernel.pluginContext(opts.hostElement()), hook, payload);
+    kernel.notifyPlugins(hook, payload);
   };
 
   const getQuery = (): DataGridQuery => ({
@@ -177,19 +211,6 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     pageIndex: viewport.pageIndex(),
     pageSize: pageSize(),
   });
-
-  const emitState = (): void => {
-    const state = columnLayout.getState();
-    opts.publish('stateChange', out.stateChange, state);
-    notify('onStateChange', state);
-  };
-
-  const emitQueryIfServer = (): void => {
-    if (!serverSide()) {
-      return;
-    }
-    opts.publish('queryChange', out.queryChange, getQuery());
-  };
 
   const applyOwnedCellEdit = (event: DataGridEventMap<T>['cellEdit']): void => {
     const c = ctrl();
@@ -212,42 +233,65 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     if (!c.autoApplyWrites || !c.rows) {
       return;
     }
-    c.setRows(mergeRowsById(c.rows(), event.suggestedRows, c.rowId));
+    c.setRows(mergeRowsById(c.rows(), event.suggestedRows, c.rowId, event.rowIds));
   };
 
-  const rowModelContext = () => ({
+  const rowModelContext = (): RowModelContext<T> => ({
     columnsById: columnLayout.columnsById() as Map<string, ColumnDef<T>>,
-    rowId: (row: T, index: number) => effectiveRowId()(row, index),
-    collapsedGroupIds: viewport.collapsedGroupIds(),
+    rowId: resolveRowId,
+    // Lazy: only display builders that read it depend on expansion state.
+    get collapsedGroupIds() {
+      return kernel.capabilities.collapsedGroupIds();
+    },
   });
 
-  const rowModel = computed(() =>
-    runGridRowModel({
-      data: opts.data(),
-      filters: columnLayout.filters(),
-      quickFilter: models.quickFilter(),
-      externalFilter: opts.externalFilter(),
-      sorts: columnLayout.sorts(),
-      columnsById: columnLayout.columnsById(),
-      visibleColumns: columnLayout.visibleColumns(),
-      serverSide: serverSide(),
-      capabilities: kernel.capabilities,
-      rowModelContext: rowModelContext(),
-    }),
+  // Live row model — one memoized computed per stage, so e.g. collapsing a group
+  // only rebuilds display rows, and reordering / pinning columns re-runs nothing.
+  const quickFilterColumns = computed(() => columnLayout.visibleColumns(), {
+    // Quick-filter results depend on *which* columns are visible, not order / pin.
+    equal: sameColumnIdSet,
+  });
+
+  const filteredRows = computed((): readonly T[] =>
+    serverSide()
+      ? opts.data()
+      : filterRows(opts.data(), columnLayout.filters(), columnLayout.columnsById()),
   );
 
-  const processedRows: Signal<T[]> = computed(() => rowModel().processedRows);
-
-  const displayRows: Signal<DisplayRow<T>[]> = computed(() => {
-    // Track adapter / capability signals so grouping reactively rebuilds.
-    viewport.boundRowGroupAdapter()?.columns();
-    viewport.boundRowGroupAdapter()?.collapsedIds();
-    viewport.boundTreeDataAdapter()?.collapsedIds();
-    kernel.capabilities.hasDisplayBuilder();
-    return rowModel().displayRows;
+  const quickFilteredRows = computed((): readonly T[] => {
+    const rows = filteredRows();
+    const query = models.quickFilter();
+    if (serverSide() || !query.trim()) {
+      return rows;
+    }
+    return quickFilterRows(rows, query, quickFilterColumns());
   });
 
-  const pageRows: Signal<T[]> = computed(() => {
+  const externalFilteredRows = computed((): readonly T[] =>
+    serverSide()
+      ? quickFilteredRows()
+      : applyExternalFilter(quickFilteredRows(), opts.externalFilter()),
+  );
+
+  const collatorLocale = computed(() => opts.resolvedLocale().collatorLocale);
+
+  const sortedRows = computed((): readonly T[] =>
+    serverSide()
+      ? externalFilteredRows()
+      : sortRows(externalFilteredRows(), columnLayout.sorts(), columnLayout.columnsById(), {
+          locale: collatorLocale(),
+        }),
+  );
+
+  const processedRows: Signal<readonly T[]> = computed(() =>
+    kernel.capabilities.runDataStages(sortedRows(), rowModelContext()),
+  );
+
+  const displayRows: Signal<DisplayRow<T>[]> = computed(() =>
+    kernel.capabilities.buildDisplayRows(processedRows(), rowModelContext()),
+  );
+
+  const pageRows: Signal<readonly T[]> = computed(() => {
     const rows = processedRows();
     if (!pagination() || kernel.capabilities.hasDisplayBuilder()) {
       return rows;
@@ -269,21 +313,42 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     processedRows: () => processedRows(),
     data: () => opts.data(),
     hostElement: opts.hostElement,
+    viewportWidth: () => viewport.viewportWidth(),
+    isRowSelected: (row) => selection.isRowSelectedByRef(row),
     publishSort: (event) => opts.publish('sortChange', out.sortChange, event),
     publishFilter: (event) => opts.publish('filterChange', out.filterChange, event),
     publishColumnOrder: (event) =>
       opts.publish('columnOrderChange', out.columnOrderChange, event),
     getStateExtras: () => ({
       pageIndex: viewport.pageIndex(),
+      pageSize: pageSize(),
+      selectedIds: models.selectedIds(),
       activeSidePanel: viewport.activeSidePanel(),
+      slices: kernel.capabilities.collectStateSlices(),
     }),
-    applyStateExtras: (extras) => {
-      viewport.pageIndex.set(extras.pageIndex);
-      viewport.activeSidePanel.set(extras.activeSidePanel);
+    applyStateExtras: (extras, initial) => {
+      if (extras.pageSize !== undefined) {
+        ctrl().viewport.pageSize.set(extras.pageSize);
+      }
+      // After page size (a size change resets the page).
+      if (extras.pageIndex !== undefined) {
+        viewport.pageIndex.set(extras.pageIndex);
+      }
+      if (extras.selectedIds) {
+        if (initial) {
+          models.selectedIds.set(extras.selectedIds);
+        } else {
+          selection.setSelectedIds(extras.selectedIds);
+        }
+      }
+      if (extras.activeSidePanel !== undefined) {
+        viewport.activeSidePanel.set(extras.activeSidePanel);
+      }
+      if (extras.slices) {
+        kernel.capabilities.applyStateSlices(extras.slices);
+      }
     },
     notifyPlugins: notify,
-    emitState,
-    emitQueryIfServer,
   });
 
   viewport = new ViewportHost<T>({
@@ -298,20 +363,19 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     rowHeight,
     overscan,
     serverSide,
+    serverRowCount: () => ctrl().serverRowCount(),
     displayRows: () => displayRows(),
     processedRows: () => processedRows(),
     visibleColumns: () => columnLayout.visibleColumns(),
     hasActiveSort: () => columnLayout.sorts().length > 0,
     hasColumnGroups: () => columnLayout.hasColumnGroups(),
-    resolveRowId: (row, index) => effectiveRowId()(row, index),
+    resolveRowId,
     rowModelContext,
     hostElement: opts.hostElement,
     kernel: () => kernel,
     injector: opts.injector,
     sideBarConfig: () => kernel.sideBarConfig(),
     sidebarSlotItems: () => kernel.sidebarSlotItems(),
-    emitState,
-    emitQueryIfServer,
     publishNearEnd: () => opts.publish('nearEnd', out.nearEnd, undefined),
     publishFindMatches: (matches) =>
       opts.publish('findMatchesChange', out.findMatchesChange, {
@@ -327,7 +391,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     rowClick: out.rowClick,
     effectiveSelectionMode,
     effectiveRowClickSelects,
-    isRowSelectableFn: () => ctrl().isRowSelectable,
+    selectAllScope: () => ctrl().selectAll(),
+    isRowSelectableFn: () => ctrl().isRowSelectable(),
     data: () => opts.data(),
     effectiveRowId,
     processedRows: () => processedRows(),
@@ -377,6 +442,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     },
     publishRowEditCancel: (payload) =>
       opts.publish('rowEditCancel', out.rowEditCancel, payload),
+    resolvedLocale: () => opts.resolvedLocale(),
     syncDomFocusAfterEdit: () => editSync.syncDomFocus(kernel.focus.getFocus()),
   });
 
@@ -395,6 +461,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     selectedIds: () => models.selectedIds(),
     resolvedLocale: () => opts.resolvedLocale(),
     hostElement: opts.hostElement,
+    injector: opts.injector,
     kernel: () => kernel,
     isRowEditing: (rowId) => editSync.isRowEditing(rowId),
     rowForm: () => models.rowForm(),
@@ -429,7 +496,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       find: viewport,
       rowGroup: viewport,
       clipboard: {
-        getSelectionClipboardText: () => selection.getSelectionClipboardText(),
+        // §5d — an active cell range wins copy.
+        getSelectionClipboardText: () =>
+          kernel.capabilities.rangeSelection()?.clipboardText?.() ??
+          selection.getSelectionClipboardText(),
         emitPaste: (event) => {
           applyOwnedPaste(event);
           opts.publish('paste', out.paste, event);
@@ -440,71 +510,28 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
         openToolPanel: (panelId) => viewport.activeSidePanel.set(panelId),
         getOpenedToolPanel: () => viewport.activeSidePanel(),
       },
+      adapters: { getAdapter: (key) => kernel.adapters.get(key) },
     }),
   );
 
-  const isMasterDetailExpandFocus = (columnId: string | undefined): boolean => {
-    if (!columnId) {
-      return false;
-    }
-    const bag = columnLayout.columnsById().get(columnId)?.cellRendererParams;
-    return !!bag && typeof bag === 'object' && 'masterDetail' in bag;
-  };
+  /** Tree parent data row focused on its toggle column (first visible column). */
+  const isTreeToggleFocus = (
+    item: DisplayRow<T> | undefined,
+  ): item is DataDisplayRow<T> & { groupId: string } =>
+    !!item &&
+    item.kind === 'data' &&
+    !!item.hasChildren &&
+    !!item.groupId &&
+    viewport.focusedCell()?.columnId === columnLayout.visibleColumns()[0]?.id;
 
-  type MasterDetailBag = {
-    masterDetail?: {
-      toggle: (id: string | number, openByDefault?: boolean) => void;
-      isExpanded?: (id: string | number, openByDefault?: boolean) => boolean;
-      enterDetail?: (id: string | number) => boolean;
-    };
-    openByDefault?: (row: T) => boolean;
-    isRowMaster?: (row: T) => boolean;
-  };
-
-  const masterDetailBag = (columnId: string | undefined): MasterDetailBag | undefined => {
-    if (!columnId) {
-      return undefined;
-    }
-    return columnLayout.columnsById().get(columnId)?.cellRendererParams as
-      | MasterDetailBag
-      | undefined;
-  };
-
-  const toggleMasterDetailAt = (item: DisplayRow<T> | undefined): void => {
+  /** Plugin cell widget (`registerCellWidget`) on the focused cell of a data row. */
+  const focusedCellWidget = (item: DisplayRow<T> | undefined) => {
     const cell = viewport.focusedCell();
     if (!item || item.kind !== 'data' || !cell) {
-      return;
+      return null;
     }
-    const bag = masterDetailBag(cell.columnId);
-    const md = bag?.masterDetail;
-    if (!md) {
-      return;
-    }
-    if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
-      return;
-    }
-    md.toggle(item.rowId, bag.openByDefault?.(item.row) ?? false);
-  };
-
-  const enterMasterDetailWidget = (rowIndex: number): boolean => {
-    const item = viewport.pagedDisplayRows()[rowIndex];
-    const cell = viewport.focusedCell();
-    if (!item || item.kind !== 'data' || !cell) {
-      return false;
-    }
-    const bag = masterDetailBag(cell.columnId);
-    const md = bag?.masterDetail;
-    if (!bag || !md?.enterDetail || !md.isExpanded) {
-      return false;
-    }
-    if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
-      return false;
-    }
-    const openByDefault = bag.openByDefault?.(item.row) ?? false;
-    if (!md.isExpanded(item.rowId, openByDefault)) {
-      return false;
-    }
-    return md.enterDetail(item.rowId);
+    const widget = kernel.capabilities.resolveCellWidget(cell.columnId, item.row, item.rowId);
+    return widget ? { widget, row: item.row, rowId: item.rowId } : null;
   };
 
   kernel = new GridKernel<T>(
@@ -512,11 +539,25 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       api,
       getDisplayRowCount: () => viewport.pagedDisplayRows().length,
       getColumnIds: () => columnLayout.visibleColumns().map((c) => c.id),
-      ensureRowVisible: (rowIndex) => viewport.ensureRowVisible(rowIndex),
-      onFocusChange: (cell) => {
+      ensureRowVisible: (rowIndex) =>
+        viewport.scrollCellIntoView(rowIndex, kernel.focus.getFocus()?.columnId),
+      onFocusChange: (cell, reason) => {
         viewport.focusedCell.set(cell);
-        editSync.syncDomFocus(cell, { force: true });
+        if (reason !== 'reconcile') {
+          editSync.syncDomFocus(cell, { force: true });
+          return;
+        }
+        // Re-anchored after sort / filter / column change: follow with DOM focus
+        // only when it was on this grid's own cell — never steal from elsewhere.
+        if (cell && domFocusOnOwnCell(opts.hostElement())) {
+          if (focusRealmOf(cell) === 'body') {
+            viewport.scrollCellIntoView(cell.rowIndex, cell.columnId);
+          }
+          editSync.syncDomFocus(cell, { force: true });
+        }
       },
+      getRowKey: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.id,
+      findRowIndex: (rowKey) => viewport.pagedDisplayRows().findIndex((row) => row.id === rowKey),
       onStartEdit: (cell, reason) =>
         editSync.startEditAtFocus(cell.rowIndex, cell.columnId, reason),
       onCancelEdit: () => editSync.cancelActiveEdit(),
@@ -534,27 +575,31 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
           viewport.toggleGroup(item.id);
           return;
         }
-        toggleMasterDetailAt(item);
+        if (isTreeToggleFocus(item)) {
+          viewport.toggleGroup(item.groupId);
+          return;
+        }
+        const hit = focusedCellWidget(item);
+        hit?.widget.toggle(hit.row, hit.rowId);
       },
-      onEnterWidget: (rowIndex) => enterMasterDetailWidget(rowIndex),
+      onEnterWidget: (rowIndex) => {
+        const hit = focusedCellWidget(viewport.pagedDisplayRows()[rowIndex]);
+        return hit?.widget.enter?.(hit.row, hit.rowId) ?? false;
+      },
       isGroupRow: (rowIndex) => {
         const item = viewport.pagedDisplayRows()[rowIndex];
-        if (item?.kind === 'group') {
-          return true;
-        }
-        const cell = viewport.focusedCell();
-        return !!item && item.kind === 'data' && isMasterDetailExpandFocus(cell?.columnId);
+        return item?.kind === 'group' || isTreeToggleFocus(item) || !!focusedCellWidget(item);
       },
       isSkipRow: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.kind === 'plugin',
-      getPageRowCount: () =>
-        Math.max(1, Math.floor(viewport.viewportHeight() / rowHeight()) || 10),
+      getPageRowCount: () => viewport.pageRowCount(),
       onHeaderActivate: (columnId, multi) => columnLayout.activateHeaderSort(columnId, multi),
       onOpenColumnMenu: (columnId) => menu.openColumnMenu(columnId),
       hasFloatingFilters: () => ctrl().chrome.floatingFilters() && columnLayout.hasFilters(),
       hasColumnGroups: () => columnLayout.hasColumnGroups(),
       onFloatingFilterEnter: (columnId) => editSync.activateFloatingFilter(columnId),
-      onExtendRange: (dRow, dCol) => api.extendCellRange(dRow, dCol),
-      onClearRange: () => api.clearCellRange(),
+      onExtendRange: (dRow, dCol) =>
+        kernel.capabilities.rangeSelection()?.extend?.(dRow, dCol) ?? false,
+      onClearRange: () => kernel.capabilities.rangeSelection()?.clear(),
       getFindMatchCount: (): number => viewport.findMatches().length,
       getFindActiveIndex: (): number => viewport.findActiveIndex(),
       setFindActiveIndex: (index) => viewport.findActiveIndex.set(index),
@@ -563,17 +608,113 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     opts.injector(),
   );
 
-  api.attachPluginLifecycle(kernel);
+  const getCellRange = (): CellRange | null => kernel.capabilities.rangeSelection()?.range() ?? null;
+
+  // Column defs → hidden ids (`hide` defaults for newly seen columns, unknown ids
+  // dropped), then once, before the first render, `initialState`. Stays an effect
+  // only because it writes the two-way `hiddenColumnIds` model (order / pin
+  // reconcile in `ColumnLayoutHost.columnLayout`, a linkedSignal).
+  let knownColumnIds: ReadonlySet<string> = new Set();
+  const initialized = signal(false);
+  effect(
+    () => {
+      const cols = columnLayout.resolvedColumns();
+      untracked(() => {
+        if (cols.length) {
+          const ids = cols.map((c) => c.id);
+          const newlyHidden = cols
+            .filter((c) => c.hide && !knownColumnIds.has(c.id))
+            .map((c) => c.id);
+          const hidden = models.hiddenColumnIds();
+          const nextHidden = reconcileHiddenColumnIds(hidden, ids, newlyHidden);
+          if (nextHidden.join('\0') !== hidden.join('\0')) {
+            models.hiddenColumnIds.set(nextHidden);
+          }
+          knownColumnIds = new Set(ids);
+        }
+        if (!initialized()) {
+          const initial = ctrl().initialState;
+          if (initial) {
+            columnLayout.setState(initial, {}, true);
+          }
+          initialized.set(true);
+        }
+      });
+    },
+    { injector: opts.injector() },
+  );
+
+  // S1: `(stateChange)` + plugin `onStateChange` derive from `api.state` (one place,
+  // structural equality). Mount-time settling (initialState, plugin slices, default
+  // tool panel) is the baseline: emits start once plugins are active + api bound.
+  let lastState: DataGridState | null = null;
+  let stateReady = false;
+  effect(
+    () => {
+      const state = api.state();
+      const ready = initialized() && ctrl().api() === api;
+      const resizing = columnLayout.resizing();
+      untracked(() => {
+        if (!ready || !stateReady) {
+          lastState = state;
+          stateReady = ready;
+          return;
+        }
+        if (resizing || (lastState && gridStateEqual(lastState, state))) {
+          return;
+        }
+        lastState = state;
+        opts.publish('stateChange', out.stateChange, state);
+        notify('onStateChange', state);
+      });
+    },
+    { injector: opts.injector() },
+  );
+
+  // `(queryChange)` in server mode: the initial query on mount, then every change
+  // (sort / filter / quick filter / page / page size — from UI, API or models).
+  let lastQuery: DataGridQuery | null = null;
+  effect(
+    () => {
+      if (!initialized() || !serverSide()) {
+        lastQuery = null;
+        return;
+      }
+      const query = api.query();
+      untracked(() => {
+        if (lastQuery && gridQueryEqual(lastQuery, query)) {
+          return;
+        }
+        lastQuery = query;
+        opts.publish('queryChange', out.queryChange, query);
+      });
+    },
+    { injector: opts.injector() },
+  );
+
+  // K4: focus follows its row identity (sort / filter / page / column hide).
+  // Tracks only the row model + visible columns; reconcile writes only on change.
+  effect(
+    () => {
+      viewport.pagedDisplayRows();
+      columnLayout.visibleColumns();
+      columnLayout.hasColumnGroups();
+      columnLayout.hasFilters();
+      ctrl().chrome.floatingFilters();
+      untracked(() => kernel.focus.reconcile());
+    },
+    { injector: opts.injector() },
+  );
 
   const paintedOverlays = createPaintedOverlays({
     kernel: () => kernel,
-    getCellRange: () => api.getCellRange(),
+    getCellRange,
     visibleColumns: () => columnLayout.visibleColumns(),
     displayRows: () => viewport.pagedDisplayRows(),
     getCellElement: (rowId, columnId) => viewport.getCellElement(rowId, columnId),
     getScrollRoot: () => viewport.getScrollRoot(),
     hostElement: opts.hostElement,
-    showFillHandle: () => api.isFillHandleEnabled(),
+    showFillHandle: () => kernel.capabilities.rangeSelection()?.fillHandle !== false,
   });
 
   return {
@@ -588,13 +729,15 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     displayRows,
     pageRows,
     paintedOverlays,
+    getCellRange,
+    clearCellRange: () => kernel.capabilities.rangeSelection()?.clear(),
     emitPaste: (event) => {
       applyOwnedPaste(event);
       opts.publish('paste', out.paste, event);
     },
     getQuery,
-    emitState,
-    emitQueryIfServer,
+    state: api.state,
+    query: api.query,
     destroy: () => {
       viewport.destroyRowDrag();
       editSync.destroyRowEditSession();
@@ -602,4 +745,12 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       api.events.clear();
     },
   };
+}
+
+function sameColumnIdSet<C extends { id: string }>(a: readonly C[], b: readonly C[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const ids = new Set(a.map((c) => c.id));
+  return b.every((c) => ids.has(c.id));
 }

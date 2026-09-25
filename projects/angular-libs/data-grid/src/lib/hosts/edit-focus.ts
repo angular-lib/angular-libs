@@ -39,13 +39,20 @@ export function focusEditorInCell(
     return false;
   }
   editor.focus({ preventScroll: true });
-  if (
-    select &&
-    editor instanceof HTMLInputElement &&
-    editor.type !== 'checkbox' &&
-    editor.type !== 'date' &&
-    typeof editor.select === 'function'
-  ) {
+  const textLike =
+    (editor instanceof HTMLInputElement &&
+      editor.type !== 'checkbox' &&
+      editor.type !== 'date' &&
+      editor.type !== 'number') ||
+    editor instanceof HTMLTextAreaElement;
+  if (!textLike) {
+    return true;
+  }
+  // Type-to-edit seeded the draft: caret after the seed, or the next key replaces it.
+  if (editor.getAttribute('data-al-caret') === 'end') {
+    const end = editor.value.length;
+    editor.setSelectionRange(end, end);
+  } else if (select) {
     editor.select();
   }
   return true;
@@ -58,7 +65,9 @@ export function activateFloatingFilter(host: HTMLElement, columnId: string): boo
   if (!el) {
     return false;
   }
-  const inner = el.querySelector('input, select, textarea') as HTMLElement | null;
+  const inner = el.querySelector(
+    '.al-dg-filter-field__primary, input, select, textarea',
+  ) as HTMLElement | null;
   if (!inner) {
     return false;
   }
@@ -79,7 +88,39 @@ export interface SyncDomFocusModel<T> {
   isRowEditing(rowId: string | number): boolean;
 }
 
-/** Sole owner of TD vs editor DOM focus. */
+const syncTokens = new WeakMap<HTMLElement, number>();
+
+/**
+ * Focus target for a body display row: data cell, or the row's gridcell for
+ * group / plugin rows. `null` when not rendered (virtual window).
+ */
+export function bodyCellElementOf<T>(
+  host: HTMLElement,
+  item: DisplayRow<T>,
+  columnId: string,
+): HTMLElement | null {
+  if (isGroupDisplayRow(item)) {
+    return host.querySelector(
+      `[data-testid="al-dg-group-${item.id}"] [role="gridcell"]`,
+    ) as HTMLElement | null;
+  }
+  if (item.kind === 'plugin') {
+    return host.querySelector(
+      `[data-testid="al-dg-plugin-row-${item.id}"] [role="gridcell"], [data-testid="al-dg-plugin-row-${item.id}"] .al-data-grid__td`,
+    ) as HTMLElement | null;
+  }
+  if (!isDataDisplayRow(item)) {
+    return null;
+  }
+  return host.querySelector(
+    `[data-testid="al-dg-cell-${item.rowId}-${columnId}"]`,
+  ) as HTMLElement | null;
+}
+
+/**
+ * Sole owner of TD vs editor DOM focus. When the target row is not rendered yet
+ * (virtual scroll pending), retries once after the next render.
+ */
 export function syncDomFocus<T>(
   model: SyncDomFocusModel<T>,
   cell: FocusCell | null,
@@ -90,6 +131,19 @@ export function syncDomFocus<T>(
   }
   const force = opts?.force === true;
   const host = model.hostElement();
+  // A newer sync on this grid supersedes a pending retry (fast key repeat).
+  const token = (syncTokens.get(host) ?? 0) + 1;
+  syncTokens.set(host, token);
+  const retry = (): void => {
+    afterNextRender(
+      () => {
+        if (syncTokens.get(host) === token) {
+          apply(false);
+        }
+      },
+      { injector: model.injector() },
+    );
+  };
   const apply = (allowRetry: boolean): void => {
     const realm = focusRealmOf(cell);
     if (realm === 'header') {
@@ -127,26 +181,15 @@ export function syncDomFocus<T>(
     if (!item) {
       return;
     }
-    if (isGroupDisplayRow(item)) {
-      const el = host.querySelector(
-        `[data-testid="al-dg-group-${item.id}"] [role="gridcell"]`,
-      ) as HTMLElement | null;
-      el?.focus({ preventScroll: true });
-      return;
-    }
-    if (item.kind === 'plugin') {
-      const el = host.querySelector(
-        `[data-testid="al-dg-plugin-row-${item.id}"] [role="gridcell"], [data-testid="al-dg-plugin-row-${item.id}"] .al-data-grid__td`,
-      ) as HTMLElement | null;
-      el?.focus({ preventScroll: true });
-      return;
-    }
+    const el = bodyCellElementOf(host, item, cell.columnId);
     if (!isDataDisplayRow(item)) {
+      if (el) {
+        el.focus({ preventScroll: true });
+      } else if (allowRetry) {
+        retry();
+      }
       return;
     }
-    const el = host.querySelector(
-      `[data-testid="al-dg-cell-${item.rowId}-${cell.columnId}"]`,
-    ) as HTMLElement | null;
     const col = model.columnsById().get(cell.columnId);
     const editing = model.editingCell();
     const cellEditing = editing?.rowId === item.rowId && editing?.columnId === cell.columnId;
@@ -166,8 +209,9 @@ export function syncDomFocus<T>(
     if (wantsEditor && focusEditorInCell(host, item.rowId, cell.columnId)) {
       return;
     }
-    if (wantsEditor && allowRetry) {
-      afterNextRender(() => apply(false), { injector: model.injector() });
+    if ((wantsEditor || !el) && allowRetry) {
+      // Virtual window re-renders after the scroll — try again once it has.
+      retry();
       return;
     }
     if (

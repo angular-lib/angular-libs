@@ -28,7 +28,8 @@ and compose once on `createGrid`. Toggle chrome via adapters
 (`sideBar.setEnabled(false)`) — avoid rebuilding the plugin list for UI toggles.
 
 Plugin activation is **imperative** on `GridKernel` (mount + rare
-`setPlugins` → `api.recomposePlugins`). Never drive activation from an Angular
+`setPlugins`, which the kernel reconciles once by instance identity — only added /
+removed plugins run `setup` / cleanup). Never drive activation from an Angular
 `effect` that can track slot/capability writes — that freezes the app.
 
 ```ts
@@ -86,11 +87,47 @@ export function myPlugin<T>(): DataGridPlugin<T> {
 
 | Field | Use for |
 | --- | --- |
-| `api` | Read grid state, emit paste, bind adapters |
-| `capabilities` | Row-model / interaction / aggregate registration |
+| `api` | Read grid state, emit paste, `getAdapter(key)` |
+| `capabilities` | Row-model / interaction / aggregate / widget registration |
 | `slots` | Toolbar / status / sidebar / find / sideBar chrome |
+| `adapters` | Publish held adapters: `context.adapters.register(KEY, adapter)` |
 | `element` | Host root (prefer `registerInteraction` over raw listeners) |
 | `injector` | Create DI-backed UI |
+
+**Typing.** A row-agnostic factory (no row-shaped options) should default its row
+type to `any` — `export function myPlugin<T = any>(): DataGridPlugin<T>` — so a
+held / spread `myPlugin()` fits every `createGrid<T>`. Factories whose options
+read rows (`getDataPath: (row: T) => …`) keep `T` unconstrained so they are
+checked against the grid's row type.
+**Isolation.** `slots` / `capabilities` / `adapters` are scoped to your plugin:
+every `register*` / `enable*` is undone when the plugin is torn down — and when
+`setup` throws, so a failing plugin leaves nothing half-registered. Errors from
+`setup`, cleanup, interaction `setup` / cleanup and lifecycle hooks go to
+Angular's `ErrorHandler`; other plugins and the grid (`apiReady`,
+`controller.api()`) are unaffected.
+
+**One instance, many grids.** `setup` runs once per grid the instance is
+attached to (e.g. a `defaultGridPlugins()` constant reused across grids, or
+`detailGrid.plugins` shared by every nested detail grid), each with its own
+`context`. Keep per-grid state keyed by `context` (a `Map` filled in `setup`,
+emptied in its cleanup) — never in a single factory-closure variable. Held
+adapters that toggle chrome (`sideBar.setEnabled`, `rowDrag.setEnabled`,
+`flash.flashCells`, `groups.setColumns`) apply to every attached grid.
+
+### Adapter registry
+
+```ts
+import { adapterKey } from '@angular-libs/data-grid/plugin';
+
+export const MY_ADAPTER = adapterKey<MyAdapter>('my');
+// setup:
+context.adapters.register(MY_ADAPTER, adapter);
+// host / other plugins:
+grid.getAdapter(MY_ADAPTER); // or api.getAdapter(MY_ADAPTER) — reactive, null until mounted
+```
+
+First-party keys: `ROW_GROUP_ADAPTER`, `TREE_DATA_ADAPTER`, `CELL_RANGE_ADAPTER`,
+`MASTER_DETAIL_ADAPTER` (from `@angular-libs/data-grid/plugins`).
 
 ## Capability API
 
@@ -104,9 +141,17 @@ replaces the previous (row group, tree, and master-detail cannot run together).
 ```ts
 context.capabilities.registerDisplayBuilder({
   id: 'myGrouping',
-  build: (rows, ctx) => /* DisplayRow<T>[] */,
+  build: (rows, ctx) => /* DisplayRow<T>[] — read ctx.collapsedGroupIds */,
+  // Optional: a held store becomes the grid's single expansion store.
+  expansion: adapter, // { collapsedIds(), toggleCollapsed, expandAll, collapseAll }
+  collectGroupIds: (rows, ctx) => /* every collapsible id, for Collapse-all */,
 });
 ```
+
+Builders read collapse state from `ctx.collapsedGroupIds` (never their own
+adapter directly): every toggle — click, keyboard, `api.toggleGroup`, the
+adapter — goes through one store (the builder's `expansion`, else a grid-owned
+fallback). `ctx.rowId(row, i)` resolves the row's source index itself.
 
 ### Data stage
 
@@ -135,6 +180,47 @@ context.capabilities.registerInteraction({
 });
 ```
 
+### Cell widget
+
+Interactive control in a cell (e.g. an expand toggle). When the focused body
+cell hosts an active widget, Enter / Space go to it instead of edit / select:
+
+```ts
+context.capabilities.registerCellWidget({
+  id: 'myToggle',
+  columnId: 'toggle', // or (columnId) => boolean
+  isActive: (row) => row.expandable, // default: every data row
+  toggle: (row, rowId) => store.toggle(rowId), // Enter / Space
+  enter: (row, rowId) => nested.enter(rowId), // Enter first; true = handled
+});
+```
+
+### Row ARIA
+
+```ts
+context.capabilities.registerRowAria({
+  id: 'myDetails',
+  ariaDetails: (row, rowId) => (store.isOpen(rowId) ? `my-detail-${rowId}` : null),
+});
+```
+
+### Range selection source
+
+The grid paints the range ring / fill handle, sets `aria-selected`, clears on
+Escape / plain navigation, extends on Shift+arrow and copies from the one active
+source (`cellRangePlugin` registers it):
+
+```ts
+context.capabilities.registerRangeSelection({
+  id: 'myRange',
+  range: () => range(),
+  clear: () => range.set(null),
+  extend: (dRow, dCol) => /* true when handled */ false,
+  clipboardText: () => /* TSV or null */ null,
+  fillHandle: true,
+});
+```
+
 ### Aggregate footer
 
 ```ts
@@ -143,6 +229,24 @@ context.capabilities.registerAggregate({
   values: (rows, columns) => new Map([['salary', 0]]),
 });
 ```
+
+### State slice
+
+Contribute plugin state to `DataGridState.slices[key]` (persisted by
+`getState` / `stateChange`, restored by `setState` / `initialState`). `get` is
+read reactively; `apply` receives untrusted input. A value restored before the
+plugin registers (e.g. `initialState`) is applied on registration.
+
+```ts
+context.capabilities.registerStateSlice({
+  key: 'rowGroup',
+  get: () => ({ columns: [...adapter.columns()] }),
+  apply: (value) => applyIfValid(adapter, value),
+});
+```
+
+`onStateChange(context, state)` is fed from the same derived state signal as
+`(stateChange)` (one call per real change, none on mount).
 
 ### Display-kind view
 
@@ -164,6 +268,10 @@ context.capabilities.registerDisplayView({
 // In a display builder:
 return [{ kind: 'plugin', pluginKind: 'summary', id: 's1', payload: { total } }];
 ```
+
+`nestedWidget: true` marks views that own a focus realm (a nested grid): the row
+shell is not a focus stop. `regionId: (item) => id` sets the shell's DOM id (the
+target of a `registerRowAria` `aria-details`).
 
 ### Master / detail
 
@@ -240,8 +348,9 @@ groups.setColumns(['role']);
 groups.clear();
 ```
 
-The plugin registers the display builder and binds the adapter on `api` so
-Groups UI / `api.setRowGroupColumns` stay in sync.
+The plugin registers the display builder, the Groups tool panel (fed the
+adapter as an input) and publishes the adapter under `ROW_GROUP_ADAPTER`
+(`grid.getAdapter(ROW_GROUP_ADAPTER)`).
 
 ## Cell notes
 
@@ -314,6 +423,10 @@ ranges.getRange();   // { anchor, active } | null
 ranges.clearRange();
 ```
 
+Range state is per grid. The held methods drive the first grid the instance is
+attached to (dev warning on a second); for any grid use
+`grid.getAdapter(CELL_RANGE_ADAPTER)`.
+
 - **Keyboard:** Shift+arrows extend the active corner
 - **Pointer:** drag-select on cells; fill-handle copy-fills via `(paste)`
 - **Esc** clears the range
@@ -347,7 +460,7 @@ context.slots.registerToolbar({
     // context = host bag only (e.g. services), never the grid controller
   },
 });
-context.slots.registerStatusBar({ id: 'y', text: () => '…' });
+context.slots.registerStatusBar({ id: 'y', text: () => '…' }); // rowCount: true hides the pager's count
 context.slots.registerSidebar({ id: 'z', label: 'Panel', component: MyPanel });
 context.slots.enableFind({ caseSensitive: false });
 context.slots.enableSideBar(true);
@@ -422,15 +535,15 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 | Factory | Capabilities |
 | --- | --- |
 | `clipboardPlugin` | `registerInteraction` paste/copy + owns paste matrix → `api.emitPaste` |
-| `rowGroupPlugin` | `registerDisplayBuilder` + `RowGroupAdapter` |
+| `rowGroupPlugin` | `registerDisplayBuilder` + `RowGroupAdapter` + `registerStateSlice('rowGroup')` |
 | `treeDataPlugin` | `registerDisplayBuilder` + `TreeDataAdapter` |
-| `masterDetailPlugin` | `registerDisplayBuilder` + detail display view + expand column |
+| `masterDetailPlugin` | `registerDisplayBuilder` + detail display view + expand column (`registerCellWidget`, `registerRowAria`) |
 | `aggregateRowPlugin` | `registerAggregate` |
 | `infiniteScrollPlugin` | `registerInteraction` → `api.notifyNearEnd` (scroll + ResizeObserver) |
 | `findPlugin` | `enableFind` + key interaction |
 | `notesPlugin` | `registerCellDecorator` + context menu + hover preview / `Shift+F2` editor (`api.getLocale()`) |
 | `flashCellsPlugin` | `registerCellDecorator` + held `flashCells` / `clearFlash` adapter |
-| `cellRangePlugin` | decorator + copy-fill (`FillEvent` via `(paste)`); `fillHandle: false` hides the handle; Shift+arrow via focus |
+| `cellRangePlugin` | `registerRangeSelection` + decorator + copy-fill (`FillEvent` via `(paste)`); `fillHandle: false` hides the handle |
 | `statusBarPlugin` / `sideBarPlugin` / `rowDragPlugin` | chrome slots (localized) |
 | `csvExportPlugin` / `autosizePlugin` | toolbar slot actions |
 

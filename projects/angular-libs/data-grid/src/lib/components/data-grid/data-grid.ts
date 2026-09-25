@@ -4,6 +4,7 @@ import {
   DestroyRef,
   ElementRef,
   EnvironmentInjector,
+  ErrorHandler,
   Injector,
   afterNextRender,
   computed,
@@ -54,10 +55,6 @@ import {
   isSelectEditor,
   resolveSelectValues,
 } from '../../utils/editors';
-import {
-  reconcileColumnLayout,
-  reconcileHiddenColumnIds,
-} from '../../utils/column-layout';
 import { type DisplayRow } from '../../utils/row-display';
 import {
   formatCellValue,
@@ -78,6 +75,8 @@ import type {
   ViewportHost,
 } from '../../hosts';
 import { handleGridEscape } from '../../a11y/grid-escape';
+import { handleGridKeydown } from '../../a11y/grid-keydown';
+import { isFocusCellRendered } from '../../a11y/tab-stop';
 import { DATA_GRID_NESTED_REALM } from '../../a11y/nested-realm';
 import {
   ariaBodyRowIndexOf,
@@ -85,11 +84,9 @@ import {
   ariaHeaderRowIndexOf,
   ariaRowCountOf,
   cellAriaSelectedOf,
-  detailRegionIdOf,
   headerRowCountOf,
-  isMasterDetailPluginRow,
-  masterDetailAriaDetailsOf,
   mergeCellClass,
+  pluginRowRegionIdOf,
   resolveBaseCellClass,
 } from '../../hosts/binder-template.helpers';
 import type {
@@ -106,6 +103,9 @@ import type {
   RowEditSchema,
   SelectionMode,
 } from './data-grid.types';
+
+const CONTROLLER_SWAP_ERROR =
+  '[data-grid] [controller] cannot change after the grid is created — recreate <al-data-grid> instead.';
 
 @Component({
   selector: 'al-data-grid',
@@ -126,8 +126,6 @@ import type {
     '[attr.data-al-dg-nested]': 'nestedRealm ? "" : null',
     '(keydown)': 'onGridKeydown($event)',
     '(focusin)': 'onGridFocusIn($event)',
-    '(document:pointerdown)': 'onDocumentPointerDown($event)',
-    '(document:keydown.escape)': 'onEscapeKey($event)',
   },
   templateUrl: './data-grid.html',
   styleUrl: './data-grid.css',
@@ -139,8 +137,20 @@ export class DataGrid<T = unknown> {
   readonly data = input.required<readonly T[]>();
   /**
    * Required bootstrap from `createGrid()` — columns, plugins, selection, edit policy, optional rows.
+   * **Static:** the first controller is kept for the grid's lifetime; binding a
+   * different one later is reported as an error and ignored — recreate the grid
+   * instead (`@for (…; track grid)` / `@if`).
    */
-  readonly controller = input.required<GridController<T>>();
+  readonly controllerInput = input.required<GridController<T>>({ alias: 'controller' });
+  private pinnedController: GridController<T> | null = null;
+  /** The controller this grid was created with (see {@link controllerInput}). */
+  readonly controller = computed((): GridController<T> => {
+    const next = this.controllerInput();
+    if (next !== (this.pinnedController ??= next)) {
+      this.errorHandler.handleError(new Error(CONTROLLER_SWAP_ERROR));
+    }
+    return this.pinnedController;
+  });
   readonly loading = input(false);
   readonly emptyMessage = input<string | null>(null);
   /**
@@ -238,9 +248,7 @@ export class DataGrid<T = unknown> {
   readonly emptyOverlay = contentChild(DataGridEmptyDirective);
   private readonly contextMenuOverlay = contentChild(DataGridContextMenuDirective);
 
-  private knownColumnIds = new Set<string>();
-  private pluginsMounted = false;
-  private lastPluginKey = '';
+  private readonly errorHandler = inject(ErrorHandler);
   private readonly host = inject(ElementRef<HTMLElement>);
   private readonly parentInjector = inject(EnvironmentInjector);
   private readonly injector = inject(Injector);
@@ -254,7 +262,7 @@ export class DataGrid<T = unknown> {
 
   /** Schema from `[controller]` only — no binder overrides. */
   readonly effectiveColumns = computed(
-    (): readonly ColumnOrGroupDef<T>[] => this.controller().columns,
+    (): readonly ColumnOrGroupDef<T>[] => this.controller().columns(),
   );
 
   readonly effectiveRowId = computed((): ((row: T, index: number) => string | number) => {
@@ -262,7 +270,7 @@ export class DataGrid<T = unknown> {
   });
 
   readonly effectiveSelectionMode = computed(
-    (): SelectionMode => this.controller().selection,
+    (): SelectionMode => this.controller().selection(),
   );
 
   readonly effectiveEditMode = computed(
@@ -270,11 +278,11 @@ export class DataGrid<T = unknown> {
   );
 
   readonly effectiveEditInteraction = computed((): ResolvedEditInteraction => {
-    return this.controller().editInteraction;
+    return this.controller().editInteraction();
   });
 
   readonly effectiveRowClickSelects = computed(
-    (): boolean => this.controller().rowClickSelects,
+    (): boolean => this.controller().rowClickSelects(),
   );
 
   readonly effectiveRowEditSchema = computed(
@@ -323,9 +331,6 @@ export class DataGrid<T = unknown> {
   /** Copy via `clipboardPlugin` (`slots.enableCopy`). */
   readonly copyEnabled = computed(() => this.session.kernel.copyEnabled());
   readonly aggregateRowEnabled = computed(() => this.session.kernel.capabilities.hasAggregate());
-  readonly infiniteScrollEnabled = computed((): boolean =>
-    this.session.kernel.capabilities.getInteractions().some((i) => i.id === 'infiniteScroll'),
-  );
 
   readonly aggregateValues = computed((): Map<string, unknown> => {
     if (!this.aggregateRowEnabled()) return new Map();
@@ -353,9 +358,22 @@ export class DataGrid<T = unknown> {
     }),
   );
 
-  /** Avoid duplicating "N rows" when statusBarPlugin already registers it. */
+  /** Avoid duplicating "N rows" when a status item already shows it (`rowCount: true`). */
   readonly showPaginationRowCount = computed(
-    () => this.pagination() && !this.session.kernel.statusBarSlotItems().some((item) => item.id === 'rows'),
+    () => this.pagination() && !this.session.kernel.statusBarSlotItems().some((item) => item.rowCount),
+  );
+
+  /** Frame is the tab stop whenever the focused cell is not rendered (K5). */
+  readonly frameTabIndex = computed((): number =>
+    isFocusCellRendered({
+      focus: this.viewportHost.focusedCell(),
+      visibleColumnIds: this.columnLayoutHost.visibleColumns().map((c) => c.id),
+      hasColumnGroups: this.columnLayoutHost.hasColumnGroups(),
+      floatingFiltersShown: this.floatingFilters() && this.columnLayoutHost.hasFilters(),
+      bodyRendered: !this.loading() && this.viewportHost.pagedDisplayRows().length > 0,
+      renderedStart: this.viewportHost.renderedStart(),
+      renderedCount: this.viewportHost.renderedRows().length,
+    }) ? -1 : 0,
   );
 
   readonly toolbarLabels = computed(() => toolbarLabelsFromLocale(this.resolvedLocale()));
@@ -437,31 +455,6 @@ export class DataGrid<T = unknown> {
     this.menuHost = this.session.menu;
 
     effect(() => {
-      const cols = this.columnLayoutHost.resolvedColumns();
-      if (!cols.length) {
-        return;
-      }
-      const ids = cols.map((c) => c.id);
-      const layout = this.columnLayoutHost.columnLayout();
-      const nextLayout = reconcileColumnLayout(layout, cols);
-      if (
-        nextLayout.order.join('\0') !== layout.order.join('\0') ||
-        JSON.stringify(nextLayout.pin) !== JSON.stringify(layout.pin)
-      ) {
-        this.columnLayoutHost.columnLayout.set(nextLayout);
-      }
-      const newlyHidden = cols
-        .filter((c) => c.hide && !this.knownColumnIds.has(c.id))
-        .map((c) => c.id);
-      const hidden = this.hiddenColumnIds();
-      const nextHidden = reconcileHiddenColumnIds(hidden, ids, newlyHidden);
-      if (nextHidden.join('\0') !== hidden.join('\0')) {
-        this.hiddenColumnIds.set(nextHidden);
-      }
-      this.knownColumnIds = new Set(ids);
-    });
-
-    effect(() => {
       const max = this.viewportHost.totalPages() - 1;
       if (this.viewportHost.pageIndex() > max) {
         this.viewportHost.pageIndex.set(Math.max(0, max));
@@ -485,27 +478,17 @@ export class DataGrid<T = unknown> {
     afterNextRender(() => {
       this.measureViewport();
       this.observeViewportResize();
-      // Imperative once — never reactivate from an effect (slot writes would loop).
+      // Kernel isolates each plugin (errors → ErrorHandler), so the api always binds.
       this.session.kernel.activatePlugins(this.effectivePlugins(), this.host.nativeElement);
-      this.pluginsMounted = true;
-      this.lastPluginKey = this.pluginListKey(this.effectivePlugins());
       this.publish('apiReady', this.apiReady, this.api);
       this.controller().bindApi(this.api);
     });
 
+    // Single recomposition owner: the controller's plugin signal → kernel (identity
+    // diff; no-op before mount or when unchanged). Kernel writes run untracked.
     effect(() => {
       const list = this.effectivePlugins();
-      const key = this.pluginListKey(list);
-      untracked(() => {
-        if (!this.pluginsMounted) {
-          return;
-        }
-        if (key === this.lastPluginKey) {
-          return;
-        }
-        this.lastPluginKey = key;
-        this.api.recomposePlugins(list);
-      });
+      untracked(() => this.session.kernel.recomposePlugins(list));
     });
 
     this.destroyRef.onDestroy(() => {
@@ -514,7 +497,10 @@ export class DataGrid<T = unknown> {
         this.measureViewportRaf = 0;
       }
       this.viewportResizeObserver?.disconnect();
-      this.controller().bindApi(null);
+      const ctrl = this.controller();
+      if (ctrl.api() === this.api) {
+        ctrl.bindApi(null);
+      }
       this.session.destroy();
     });
   }
@@ -683,7 +669,7 @@ export class DataGrid<T = unknown> {
   }
 
   ariaRowCount(): number {
-    return ariaRowCountOf(this.headerRows(), this.session.displayRows().length);
+    return ariaRowCountOf(this.headerRows(), this.viewportHost.ariaBodyRowCount());
   }
 
   ariaColIndex(visibleColIndex: number): number {
@@ -699,14 +685,13 @@ export class DataGrid<T = unknown> {
   }
 
   ariaBodyRowIndex(displayIndex: number): number {
-    return ariaBodyRowIndexOf(this.headerRows(), displayIndex);
+    return ariaBodyRowIndexOf(this.headerRows(), displayIndex, this.viewportHost.ariaRowOffset());
   }
 
-  masterAriaDetails(rowId: string | number): string | null {
-    return masterDetailAriaDetailsOf(this.session.displayRows(), rowId);
+  rowAriaDetails(row: T, rowId: string | number): string | null {
+    return this.session.kernel.capabilities.resolveRowAriaDetails(row, rowId);
   }
-  detailRegionId = detailRegionIdOf;
-  isNestedDetailRow = isMasterDetailPluginRow;
+  pluginRowRegionId = pluginRowRegionIdOf;
 
   cellAriaSelected(
     rowId: string | number,
@@ -716,10 +701,10 @@ export class DataGrid<T = unknown> {
     void this.session.kernel.capabilities.overlayPaintEpoch();
     return cellAriaSelectedOf(
       this.selectionHost.isSelected(rowId),
-      this.api.getCellRange(),
+      this.session.getCellRange(),
       displayIndex,
       columnId,
-      this.columnLayoutHost.visibleColumns().map((c) => c.id),
+      this.columnLayoutHost.visibleColumnIds(),
     );
   }
 
@@ -734,7 +719,11 @@ export class DataGrid<T = unknown> {
     displayIndex?: number,
   ): void {
     // Don't steal focus from an active editor (breaks double-click select-all).
-    if (this.editSyncHost.isEditorEventTarget(event.target)) {
+    // Mousedown is prevented (no native blur): settle an open editor elsewhere first.
+    if (
+      this.editSyncHost.isEditorEventTarget(event.target) ||
+      !this.editSyncHost.releaseEditorFor(rowId, column.id)
+    ) {
       return;
     }
     const focusIndex = displayIndex ?? rowIndex;
@@ -749,7 +738,7 @@ export class DataGrid<T = unknown> {
       event,
     });
     if (this.effectiveEditInteraction().pointerStart === 'click') {
-      this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
+      this.editSyncHost.startEdit(row, rowId, rowIndex, column, value, { source: 'pointer' });
     }
   }
 
@@ -781,50 +770,21 @@ export class DataGrid<T = unknown> {
     if (this.effectiveEditInteraction().pointerStart !== 'dblclick') {
       return;
     }
-    this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
+    this.editSyncHost.startEdit(row, rowId, rowIndex, column, value, { source: 'pointer' });
   }
 
   onGridKeydown(event: KeyboardEvent): void {
-    const target = event.target as HTMLElement | null;
-    const inField =
-      !!target &&
-      (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable);
-
-    // Escape must cancel edit even while focus is inside an editor field.
-    if (event.key === 'Escape') {
-      this.onEscapeKey(event);
-      return;
-    }
-
-    if ((event.key === ' ' || event.key === 'Spacebar') && !inField) {
-      if (this.editSyncHost.tryToggleFocusedBoolean()) {
-        event.preventDefault();
-        return;
-      }
-    }
-
-    const interaction = this.effectiveEditInteraction();
-    const fullRowEditing =
-      this.effectiveEditMode() === 'fullRow' && this.editSyncHost.rowEditMgr.editingId() != null;
-    const passHorizontal =
-      fullRowEditing &&
-      interaction.arrowEditing === 'moveHorizontal' &&
-      (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
-    if (inField && !passHorizontal) {
-      return;
-    }
-
-    if (!inField && this.editSyncHost.tryTypeToEdit(event)) {
-      event.preventDefault();
-      return;
-    }
-
-    if (this.session.kernel.focus.handleKeydown(event)) {
-      event.preventDefault();
-    }
+    handleGridKeydown(event, {
+      host: this.host.nativeElement,
+      onEscape: (e) => this.onEscapeKey(e),
+      tryToggleFocusedBoolean: () => this.editSyncHost.tryToggleFocusedBoolean(),
+      passHorizontalWhileEditing: () =>
+        this.effectiveEditMode() === 'fullRow' &&
+        this.editSyncHost.rowEditMgr.editingId() != null &&
+        this.effectiveEditInteraction().arrowEditing === 'moveHorizontal',
+      tryTypeToEdit: (e) => this.editSyncHost.tryTypeToEdit(e),
+      handleFocusKeydown: (e) => this.session.kernel.focus.handleKeydown(e),
+    });
   }
 
   onEscapeKey(event?: Event): void {
@@ -843,8 +803,8 @@ export class DataGrid<T = unknown> {
         this.menuHost.closeColumnMenu();
         this.menuHost.closeContextMenu();
       },
-      hadCellRange: !!this.api.getCellRange(),
-      clearCellRange: () => this.api.clearCellRange(),
+      hadCellRange: !!this.session.getCellRange(),
+      clearCellRange: () => this.session.clearCellRange(),
       contextMenuOpen: this.menuHost.contextMenuState() != null,
       closeContextMenu: () => this.menuHost.closeContextMenu(),
       focusHeader: (columnId) =>
@@ -861,7 +821,20 @@ export class DataGrid<T = unknown> {
     this.editSyncHost.syncDomFocus(cell, opts);
   }
 
-  onGridFocusIn(event: FocusEvent): void { this.viewportHost.onGridFocusIn(event); }
+  onGridFocusIn(event: FocusEvent): void {
+    this.viewportHost.onGridFocusIn(event);
+    const target = event.target as HTMLElement | null;
+    if (!target?.classList.contains('al-data-grid__frame') || target.closest('al-data-grid') !== this.host.nativeElement) {
+      return;
+    }
+    // Tab re-entry via the frame tab stop (K5): once the restored cell renders, move DOM focus onto it.
+    const refocus = () => {
+      if (document.activeElement === target) {
+        this.syncDomFocus(this.session.kernel.focus.getFocus(), { force: true });
+      }
+    };
+    afterNextRender({ write: refocus }, { injector: this.injector });
+  }
 
   onCellContextMenu(
     row: T,
@@ -878,10 +851,6 @@ export class DataGrid<T = unknown> {
   onHeaderContextMenu(column: ResolvedColumn<T>, event: MouseEvent): void {
     this.menuHost.onHeaderContextMenu(column, event);
   }
-
-  onDocumentPointerDown(event: Event): void { this.menuHost.onDocumentPointerDown(event); }
-
-  private pluginListKey(plugins: readonly DataGridPlugin<T>[]): string { return plugins.map((p) => p.id ?? '').join('\0'); }
 
   onRowDragPointerDown(index: number, event: PointerEvent): void {
     this.viewportHost.onRowDragPointerDown(index, event);

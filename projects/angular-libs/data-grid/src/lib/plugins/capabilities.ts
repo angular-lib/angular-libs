@@ -3,19 +3,41 @@
  * instead of flipping host feature flags.
  */
 
-import { computed, signal, type Signal, type WritableSignal } from '@angular/core';
+import { computed, signal, untracked, type Signal, type WritableSignal } from '@angular/core';
 import type {
+  CellRange,
   ColumnDef,
   DataGridContextMenuContext,
   DataGridContextMenuItem,
 } from '../components/data-grid/data-grid.types';
-import type { DisplayRow } from '../utils/row-display';
+import type { CustomDisplayRow, DisplayRow } from '../utils/row-display';
 import { wrapDataRows } from '../utils/row-display';
 
 export interface RowModelContext<T = unknown> {
   columnsById: Map<string, ColumnDef<T>>;
+  /**
+   * Grid row id. In a mounted grid this resolves the row's **source** index
+   * (position in `[data]`) itself; the `index` argument is only a fallback for
+   * rows not in the source array.
+   */
   rowId: (row: T, index: number) => string | number;
-  collapsedGroupIds: ReadonlySet<string>;
+  /**
+   * Collapsed group / tree node ids from the grid's single expansion store
+   * ({@link GridCapabilities.groupExpansion}). Display builders must read this
+   * rather than their own adapter state.
+   */
+  readonly collapsedGroupIds: ReadonlySet<string>;
+}
+
+/**
+ * Expand/collapse state for group / tree node ids. One store is active per grid:
+ * the active display builder's `expansion`, else a grid-owned fallback.
+ */
+export interface GroupExpansionStore {
+  collapsedIds(): ReadonlySet<string>;
+  toggleCollapsed(groupId: string): void;
+  expandAll(): void;
+  collapseAll(allGroupIds: readonly string[]): void;
 }
 
 /**
@@ -34,6 +56,16 @@ export interface RowModelDataStage<T = unknown> {
 export interface RowModelDisplayBuilder<T = unknown> {
   id: string;
   build: (rows: readonly T[], ctx: RowModelContext<T>) => DisplayRow<T>[];
+  /**
+   * Plugin-held expansion store (e.g. the row-group / tree adapter). When set,
+   * every toggle (mouse, keyboard, API, adapter) reads/writes this store.
+   */
+  expansion?: GroupExpansionStore;
+  /**
+   * Every collapsible id for Collapse-all (including ids under collapsed parents).
+   * Default: build with nothing collapsed and collect group / parent-row ids.
+   */
+  collectGroupIds?: (rows: readonly T[], ctx: RowModelContext<T>) => string[];
 }
 
 export interface InteractionContribution {
@@ -55,6 +87,54 @@ export interface AggregateContribution<T = unknown> {
 export interface DisplayViewContribution {
   kind: string;
   component: import('@angular/core').Type<unknown>;
+  /**
+   * The view hosts its own focus realm (e.g. a nested grid): the row shell is
+   * not a focus stop and gets no focused chrome. Default false.
+   */
+  nestedWidget?: boolean;
+  /** DOM id for the row shell (target of a master row's `aria-details`). */
+  regionId?: (item: CustomDisplayRow) => string | null;
+}
+
+/**
+ * Interactive cell widget (e.g. a master-detail expand toggle). On a focused
+ * body cell the widget owns Enter / Space instead of edit / select.
+ */
+export interface CellWidgetContribution<T = unknown> {
+  id: string;
+  /** Column hosting the widget — an id, or a predicate over column ids. */
+  columnId: string | ((columnId: string) => boolean);
+  /** Whether this row shows the widget. Default: every data row. */
+  isActive?: (row: T, rowId: string | number) => boolean;
+  /** Enter / Space — e.g. expand / collapse. */
+  toggle: (row: T, rowId: string | number) => void;
+  /**
+   * Enter, tried before {@link toggle}: move into a nested widget (e.g. an
+   * open detail grid). Return `true` when handled.
+   */
+  enter?: (row: T, rowId: string | number) => boolean;
+}
+
+/** Extra ARIA on body data rows (e.g. `aria-details` → an open detail region). */
+export interface RowAriaContribution<T = unknown> {
+  id: string;
+  ariaDetails?: (row: T, rowId: string | number) => string | null;
+}
+
+/**
+ * Cell-range selection source. The grid reads it for range paint, ARIA
+ * selection, Escape, Shift+arrow and copy. One active source (last wins).
+ */
+export interface RangeSelectionContribution {
+  id: string;
+  range: () => CellRange | null;
+  clear: () => void;
+  /** Shift+arrow extend of the active corner. Return `true` when handled. */
+  extend?: (dRow: number, dCol: number) => boolean;
+  /** TSV for copy — when non-null it wins over row selection. */
+  clipboardText?: () => string | null;
+  /** Paint a fill handle on the range ring. Default true. */
+  fillHandle?: boolean;
 }
 
 /** Context for plugin cell class decorations. */
@@ -103,6 +183,17 @@ export interface OverlayContribution {
 }
 
 /**
+ * Plugin-owned piece of {@link DataGridState} (under `state.slices[key]`), e.g.
+ * row-group columns + collapsed groups. `get` is read reactively (read signals);
+ * `apply` receives untrusted persisted input — validate it.
+ */
+export interface GridStateSlice<V = unknown> {
+  key: string;
+  get: () => V;
+  apply: (value: unknown) => void;
+}
+
+/**
  * Registry of plugin capabilities for one grid instance.
  */
 export class GridCapabilities<T = unknown> {
@@ -115,10 +206,38 @@ export class GridCapabilities<T = unknown> {
   private readonly contextMenuContributions: WritableSignal<ContextMenuContribution<T>[]> =
     signal([]);
   private readonly overlayContributions: WritableSignal<OverlayContribution[]> = signal([]);
+  private readonly stateSlices: WritableSignal<GridStateSlice[]> = signal([]);
+  /** Slice values from `setState` / `initialState` whose plugin has not registered yet. */
+  private readonly pendingSliceState: WritableSignal<Record<string, unknown>> = signal({});
+  private readonly cellWidgets: WritableSignal<CellWidgetContribution<T>[]> = signal([]);
+  private readonly rowAria: WritableSignal<RowAriaContribution<T>[]> = signal([]);
+  private readonly rangeSelections: WritableSignal<RangeSelectionContribution[]> = signal([]);
   /** Bumped when overlay layouts should be re-read (range/scroll/resize). */
   private readonly overlayPaintEpochSignal: WritableSignal<number> = signal(0);
+  /** Grid-owned expansion state for display builders without their own store. */
+  private readonly fallbackCollapsed: WritableSignal<ReadonlySet<string>> = signal<
+    ReadonlySet<string>
+  >(new Set());
+  private readonly fallbackExpansion: GroupExpansionStore = {
+    collapsedIds: () => this.fallbackCollapsed(),
+    toggleCollapsed: (groupId) =>
+      this.fallbackCollapsed.update((prev) => toggleInSet(prev, groupId)),
+    expandAll: () => this.fallbackCollapsed.set(new Set()),
+    collapseAll: (ids) => this.fallbackCollapsed.set(new Set(ids)),
+  };
 
   readonly hasDisplayBuilder = computed(() => this.displayBuilders().length > 0);
+  /**
+   * The grid's single expansion store: the active display builder's
+   * `expansion`, else the grid-owned fallback. All group toggles go through it.
+   */
+  readonly groupExpansion: Signal<GroupExpansionStore> = computed(
+    () => this.activeDisplayBuilder()?.expansion ?? this.fallbackExpansion,
+  );
+  /** Collapsed ids of {@link groupExpansion} (what `RowModelContext.collapsedGroupIds` reads). */
+  readonly collapsedGroupIds: Signal<ReadonlySet<string>> = computed(() =>
+    this.groupExpansion().collapsedIds(),
+  );
   readonly hasAggregate = computed(() => this.aggregates().length > 0);
   readonly hasContextMenuItems = computed(() => this.contextMenuContributions().length > 0);
   /** Registered overlay contributions (binder paints these). */
@@ -200,6 +319,110 @@ export class GridCapabilities<T = unknown> {
     };
   }
 
+  /**
+   * Contribute a slice to grid state (`getState` / `setState` / `stateChange`).
+   * A value restored before registration (e.g. `initialState`) is applied now.
+   */
+  registerStateSlice<V>(slice: GridStateSlice<V>): () => void {
+    this.stateSlices.update((list) => [...list.filter((s) => s.key !== slice.key), slice]);
+    const pending = untracked(this.pendingSliceState);
+    if (Object.prototype.hasOwnProperty.call(pending, slice.key)) {
+      const { [slice.key]: value, ...rest } = pending;
+      this.pendingSliceState.set(rest);
+      untracked(() => slice.apply(value));
+    }
+    return () => this.stateSlices.update((list) => list.filter((s) => s !== slice));
+  }
+
+  /** Reactive snapshot of every slice (pending values included until their plugin registers). */
+  collectStateSlices(): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...this.pendingSliceState() };
+    for (const slice of this.stateSlices()) {
+      try {
+        out[slice.key] = slice.get();
+      } catch (err) {
+        console.error(`[data-grid] state slice get failed (${slice.key})`, err);
+      }
+    }
+    return out;
+  }
+
+  /** Apply persisted slices; values for unregistered keys wait for {@link registerStateSlice}. */
+  applyStateSlices(values: Record<string, unknown>): void {
+    const registered = new Map(untracked(this.stateSlices).map((s) => [s.key, s]));
+    const pending: Record<string, unknown> = { ...untracked(this.pendingSliceState) };
+    for (const [key, value] of Object.entries(values)) {
+      const slice = registered.get(key);
+      if (!slice) {
+        pending[key] = value;
+        continue;
+      }
+      try {
+        untracked(() => slice.apply(value));
+      } catch (err) {
+        console.error(`[data-grid] state slice apply failed (${key})`, err);
+      }
+    }
+    this.pendingSliceState.set(pending);
+  }
+
+  registerCellWidget(widget: CellWidgetContribution<T>): () => void {
+    this.cellWidgets.update((list) => [...list.filter((w) => w.id !== widget.id), widget]);
+    return () => this.cellWidgets.update((list) => list.filter((w) => w !== widget));
+  }
+
+  registerRowAria(contribution: RowAriaContribution<T>): () => void {
+    this.rowAria.update((list) => [...list.filter((a) => a.id !== contribution.id), contribution]);
+    return () => this.rowAria.update((list) => list.filter((a) => a !== contribution));
+  }
+
+  registerRangeSelection(contribution: RangeSelectionContribution): () => void {
+    this.rangeSelections.update((list) => [
+      ...list.filter((r) => r.id !== contribution.id),
+      contribution,
+    ]);
+    this.invalidateOverlays();
+    return () => {
+      this.rangeSelections.update((list) => list.filter((r) => r !== contribution));
+      this.invalidateOverlays();
+    };
+  }
+
+  /** Active range source (last registered), or `null`. */
+  rangeSelection(): RangeSelectionContribution | null {
+    const list = this.rangeSelections();
+    return list[list.length - 1] ?? null;
+  }
+
+  /** Widget owning `columnId` on this row, or `null`. */
+  resolveCellWidget(
+    columnId: string,
+    row: T,
+    rowId: string | number,
+  ): CellWidgetContribution<T> | null {
+    for (const widget of this.cellWidgets()) {
+      const onColumn =
+        typeof widget.columnId === 'function'
+          ? widget.columnId(columnId)
+          : widget.columnId === columnId;
+      if (onColumn && (widget.isActive?.(row, rowId) ?? true)) {
+        return widget;
+      }
+    }
+    return null;
+  }
+
+  /** First non-null `aria-details` from row ARIA contributions. */
+  resolveRowAriaDetails(row: T, rowId: string | number): string | null {
+    for (const contribution of this.rowAria()) {
+      const id = contribution.ariaDetails?.(row, rowId);
+      if (id) {
+        return id;
+      }
+    }
+    return null;
+  }
+
   /** Ask the binder to re-read overlay `layout()` callbacks (range/scroll/resize). */
   invalidateOverlays(): void {
     this.overlayPaintEpochSignal.update((n) => n + 1);
@@ -261,21 +484,48 @@ export class GridCapabilities<T = unknown> {
     return items;
   }
 
-  runDataStages(rows: readonly T[], ctx: RowModelContext<T>): T[] {
-    let next = [...rows];
+  /** Run data stages in order. Returns `rows` itself when no stage is registered. */
+  runDataStages(rows: readonly T[], ctx: RowModelContext<T>): readonly T[] {
+    let next = rows;
     for (const stage of this.dataStages()) {
-      next = [...stage.transform(next, ctx)];
+      next = stage.transform(next, ctx);
     }
     return next;
   }
 
   buildDisplayRows(rows: readonly T[], ctx: RowModelContext<T>): DisplayRow<T>[] {
-    const builders = this.displayBuilders();
-    if (!builders.length) {
+    const builder = this.activeDisplayBuilder();
+    if (!builder) {
       return wrapDataRows(rows, ctx.rowId);
     }
-    // Last registered builder wins (e.g. tree over group if both somehow present).
-    return builders[builders.length - 1]!.build(rows, ctx);
+    return builder.build(rows, ctx);
+  }
+
+  /** Toggle one group / tree node in the active expansion store. */
+  toggleGroup(groupId: string): void {
+    this.groupExpansion().toggleCollapsed(groupId);
+  }
+
+  expandAllGroups(): void {
+    this.groupExpansion().expandAll();
+  }
+
+  /** Collapse every collapsible id of the active display builder. */
+  collapseAllGroups(rows: readonly T[], ctx: RowModelContext<T>): void {
+    const builder = this.activeDisplayBuilder();
+    const open: RowModelContext<T> = { ...ctx, collapsedGroupIds: new Set() };
+    const ids = builder?.collectGroupIds
+      ? builder.collectGroupIds(rows, open)
+      : this.buildDisplayRows(rows, open).flatMap((row) =>
+          row.kind === 'group' ? [row.id] : row.kind === 'data' && row.groupId ? [row.groupId] : [],
+        );
+    this.groupExpansion().collapseAll(ids);
+  }
+
+  /** Last registered builder wins (e.g. tree over group if both somehow present). */
+  private activeDisplayBuilder(): RowModelDisplayBuilder<T> | null {
+    const builders = this.displayBuilders();
+    return builders[builders.length - 1] ?? null;
   }
 
   collectAggregates(
@@ -301,14 +551,25 @@ export class GridCapabilities<T = unknown> {
     this.cellDecorators.set([]);
     this.contextMenuContributions.set([]);
     this.overlayContributions.set([]);
+    this.stateSlices.set([]);
+    this.cellWidgets.set([]);
+    this.rowAria.set([]);
+    this.rangeSelections.set([]);
     this.overlayPaintEpochSignal.set(0);
+    this.fallbackCollapsed.set(new Set());
   }
+}
+
+function toggleInSet(prev: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  const next = new Set(prev);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
 }
 
 function sortByOrder<T extends { id: string; order?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id));
 }
-
-/** DI token string key for optional adapters provided by plugins. */
-export const ROW_GROUP_ADAPTER = 'al.data-grid.RowGroupAdapter' as const;
-export const TREE_DATA_ADAPTER = 'al.data-grid.TreeDataAdapter' as const;

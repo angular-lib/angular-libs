@@ -124,9 +124,9 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | Domain | Status | Our surface | Notes |
 | --- | --- | --- | --- |
 | Multi-sort | **Done** | `createGrid({ multiSort })`, `api.get/setSortModel`, `(sortChange)` | Custom `comparator` |
-| Column filters | **Done** | text/number/boolean/date/set + floating | Simple string models, not AG filter instances |
+| Column filters | **Done** | text/number/boolean/date/set/custom + floating | Typed JSON model (`ColumnFilterModel`: operators, 2 conditions AND/OR, blanks); `filterPredicate` / `filterValueGetter`; not AG filter instances |
 | Quick / external filter | **Done** | `[(quickFilter)]`, `[externalFilter]` | |
-| Filter API | **Partial** | `get/setFilterModel`, `clearFilters` | No `getColumnFilterInstance` |
+| Filter API | **Done** | `get/setFilterModel`, `get/setColumnFilter`, `clearFilters` | No `getColumnFilterInstance` (models, not instances) |
 | Custom filter components | **Later** | — | Typed seam; refuse AG filter-module explosion |
 | Row selection | **Done** | `none` \| `single` \| `multi`, `[(selectedIds)]` | Depth / coexistence — §5d |
 | Cell range selection | **Done** | Opt-in `cellRangePlugin` — §5 | Coexists with rows — §5d |
@@ -360,10 +360,14 @@ We want the good UX, on `createGrid`, without locking into a wrong nested bag.
 | Enter while editing | Commit | Commit + move down |
 | Tab while editing | Browser (leave cell / page) | Commit + next/prev cell (wrap) |
 | Editor blur | Commit | Commit |
-| Boolean cell | Enter/F2 toggles value (no draft editor) | Same |
+| Click another cell while editing | Commit first (`editorBlur: 'cancel'` → cancel); invalid draft blocks the move | Same |
+| Boolean cell | Enter/F2/Space or checkbox click toggles (pointer on the cell does not) | Same |
+| fullRow: edit another row | `rowSwitch: 'commit'` (invalid row stays open) | Same |
 | Cancel | Escape | Same |
 
-Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur, tabEditing, typeToEdit, arrowEditing }`.
+Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur, tabEditing, typeToEdit, arrowEditing, rowSwitch }`.
+`rowSwitch: 'commit' | 'cancel' | 'block'` (fullRow) — what starting an edit on another row does to the open one.
+Type-to-edit puts the caret after the seeded char; Enter / F2 / pointer select the whole value.
 `enterIdle: 'moveDown'` moves focus on Enter without opening an editor (F2 still edits).
 `pointerStart: 'none'` ≈ suppress click/dblclick edit (API / custom UI starts edit).
 `tabEditing: 'commitAndMove'` commits and moves horizontally with row wrap (Shift+Tab reverse).
@@ -711,7 +715,7 @@ instance; `context` stays host-only. See [PLUGINS.md](./PLUGINS.md).
 CSV / autosize · filter/sort/quick models · state get/set · selection · find ·
 focus (`focusCell` / `focusRow`) · `getDisplayedRowCount` (data rows) /
 `getDisplayRowCount` (data+group+plugin) · row edit start/stop · row group /
-tree bind + expand · clipboard text · locale · `recomposePlugins`
+tree bind + expand · clipboard text · locale · `setPlugins` recomposition
 
 Feature-heavy ops prefer **held adapters** (`rowGroupPlugin().setColumns`).
 

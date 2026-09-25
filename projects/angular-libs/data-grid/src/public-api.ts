@@ -8,30 +8,22 @@
 
 export { DataGrid } from './lib/components/data-grid/data-grid';
 export { DataGridApi } from './lib/api/grid-api';
-export type {
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-  BoundCellRangeAdapter,
-} from './lib/api/grid-api';
+export { adapterKey } from './lib/plugins/adapter-registry';
+export type { AdapterKey } from './lib/plugins/adapter-registry';
 export { GridEventBus } from './lib/api/grid-events';
 export type {
   DataGridEventMap,
   DataGridEventName,
   GridEventUnsubscribe,
 } from './lib/api/grid-events';
-export {
-  createGrid,
-  pickAdapter,
-  isRowGroupAdapter,
-  isTreeDataAdapter,
-  isCellRangeAdapter,
-} from './lib/create-grid';
+export { createGrid } from './lib/create-grid';
 export type {
   CreateGridOptions,
   GridChromeOptions,
   GridController,
   GridViewportOptions,
   IsRowSelectableFn,
+  SelectAllScope,
 } from './lib/create-grid';
 export {
   resolveEditInteraction,
@@ -52,7 +44,10 @@ export type { DataGridToolbarLabels } from './lib/components/chrome/data-grid-to
 export { DataGridStatusBar } from './lib/components/chrome/data-grid-status-bar';
 export type { DataGridStatusBarLabels } from './lib/components/chrome/data-grid-status-bar';
 export { DataGridSidebar } from './lib/components/chrome/data-grid-sidebar';
-export { DataGridFilterField } from './lib/components/chrome/data-grid-filter-field';
+export {
+  DataGridFilterField,
+  describeFilterModel,
+} from './lib/components/chrome/data-grid-filter-field';
 export {
   DATA_GRID_SIDEBAR_HOST,
 } from './lib/components/chrome/sidebar-host';
@@ -104,11 +99,13 @@ export type {
   DataGridFilterState,
   DataGridQuery,
   DataGridState,
+  SetGridStateOptions,
   EditMode,
   FilterChangeEvent,
   CellRange,
   FillEvent,
   PasteEvent,
+  PasteInvalidCell,
   ResolvedColumn,
   RowClassFn,
   RowClickEvent,
@@ -127,9 +124,24 @@ export type {
   SortDirection,
   SortState,
   ValueSetterParams,
+  ValueParserParams,
+  ValueParserResult,
 } from './lib/components/data-grid/data-grid.types';
-export { rowsToCsv, downloadCsv } from './lib/utils/csv';
-export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
+export {
+  rowsToCsv,
+  rowsToCsvExport,
+  defaultCsvColumnSeparator,
+  downloadCsv,
+} from './lib/utils/csv';
+export type { CsvExportOptions, CsvProcessCellParams, RowsToCsvOptions } from './lib/utils/csv';
+export {
+  serializeGridState,
+  parseGridState,
+  migrateGridState,
+  sanitizeGridState,
+  createEmptyGridState,
+  GRID_STATE_VERSION,
+} from './lib/utils/state';
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
 export type { FindMatch, FindMatchesChangeEvent, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';
@@ -144,8 +156,51 @@ export type {
 export {
   toDateKey,
   formatLocalDateKey,
+  filterText,
+  setFilterKey,
+  EMPTY_SET_FILTER_OPTIONS,
 } from './lib/utils/filter-rows';
-export { parseClipboardMatrix, applyPasteMatrix, tileMatrix } from './lib/utils/clipboard-paste';
+export type { SetFilterOption, SetFilterOptions } from './lib/utils/filter-rows';
+export {
+  DATE_FILTER_OPS,
+  NUMBER_FILTER_OPS,
+  TEXT_FILTER_OPS,
+  formatNumberFilterInput,
+  isValidColumnFilterModel,
+  normalizeFilterModel,
+  parseNumberFilterInput,
+  resolveFilterKind,
+  sameFilterModel,
+  sanitizeFilterState,
+} from './lib/utils/filter-model';
+export type {
+  BooleanFilterModel,
+  ColumnFilterKind,
+  ColumnFilterModel,
+  ColumnFilterParams,
+  CustomFilterModel,
+  DateFilterCondition,
+  DateFilterModel,
+  DateFilterOp,
+  FilterJoin,
+  NumberFilterCondition,
+  NumberFilterModel,
+  NumberFilterOp,
+  SetFilterModel,
+  TextFilterCondition,
+  TextFilterModel,
+  TextFilterOp,
+} from './lib/utils/filter-model';
+export { InputDebouncer, DEFAULT_FILTER_DEBOUNCE_MS } from './lib/utils/debounce';
+export {
+  parseClipboardMatrix,
+  applyPasteMatrix,
+  tileMatrix,
+  collectPasteTargetRows,
+  escapeClipboardCell,
+  serializeClipboardMatrix,
+} from './lib/utils/clipboard-paste';
+export type { ParseClipboardOptions, PasteTargetRow } from './lib/utils/clipboard-paste';
 export {
   formatCellValue,
   getCellValue,
@@ -153,6 +208,31 @@ export {
   isBooleanColumn,
   isDateColumn,
 } from './lib/utils/cell-value';
-export { coerceCellEditValue, isBlankCellInput } from './lib/utils/coerce-cell-value';
+export {
+  coerceCellEditValue,
+  isBlankCellInput,
+  parseCellInput,
+  parseLocaleNumber,
+  parseDateKey,
+  formatNumberForEdit,
+  isCellWritable,
+  writeCellFromText,
+  cellParseContextFromLocale,
+} from './lib/utils/coerce-cell-value';
+export type { CellParseResult, CellParseContext } from './lib/utils/coerce-cell-value';
 export { defaultGridLocale, mergeGridLocale, toolbarLabelsFromLocale } from './lib/locale/default-locale';
 export type { DataGridLocale } from './lib/locale/default-locale';
+
+/*
+ * ---------------------------------------------------------------------------
+ * ɵ — secondary-entry plumbing. NOT public API; no semver guarantees.
+ *
+ * `@angular-libs/data-grid/plugin` and `@angular-libs/data-grid/internals`
+ * re-export these under their unprefixed names. Keeping every declaration in
+ * the primary bundle means each class / injection token exists exactly once
+ * in dist (no duplicate `GridKernel`, `DataGridApi`, … across FESM files).
+ * Import from the secondary entries, never these ɵ names.
+ * ---------------------------------------------------------------------------
+ */
+export * from './plugin-api';
+export * from './internals-api';

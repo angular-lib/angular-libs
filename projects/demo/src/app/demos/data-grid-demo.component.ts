@@ -28,6 +28,7 @@ import {
   noteKey,
   type Note,
   type NotesMap,
+  CELL_RANGE_ADAPTER,
 } from '@angular-libs/data-grid/plugins';
 import { eventLogPlugin } from './plugins/event-log.plugin';
 import { sampleStatusPlugin } from './plugins/sample-status.plugin';
@@ -128,6 +129,7 @@ const STATE_KEY = 'al-data-grid-demo-state';
           </label>
           <button type="button" class="btn" (click)="saveState()">Save state</button>
           <button type="button" class="btn" (click)="restoreState()">Restore</button>
+          <button type="button" class="btn" (click)="showHighEarners()">Salary ≥ 100k</button>
           <button
             type="button"
             class="btn"
@@ -148,7 +150,7 @@ const STATE_KEY = 'al-data-grid-demo-state';
         <p class="demo__foundation-hint">
           Keys: arrows · Shift+arrows range · Home/End · Enter/F2 edit · Space select · ↑ header ·
           Enter sort · Alt+↓ column menu · Esc clears range/menu ·
-          <code>grid.cellRange</code> / <code>getAdapter</code>
+          <code>grid.getAdapter(CELL_RANGE_ADAPTER)</code>
         </p>
       </aside>
 
@@ -330,17 +332,17 @@ export class DataGridDemoComponent {
   });
 
   /** Held plugins — adapters stay stable; toggle chrome via adapter APIs. */
-  readonly groups = rowGroupPlugin<Employee>({ columns: [] });
-  readonly sideBar = sideBarPlugin<Employee>({
+  readonly groups = rowGroupPlugin({ columns: [] });
+  readonly sideBar = sideBarPlugin({
     panels: ['columns', 'filters'],
     position: 'right',
     // Events is registered by eventLogPlugin.
     defaultPanel: 'events',
   });
-  readonly drag = rowDragPlugin<Employee>(false);
-  private readonly aggregate = aggregateRowPlugin<Employee>();
-  private readonly sample = sampleStatusPlugin<Employee>();
-  private readonly events = eventLogPlugin<Employee>();
+  readonly drag = rowDragPlugin(false);
+  private readonly aggregate = aggregateRowPlugin();
+  private readonly sample = sampleStatusPlugin();
+  private readonly events = eventLogPlugin();
   /** Host-owned notes bag (simulates async API load). */
   private readonly notesBackend = new Map<string, Note>([
     [noteKey(2, 'name'), { text: 'Check salary band before review.' }],
@@ -351,7 +353,7 @@ export class DataGridDemoComponent {
       return Object.fromEntries(this.notesBackend);
     },
   });
-  readonly notes = notesPlugin<Employee>({
+  readonly notes = notesPlugin({
     notes: this.notesResource.value,
     save: async ({ rowId, columnId, note }) => {
       await new Promise((r) => setTimeout(r, 80));
@@ -366,8 +368,8 @@ export class DataGridDemoComponent {
       this.notesResource.reload();
     },
   });
-  readonly flash = flashCellsPlugin<Employee>();
-  readonly cellRange = cellRangePlugin<Employee>();
+  readonly flash = flashCellsPlugin();
+  readonly cellRange = cellRangePlugin();
 
   readonly columns: ColumnOrGroupDef<Employee>[] = [
     {
@@ -430,10 +432,12 @@ export class DataGridDemoComponent {
   ];
 
   /** Compose plugins once — toggle sidebar / row drag with adapters, not `setPlugins`. */
-  readonly grid = createGrid<Employee>({
+  readonly grid = createGrid({
     columns: this.columns,
     rowId: (row) => row.id,
     rows: this.rows,
+    // Restored before the first render (no flash of default layout).
+    initialState: loadSavedGridState(),
     selection: 'multi',
     editMode: 'fullRow',
     editInteraction: 'default',
@@ -448,7 +452,7 @@ export class DataGridDemoComponent {
       contextMenu: true,
     },
     plugins: [
-      ...defaultGridPlugins<Employee>({ sideBar: false }),
+      ...defaultGridPlugins({ sideBar: false }),
       this.drag,
       this.aggregate,
       this.groups,
@@ -636,13 +640,21 @@ export class DataGridDemoComponent {
     }
   }
 
-  /** Discovery: held `grid.cellRange` adapter (same as `getAdapter('cellRange', …)`). */
+  /** Typed filter model — same shape the floating `>=100000` shorthand produces. */
+  showHighEarners(): void {
+    this.gridRef()?.api.setColumnFilter('salary', {
+      kind: 'number',
+      conditions: [{ op: 'greaterThanOrEqual', value: 100_000 }],
+    });
+  }
+
+  /** Discovery: the grid's range adapter via its typed key (or hold `cellRangePlugin()`). */
   hasCellRange(): boolean {
-    return !!this.grid.cellRange?.getRange();
+    return !!this.grid.getAdapter(CELL_RANGE_ADAPTER)?.getRange();
   }
 
   rangeLabel(): string {
-    const range = this.grid.cellRange?.getRange();
+    const range = this.grid.getAdapter(CELL_RANGE_ADAPTER)?.getRange();
     if (!range) {
       return 'none';
     }
@@ -657,7 +669,16 @@ export class DataGridDemoComponent {
   }
 
   clearCellRange(): void {
-    this.grid.cellRange?.clearRange();
-    this.lastAction.set('cleared cell range (grid.cellRange)');
+    this.grid.getAdapter(CELL_RANGE_ADAPTER)?.clearRange();
+    this.lastAction.set('cleared cell range (getAdapter(CELL_RANGE_ADAPTER))');
   }
+}
+
+/** Last `Save state` snapshot (validated by `parseGridState`), if any. */
+function loadSavedGridState() {
+  if (typeof localStorage === 'undefined') {
+    return null;
+  }
+  const raw = localStorage.getItem(STATE_KEY);
+  return raw ? parseGridState(raw) : null;
 }

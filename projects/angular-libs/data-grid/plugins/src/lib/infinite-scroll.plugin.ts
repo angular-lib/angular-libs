@@ -8,7 +8,7 @@ export interface InfiniteScrollPluginOptions {
  * Owns near-end scroll detection via interaction capability.
  * Re-arms when content grows while already at the bottom (ResizeObserver).
  */
-export function infiniteScrollPlugin<T = unknown>(
+export function infiniteScrollPlugin<T = any>(
   options: InfiniteScrollPluginOptions = {},
 ): DataGridPlugin<T> {
   const threshold = options.threshold ?? 240;
@@ -45,8 +45,9 @@ export function infiniteScrollPlugin<T = unknown>(
           };
 
           const onScroll = (event: Event): void => {
-            const viewport = event.target as HTMLElement | null;
-            if (!viewport?.classList?.contains('al-data-grid__scroll')) {
+            // Capture sees nested detail-grid scrollers too — only react to our own.
+            const viewport = scrollEl();
+            if (!viewport || event.target !== viewport) {
               return;
             }
             check(viewport);

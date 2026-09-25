@@ -4,51 +4,18 @@ import type {
   DataGridQuery,
   DataGridState,
   PasteEvent,
+  SetGridStateOptions,
   SortState,
 } from '../components/data-grid/data-grid.types';
+import { computed, type Signal } from '@angular/core';
+import { gridQueryEqual, gridStateEqual } from '../utils/state';
+import type { CsvExportOptions } from '../utils/csv';
+import type { ColumnFilterModel } from '../utils/filter-model';
 import type { FindMatch } from '../utils/find';
 import type { DisplayRow } from '../utils/row-display';
 import type { FocusCell } from '../controllers/focus';
-import type { DataGridPlugin } from '../plugins/types';
+import type { AdapterKey } from '../plugins/adapter-registry';
 import { GridEventBus } from './grid-events';
-
-/** Kernel-owned plugin lifecycle — attached by DataGrid; not a host concern. */
-export interface PluginLifecycle<T = unknown> {
-  recomposePlugins(plugins: readonly DataGridPlugin<T>[]): void;
-}
-
-/** Minimal adapter surface the API binds from `rowGroupPlugin`. */
-export interface BoundRowGroupAdapter {
-  columns: () => readonly string[];
-  active: () => boolean;
-  setColumns(columns: readonly string[]): void;
-  clear(): void;
-  toggleCollapsed(groupId: string): void;
-  expandAll(): void;
-  collapseAll(allGroupIds: readonly string[]): void;
-  collapsedIds: () => ReadonlySet<string>;
-}
-
-/** Collapse adapter bound by `treeDataPlugin`. */
-export interface BoundTreeDataAdapter {
-  active: () => boolean;
-  toggleCollapsed(groupId: string): void;
-  expandAll(): void;
-  collapseAll(allGroupIds: readonly string[]): void;
-  collapsedIds: () => ReadonlySet<string>;
-  collectAllGroupIds(rows: readonly unknown[]): string[];
-}
-
-/** Cell-range adapter bound by `cellRangePlugin` (OVERVIEW §5). */
-export interface BoundCellRangeAdapter {
-  getRange(): import('../components/data-grid/data-grid.types').CellRange | null;
-  setRange(range: import('../components/data-grid/data-grid.types').CellRange | null): void;
-  clearRange(): void;
-  getClipboardText(): string | null;
-  extendRange(dRow: number, dCol: number): boolean;
-  /** When false, the range ring paints without a fill handle (default true). */
-  fillHandleEnabled?: boolean;
-}
 
 /** Selection + query read/write. */
 export interface DataGridSelectionHost<T = unknown> {
@@ -73,13 +40,15 @@ export interface DataGridSelectionHost<T = unknown> {
 
 /** Column layout / filter / sort / state persistence. */
 export interface DataGridColumnsHost {
-  exportCsv(filename?: string): string;
+  exportCsv(filenameOrOptions?: string | CsvExportOptions<any>): string;
   autoSizeColumns(columnIds?: string[]): void;
   clearFilters(): void;
   getState(): DataGridState;
-  setState(state: Partial<DataGridState>): void;
+  setState(state: Partial<DataGridState>, options?: SetGridStateOptions): void;
   getFilterModel(): DataGridFilterState;
   setFilterModel(filters: DataGridFilterState): void;
+  getColumnFilter(columnId: string): ColumnFilterModel | null;
+  setColumnFilter(columnId: string, model: ColumnFilterModel | null): void;
   getSortModel(): SortState[];
   setSortModel(sorts: SortState[]): void;
   getQuickFilter(): string;
@@ -123,16 +92,16 @@ export interface DataGridFindHost {
   focusFindInput?(): void;
 }
 
-/** Row-group adapter binding + collapse helpers. */
+/** Group / tree expansion (routed to the grid's single expansion store). */
 export interface DataGridRowGroupHost {
   expandAll?(): void;
   collapseAll?(): void;
   toggleGroup?(groupId: string): void;
-  setRowGroupColumns?(columns: readonly string[]): void;
-  getRowGroupColumns?(): string[];
-  clearRowGroup?(): void;
-  bindRowGroupAdapter?(adapter: BoundRowGroupAdapter | null): void;
-  bindTreeDataAdapter?(adapter: BoundTreeDataAdapter | null): void;
+}
+
+/** Plugin adapter discovery (see `adapterKey`). */
+export interface DataGridAdaptersHost {
+  getAdapter?<A>(key: AdapterKey<A>): A | null;
 }
 
 /** Clipboard / paste events. */
@@ -167,17 +136,18 @@ export type DataGridApiHost<T = unknown> = DataGridSelectionHost<T> &
   DataGridRowGroupHost &
   DataGridClipboardHost<T> &
   DataGridLocaleApiHost &
-  DataGridSideBarApiHost;
+  DataGridSideBarApiHost &
+  DataGridAdaptersHost;
 
 /**
  * Imperative grid façade (AG-inspired, intentionally smaller).
  *
- * Feature ops prefer held plugin adapters (`groups.setColumns`, `ranges.clearRange`).
- * API methods such as {@link setRowGroupColumns} / {@link clearCellRange} are thin
- * façades over those adapters (or host passthrough when unbound).
+ * Feature ops live on held plugin adapters (`groups.setColumns`, `ranges.clearRange`);
+ * discover them with {@link getAdapter} and a typed key from the plugin package.
  */
 export class DataGridApi<T = unknown> {
-  exportDataAsCsv = (filename?: string): string => this.exportCsv(filename);
+  exportDataAsCsv = (filenameOrOptions?: string | CsvExportOptions<T>): string =>
+    this.exportCsv(filenameOrOptions);
 
   /**
    * Typed event bus mirroring Angular `output()`s.
@@ -186,23 +156,37 @@ export class DataGridApi<T = unknown> {
    */
   readonly events = new GridEventBus<T>();
 
-  /** Bound by `rowGroupPlugin` during setup. */
-  private rowGroupAdapter: BoundRowGroupAdapter | null = null;
-  /** Bound by `treeDataPlugin` during setup. */
-  private treeDataAdapter: BoundTreeDataAdapter | null = null;
-  /** Bound by `cellRangePlugin` during setup. */
-  private cellRangeAdapter: BoundCellRangeAdapter | null = null;
-  private pluginLifecycle: PluginLifecycle<T> | null = null;
+  /**
+   * Live grid state (structurally memoized — a new value only on real change).
+   * `(stateChange)` / plugin `onStateChange` are derived from this signal.
+   */
+  readonly state: Signal<DataGridState> = computed(() => this.host.getState(), {
+    equal: gridStateEqual,
+  });
+
+  /** Live sort / filter / quick-filter / page query; `(queryChange)` derives from it (server mode). */
+  readonly query: Signal<DataGridQuery> = computed(() => this.host.getQuery(), {
+    equal: gridQueryEqual,
+  });
 
   constructor(private readonly host: DataGridApiHost<T>) {}
 
-  /** Wired by DataGrid to the kernel — keeps recomposition off the host surface. */
-  attachPluginLifecycle(lifecycle: PluginLifecycle<T>): void {
-    this.pluginLifecycle = lifecycle;
+  /**
+   * Held adapter a plugin of this grid registered under `key`, or `null`.
+   * Reactive (signal-backed) — e.g. `api.getAdapter(ROW_GROUP_ADAPTER)?.setColumns([…])`.
+   */
+  getAdapter<A>(key: AdapterKey<A>): A | null {
+    return this.host.getAdapter?.(key) ?? null;
   }
 
-  exportCsv(filename?: string): string {
-    return this.host.exportCsv(filename);
+  /**
+   * Download processed rows as CSV and return the text. Pass a filename or
+   * {@link CsvExportOptions} (`columnKeys`, `onlySelected`, `columnSeparator`,
+   * `processCell`, …). Defaults: locale list separator, CRLF, UTF-8 BOM,
+   * formula-injection escaping.
+   */
+  exportCsv(filenameOrOptions?: string | CsvExportOptions<T>): string {
+    return this.host.exportCsv(filenameOrOptions);
   }
 
   autoSizeColumns(columnIds?: string[]): void {
@@ -221,16 +205,36 @@ export class DataGridApi<T = unknown> {
     return this.host.getState();
   }
 
-  setState(state: Partial<DataGridState>): void {
-    this.host.setState(state);
+  /**
+   * Apply a (partial, possibly untrusted) snapshot: absent / invalid fields and
+   * `ignore`d keys are left as they are; unknown column ids are dropped. Fires
+   * `sortChange` / `filterChange` / `selectionChange` for what actually changed.
+   */
+  setState(state: Partial<DataGridState>, options?: SetGridStateOptions): void {
+    this.host.setState(state, options);
   }
 
   getFilterModel(): DataGridFilterState {
     return this.host.getFilterModel();
   }
 
+  /** Replace all column filters (invalid / empty models are dropped). */
   setFilterModel(filters: DataGridFilterState): void {
     this.host.setFilterModel(filters);
+  }
+
+  /** One column's typed filter model, or `null`. */
+  getColumnFilter(columnId: string): ColumnFilterModel | null {
+    return this.host.getColumnFilter(columnId);
+  }
+
+  /**
+   * Set one column's filter, e.g.
+   * `{ kind: 'number', conditions: [{ op: 'greaterThan', value: 100 }] }`;
+   * `null` clears it.
+   */
+  setColumnFilter(columnId: string, model: ColumnFilterModel | null): void {
+    this.host.setColumnFilter(columnId, model);
   }
 
   getSortModel(): SortState[] {
@@ -369,87 +373,28 @@ export class DataGridApi<T = unknown> {
     this.host.notifyNearEnd?.();
   }
 
+  /**
+   * Expand every group / tree node. Routed to the grid's single expansion store
+   * (the active row-group / tree adapter, else the grid fallback) — the same
+   * dispatcher mouse and keyboard toggles use.
+   */
   expandAll(): void {
-    if (this.rowGroupAdapter) {
-      this.rowGroupAdapter.expandAll();
-      return;
-    }
-    if (this.treeDataAdapter) {
-      this.treeDataAdapter.expandAll();
-      return;
-    }
     this.host.expandAll?.();
   }
 
+  /** Collapse every group / tree node (including nested ids under collapsed parents). */
   collapseAll(): void {
-    if (this.treeDataAdapter && !this.rowGroupAdapter) {
-      const rows = this.host.getProcessedRows();
-      this.treeDataAdapter.collapseAll(this.treeDataAdapter.collectAllGroupIds(rows));
-      return;
-    }
     this.host.collapseAll?.();
   }
 
+  /** Toggle one group id / tree node id (`GroupDisplayRow.id` / `DataDisplayRow.groupId`). */
   toggleGroup(groupId: string): void {
-    if (this.rowGroupAdapter) {
-      this.rowGroupAdapter.toggleCollapsed(groupId);
-      return;
-    }
-    if (this.treeDataAdapter) {
-      this.treeDataAdapter.toggleCollapsed(groupId);
-      return;
-    }
     this.host.toggleGroup?.(groupId);
   }
 
-  setRowGroupColumns(columns: readonly string[]): void {
-    if (this.rowGroupAdapter) {
-      this.rowGroupAdapter.setColumns(columns);
-      return;
-    }
-    this.host.setRowGroupColumns?.(columns);
-  }
-
-  getRowGroupColumns(): string[] {
-    if (this.rowGroupAdapter) {
-      return [...this.rowGroupAdapter.columns()];
-    }
-    return this.host.getRowGroupColumns?.() ?? [];
-  }
-
-  clearRowGroup(): void {
-    if (this.rowGroupAdapter) {
-      this.rowGroupAdapter.clear();
-      return;
-    }
-    this.host.clearRowGroup?.();
-  }
-
+  /** Copy text: the active cell range when a range source is registered, else selected rows. */
   getSelectionClipboardText(): string | null {
-    // §5d — range wins copy when present.
-    const fromRange = this.cellRangeAdapter?.getClipboardText();
-    if (fromRange != null) {
-      return fromRange;
-    }
     return this.host.getSelectionClipboardText?.() ?? null;
-  }
-
-  getCellRange(): import('../components/data-grid/data-grid.types').CellRange | null {
-    return this.cellRangeAdapter?.getRange() ?? null;
-  }
-
-  /** @internal — session overlay paint; false when `cellRangePlugin({ fillHandle: false })`. */
-  isFillHandleEnabled(): boolean {
-    return this.cellRangeAdapter?.fillHandleEnabled !== false;
-  }
-
-  clearCellRange(): void {
-    this.cellRangeAdapter?.clearRange();
-  }
-
-  /** @internal — bound by `cellRangePlugin`. */
-  extendCellRange(dRow: number, dCol: number): boolean {
-    return this.cellRangeAdapter?.extendRange(dRow, dCol) ?? false;
   }
 
   focusFindInput(): void {
@@ -488,23 +433,6 @@ export class DataGridApi<T = unknown> {
     this.host.emitPaste?.(event);
   }
 
-  /** @internal — bound by `rowGroupPlugin` / host passthrough. */
-  bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {
-    this.rowGroupAdapter = adapter;
-    this.host.bindRowGroupAdapter?.(adapter);
-  }
-
-  /** @internal — bound by `treeDataPlugin` / host passthrough. */
-  bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
-    this.treeDataAdapter = adapter;
-    this.host.bindTreeDataAdapter?.(adapter);
-  }
-
-  /** @internal — bound by `cellRangePlugin`. */
-  bindCellRangeAdapter(adapter: BoundCellRangeAdapter | null): void {
-    this.cellRangeAdapter = adapter;
-  }
-
   getLocale(): import('../locale/default-locale').DataGridLocale {
     return this.host.getLocale();
   }
@@ -517,14 +445,5 @@ export class DataGridApi<T = unknown> {
   /** Currently open tool panel id, or `null` when collapsed / sidebar off. */
   getOpenedToolPanel(): string | null {
     return this.host.getOpenedToolPanel?.() ?? null;
-  }
-
-  /**
-   * Full plugin recomposition via the kernel. Prefer held-adapter toggles
-   * (e.g. `sideBar.setEnabled`) for chrome; use this only when the list itself changes.
-   * Also used when `setPlugins` / `api.recomposePlugins` runs after mount.
-   */
-  recomposePlugins(plugins: readonly DataGridPlugin<T>[]): void {
-    this.pluginLifecycle?.recomposePlugins(plugins);
   }
 }

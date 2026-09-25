@@ -2,7 +2,7 @@ import {
   isDataDisplayRow,
   wrapDataRows,
   type DisplayRow,
-} from '@angular-libs/data-grid/internals';
+} from '@angular-libs/data-grid/plugin';
 import {
   MASTER_DETAIL_PLUGIN_KIND,
   type MasterDetailGridOptions,

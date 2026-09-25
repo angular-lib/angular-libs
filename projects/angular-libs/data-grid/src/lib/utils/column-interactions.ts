@@ -17,9 +17,11 @@ export function attachColumnResize(options: {
   const onUp = (): void => {
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
     options.onEnd?.();
   };
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
   return onUp;
 }

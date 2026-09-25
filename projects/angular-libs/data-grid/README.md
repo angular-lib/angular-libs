@@ -54,9 +54,37 @@ groups.clear();
 />
 ```
 
+**Typing:** `T` is inferred from `rows` or typed `columns` (`ColumnDef<Person>[]`),
+so `rowId: (r) => r.id` is typed without annotating plugin factories — row-agnostic
+factories (`defaultGridPlugins()`, `sideBarPlugin()`, held `rowGroupPlugin()`) fit
+any row type. Inline column literals without `rows` need `createGrid<Person>(…)`;
+so do inline row-typed plugins (`treeDataPlugin({ getDataPath: (r) => … })`).
+
+**Runtime schema:** `grid.columns.set(next)` (order / pin / width / hidden kept for
+surviving ids), `grid.selection.set('single')`, `grid.rowClickSelects`,
+`grid.isRowSelectable`, `grid.selectAll`, `grid.setEditInteraction('excel')`.
+
 When `createGrid({ rows })` owns the same signal, paste / cell / row edits
 **auto-apply** onto it (`autoApplyWrites`, default true). Hosts that intercept
 `(paste)` / `(cellEdit)` to transform first should pass `autoApplyWrites: false`.
+
+### Row identity (`rowId`)
+
+`rowId(row, index)` identifies rows for selection, edits, find, paste write-back
+and transactions. `index` is **always the row's index in the source `[data]`
+array** — never its filtered / sorted / paged position — so ids from display
+rows, `api.getSelectedRows()`, `applyCellEdit` / `applyRowEdit` (called with the
+source rows) all agree. The default is that source index, which is only safe
+for static data: ids shift when rows are added, removed or reordered. Pass a
+field-based id (`rowId: (r) => r.id`) whenever rows change.
+
+- `createGrid({ rows })` without `rowId` logs a one-time dev warning.
+- `grid.applyTransaction()` **throws** without an explicit `rowId` (update/remove
+  payloads have no source index to match on).
+- `(paste)` events carry `rowIds` aligned with `suggestedRows`; write back with
+  `mergeRowsById(rows(), e.suggestedRows, idOf, e.rowIds)`. Always merge —
+  `suggestedRows` holds only the filtered / sorted rows, so `rows.set(e.suggestedRows)`
+  would drop rows hidden by a filter.
 
 Compose plugins once on `createGrid`. Toggle chrome via held adapters
 (e.g. `sideBar.setEnabled(false)`) or controller UX signals
@@ -126,8 +154,9 @@ Also available **only** from `@angular-libs/data-grid/plugins` (preferred).
 
 Sidebar panel components (`DataGridColumnsPanel`, `DataGridFiltersPanel`,
 `DataGridRowGroupPanel`) live in the plugins package and register via slots.
-The filters tool panel shows filter cards (add / remove / expand) for open
-filters — values set from floating filters are auto-added.
+The filters tool panel shows filter cards (add / remove / expand) — any column
+with an active filter gets a card automatically. Cards edit up to two
+conditions joined with AND / OR.
 
 ### Custom tool panels
 
@@ -184,8 +213,19 @@ columns = [md.expandColumn(), { field: 'name' }];
 
 - **Groups** sidebar tab: check columns to group, reorder levels, **Ungroup**
 - Expand / Collapse / Ungroup live on the held adapter (`groups.expandAll()`, `groups.collapseAll()`, `groups.clear()`) and `DataGridApi` — no default toolbar buttons
-- API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
-- Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`)
+- API: `api.toggleGroup(id)`; group columns via the held adapter or
+  `grid.getAdapter(ROW_GROUP_ADAPTER)?.setColumns(['role'])`
+- Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`). The row
+  at a path **is** that node (e.g. `['UK']` is the parent of `['UK', 'London']`);
+  group rows are synthesized only for missing ancestors. Parent data rows show an
+  expand toggle in the first column (click, or Space / Enter with that cell
+  focused); `DataDisplayRow.groupId` / `hasChildren` / `expanded` describe it.
+- One expansion store per grid: the active row-group / tree adapter. Mouse,
+  keyboard, `api.toggleGroup` / `expandAll` / `collapseAll` and the held adapter
+  all read and write it.
+- Group ids are opaque, collision-free strings (type-tagged, percent-encoded
+  segments): `1` and `'1'`, blank and `'(blank)'`, `'a/b'` and `['a', 'b']` are
+  distinct. Use the `id` from display rows / `collectAllGroupIds` — don't build them.
 - Master/detail: nested detail grid via `detailGrid` / `detailColumns`; `expandColumn()`
 - Pagination counts **master / group slots**, not open detail panels
 - `keepDetailGrids` evicts nested controllers when a master leaves source `[data]` (filter-out still keeps state)
@@ -195,14 +235,43 @@ columns = [md.expandColumn(), { field: 'name' }];
 
 ## Row drag
 
-Enabled only for a **flat** client-side list with **no** active sort/filter/quick-filter
-and not `serverSide`. `(rowReorder)` includes `fromId` / `toId` plus suggested `rows`:
+Enabled only for a **flat** client-side list with **no** active sort/filter/quick-filter/
+`externalFilter` and not `serverSide`. `(rowReorder)` includes `fromId` / `toId` plus
+`rows` — the **full source** `[data]` order with the row moved, so it is always safe to
+assign back:
 
 ```html
 (rowReorder)="rows.set($event.rows)"
 ```
 
-Prefer applying by id when syncing back to unsorted source data.
+## Pagination & server-side paging
+
+Client pagination keeps the current page on data edits, transactions and sorts
+(clamped to the last page); filters / quick filter / `externalFilter` / page size
+reset to page 1. Changing page scrolls back to the top.
+
+For server paging, pass the total and bind only the current page as `[data]`:
+
+```ts
+const grid = createGrid({ columns, serverSide: true, viewport: { pagination: true, pageSize: 50 } });
+// (queryChange)="load($event)" — { sorts, filters, quickFilter, pageIndex, pageSize }
+// `filters` is the typed model (see "Filtering"); quickFilter words are AND-ed.
+async load(q: DataGridQuery) {
+  const res = await api.fetch(q);
+  this.rows.set(res.rows);
+  grid.serverRowCount.set(res.total);
+}
+```
+
+`queryChange` is derived from the live query (`grid.query()` / `api.query()`): it
+fires once on mount (including `initialState`) and on every real change of sort,
+filter, quick filter (UI, API or the `[(quickFilter)]` model), page or page size
+(`grid.viewport.pageSize.set`) — never twice for the same query.
+
+With `serverRowCount` set the grid skips client slicing, pages by the total, emits
+`queryChange` on page change, and offsets `aria-rowindex` / `aria-rowcount` by it.
+Grouping, aggregates, find, CSV export and select-all only cover the **current page**.
+Leave `serverRowCount` `null` to page the returned rows on the client.
 
 ## Editors & renderers
 
@@ -218,6 +287,72 @@ Prefer applying by id when syncing back to unsorted source data.
 - Built-ins: `text` | `number` | `boolean` | `date` | `select`
 - Optional `cellRenderer` / `cellEditor` as a typed Angular `Type` (inputs: `params`)
 - `alGridCell` templates win over `cellRenderer` when both are set
+
+### Parsing & validation (edit, paste, fill)
+
+Editor text, pasted cells, and cross-column fill go through one strict parser
+(`parseCellInput`). Invalid input is **never written**: the cell editor stays open
+with `aria-invalid` (Enter / Tab / click-elsewhere are refused), and paste / fill
+report it in `PasteEvent.invalidCells`.
+
+- **Numbers** — decimal / group separators from `locale.numberLocale` (BCP 47,
+  default runtime locale): `[locale]="{ numberLocale: 'nb-NO' }"` accepts `1 234,5`.
+  Optional currency affix; `abc`, `10-20`, `0x10`, `(100)`, `50%` are rejected.
+  Number editors are `type="text" inputmode="decimal"` (no browser `""` for `1,5`).
+- **Dates** — ISO `yyyy-mm-dd` or the locale's numeric order with a 4-digit year
+  (`25.09.2026` nb); components are validated. The previous value's shape is kept
+  (Date stays Date, ISO string stays string; empty cells get an ISO string).
+- **Custom** — `valueParser: (input, params) => ({ value }) | ({ error })`.
+- Paste / fill skip non-editable columns and `valueGetter`-only columns
+  (no `field` / `valueSetter`). Clipboard text is TSV (quoted fields may hold tabs /
+  newlines); commas never split a cell.
+
+## Filtering
+
+`filter: true` infers the kind from `type` (number / boolean / date, else text);
+or set it explicitly: `'text' | 'number' | 'date' | 'boolean' | 'set' | 'custom'`.
+The floating filter, filters panel and filter logic share one resolver, so
+`{ type: 'date', filter: 'text' }` is a text filter everywhere.
+
+The filter state is a typed, JSON-serializable model per column:
+
+```ts
+grid.api()?.setColumnFilter('salary', {
+  kind: 'number',
+  conditions: [{ op: 'inRange', value: 50_000, valueTo: 90_000 }], // inclusive
+});
+grid.api()?.setFilterModel({
+  name: { kind: 'text', conditions: [{ op: 'startsWith', value: 'a' }, { op: 'endsWith', value: 'n' }], join: 'or' },
+  hired: { kind: 'date', conditions: [{ op: 'after', value: '2024-01-31' }] }, // local yyyy-MM-dd
+  role: { kind: 'set', values: ['Engineer', null] },  // include-list; null = (Blanks)
+  active: { kind: 'boolean', value: true },
+});
+grid.api()?.setColumnFilter('salary', null); // clear one
+```
+
+| Kind | Operators |
+| --- | --- |
+| text | `contains` `notContains` `equals` `notEqual` `startsWith` `endsWith` `blank` `notBlank` (case-insensitive; matches raw **and** `valueFormatter` text) |
+| number | `equals` `notEqual` `lessThan` `lessThanOrEqual` `greaterThan` `greaterThanOrEqual` `inRange` `blank` `notBlank` |
+| date | `equals` `notEqual` `before` `after` `inRange` `blank` `notBlank` (Date, ISO strings and epoch ms compare as local days) |
+
+Blank / non-numeric values never match comparisons (incl. `notEqual`). Number
+floating filters accept shorthand — `>100`, `<=5`, `!=0`, `10..20` / `10-20` —
+and mark unparseable input `aria-invalid` (the filter is cleared, not silently kept).
+Set filters start with everything checked; the dropdown has search,
+(Select all), (Blanks), a count summary and closes on outside click / Escape.
+Options sort numerically / naturally and are capped by `filterParams.setValueLimit`
+(default 1000, with a notice); use `filterParams.setValues` for server-side data.
+
+Per column: `filterValueGetter(row)` changes what is filtered (e.g. an object's
+code), and `filterPredicate(value, row, model)` replaces built-in evaluation
+(required for `{ kind: 'custom', value }` models). Invalid / legacy entries are
+dropped by `setFilterModel` and `parseGridState` (`isValidColumnFilterModel`).
+
+The quick filter splits on whitespace: every word must appear in some visible
+column (raw or formatted). Typed filter / quick-filter / find inputs are
+debounced by `createGrid({ chrome: { filterDebounceMs } })` (default 200, `0`
+= per keystroke); Enter / blur apply immediately and API writes are never delayed.
 
 ## Column groups
 
@@ -243,7 +378,8 @@ columns: ColumnOrGroupDef<Emp>[] = [
 
 ```ts
 grid.api()?.exportDataAsCsv();
-grid.api()?.setFilterModel({ name: 'Ada' });
+grid.api()?.exportCsv({ filename: 'people.csv', columnKeys: ['name', 'city'], onlySelected: true });
+grid.api()?.setColumnFilter('name', { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] });
 grid.api()?.getState();
 grid.api()?.getLocale(); // plugins use this for chrome strings
 ```
@@ -252,16 +388,71 @@ Feature ops prefer held plugin adapters (`groups.setColumns`, `ranges.clearRange
 `DataGridApi` methods are thin façades over those adapters (or host passthrough).
 `bind*Adapter` / host-passthrough wiring is `@internal`.
 
+CSV export (`api.exportCsv(filenameOrOptions)`, `csvExportPlugin(options)`) writes
+processed rows (filter + sort order) with a UTF-8 BOM, CRLF line endings, `;` as
+separator when the locale's decimal mark is `,` (else `,`), and prefixes text
+starting with `= + - @` (not plain numbers) with `'` against formula injection.
+Options: `columnKeys`, `onlySelected`, `columnSeparator`, `locale`, `useFormatter`,
+`processCell`, `includeHeaders`, `escapeFormulas`, `bom`. Columns with
+`suppressExport: true` (e.g. the master-detail expand column) are skipped unless
+listed in `columnKeys`.
+
+## Grid state (persist / restore)
+
+`DataGridState` (schema `version: 1`): sorts, filters, quick filter, column order /
+pins / widths / hidden, page index / size, selected ids, open tool panel, and
+plugin `slices` (e.g. `rowGroup: { columns, collapsedIds }`).
+
+```ts
+const grid = createGrid({
+  columns,
+  rowId: (r) => r.id,
+  // Applied before the first render and the first queryChange — no flash / refetch.
+  initialState: parseGridState(localStorage.getItem('grid') ?? ''),
+});
+```
+
+```html
+<!-- save(s) { localStorage.setItem('grid', serializeGridState(s)); } -->
+<al-data-grid [controller]="grid" [data]="rows()" (stateChange)="save($event)" />
+```
+
+- `grid.state()` / `api.state()` — live, structurally memoized signal; `(stateChange)`
+  and plugin `onStateChange` derive from it (once per real change, not on mount,
+  column resize reports on drop).
+- `api.setState(partial, { ignore: ['selectedIds'] })` — absent / invalid fields and
+  ignored keys stay as they are; fires `sortChange` / `filterChange` /
+  `selectionChange` for what changed.
+- `parseGridState(raw)` / `migrateGridState(obj)` validate untrusted input (bad
+  sort directions, non-model filter values, … are dropped) and upgrade unversioned
+  snapshots; ids of columns the grid does not have are dropped on apply.
+- Plugins contribute slices with `capabilities.registerStateSlice` (see PLUGINS.md).
+
 ## Locale
 
 Pass `[locale]` partials; plugins read `api.getLocale()` for status bar, sidebar
 tabs, Expand/Collapse/Ungroup, and panel titles.
 
+Client string sorting uses a cached `Intl.Collator` (numeric, accent/case-
+insensitive). Set `collatorLocale` (BCP-47, e.g. `[locale]="{ collatorLocale: 'nb' }"`)
+to sort by a specific language (Æ/Ø/Å after Z); default is the runtime locale.
+Blank values (`null` / `''` / `NaN` / invalid Date) sort first ascending.
+
+## Aggregates (`column.aggFunc`)
+
+Built-ins skip blank values (`null` / `undefined` / `''`): `count` is the number
+of non-blank values; `sum` / `avg` / `min` / `max` use finite numbers only
+(numbers or numeric strings). `valueFormatter` runs on footer values with
+`row: undefined`, `rowIndex: -1` (not for `count`).
+
 ## Features
 
 - Signals / models, OnPush, CSS variables, test ids
 - Sort, filter (text/number/boolean/date/set), quick filter, external filter
-- Selection, pagination or virtualization, flex widths, pin/reorder/resize
+- Selection (header select-all scope: `createGrid({ selectAll: 'filtered' | 'page' | 'all' })`,
+  default `'filtered'`; adds to / removes from the existing selection)
+- Pagination or virtualization, flex widths (resolved to px from the measured
+  viewport; resizing one column leaves flex columns flexing), pin/reorder/resize
   (header right-click: Pin left / Pin right / Unpin; drag onto a pinned/unpinned
   column also changes pin; `api.setColumnPinned`)
 - Cell + full-row Signal Forms editing, header/cell templates

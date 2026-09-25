@@ -3,13 +3,13 @@
  */
 
 import { computed, signal, type Signal } from '@angular/core';
-import type { ColumnDef } from '@angular-libs/data-grid';
+import { adapterKey, type ColumnDef } from '@angular-libs/data-grid';
 import {
   buildDisplayRows,
   collectAllGroupIds,
   type DisplayRow,
   type RowGroupConfig,
-} from '@angular-libs/data-grid/internals';
+} from '@angular-libs/data-grid/plugin';
 
 export interface RowGroupAdapter {
   readonly columns: Signal<readonly string[]>;
@@ -21,6 +21,9 @@ export interface RowGroupAdapter {
   expandAll(): void;
   collapseAll(allGroupIds: readonly string[]): void;
 }
+
+/** Discovery key — `grid.getAdapter(ROW_GROUP_ADAPTER)` / `api.getAdapter(…)`. */
+export const ROW_GROUP_ADAPTER = adapterKey<RowGroupAdapter>('rowGroup');
 
 export function createRowGroupAdapter(
   initialColumns: readonly string[] = [],
@@ -74,6 +77,8 @@ export function buildGroupedRowsFromAdapter<T>(
   adapter: RowGroupAdapter,
   columnsById: Map<string, ColumnDef<T>>,
   rowId: (row: T, index: number) => string | number,
+  /** Collapsed ids (the builder passes `ctx.collapsedGroupIds`). Default: the adapter's. */
+  collapsedGroupIds: ReadonlySet<string> = adapter.collapsedIds(),
 ): DisplayRow<T>[] {
   const config: RowGroupConfig = { columns: adapter.columns() };
   if (!config.columns.length) {
@@ -90,7 +95,7 @@ export function buildGroupedRowsFromAdapter<T>(
     rows,
     rowId,
     columnsById,
-    collapsedGroupIds: adapter.collapsedIds(),
+    collapsedGroupIds,
     rowGroup: config,
     treeData: null,
   });

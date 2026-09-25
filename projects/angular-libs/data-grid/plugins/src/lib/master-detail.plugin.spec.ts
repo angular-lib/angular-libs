@@ -1,8 +1,8 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { GridCapabilities } from '@angular-libs/data-grid/plugin';
-import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
+import { GridAdapterRegistry, GridCapabilities } from '@angular-libs/data-grid/plugin';
+import type { CustomDisplayRow } from '@angular-libs/data-grid/plugin';
 import {
   buildMasterDetailDisplayRows,
   createMasterDetailAdapter,
@@ -50,6 +50,7 @@ function pluginContext(
     injector: null as never,
     slots: {} as never,
     capabilities: caps,
+    adapters: new GridAdapterRegistry(),
   };
 }
 
@@ -429,7 +430,7 @@ describe('MasterDetailDefaultView nested controller', () => {
       .componentInstance as MasterDetailDefaultView<Customer, Order>;
     const first = view.detailController();
     expect(first).toBeTruthy();
-    expect(first!.columns).toEqual([{ field: 'sku' }]);
+    expect(first!.columns()).toEqual([{ field: 'sku' }]);
 
     detailGrid.columns = [{ field: 'qty' }];
     item.set({
@@ -449,7 +450,7 @@ describe('MasterDetailDefaultView nested controller', () => {
     const second = view.detailController();
     expect(second).toBeTruthy();
     expect(second).not.toBe(first);
-    expect(second!.columns).toEqual([{ field: 'qty' }]);
+    expect(second!.columns()).toEqual([{ field: 'qty' }]);
   });
 });
 

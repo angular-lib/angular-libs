@@ -29,7 +29,7 @@ export interface DefaultGridPluginsOptions {
  * groups.setColumns(['role']);
  * ```
  */
-export function defaultGridPlugins<T = unknown>(
+export function defaultGridPlugins<T = any>(
   options: DefaultGridPluginsOptions = {},
 ): DataGridPlugin<T>[] {
   const list: DataGridPlugin<T>[] = [];

@@ -20,8 +20,8 @@ import {
   type DataGridNestedRealm,
   type GridController,
 } from '@angular-libs/data-grid';
-import { flattenColumnDefs } from '@angular-libs/data-grid/internals';
-import type { CustomDisplayRow } from '@angular-libs/data-grid/internals';
+import { flattenColumnDefs } from '@angular-libs/data-grid/plugin';
+import type { CustomDisplayRow } from '@angular-libs/data-grid/plugin';
 import type {
   MasterDetailGridOptions,
   MasterDetailPayload,

@@ -1,4 +1,5 @@
 import {
+  adapterKey,
   defaultGridLocale,
   type ColumnDef,
   type DataGridApi,
@@ -27,6 +28,7 @@ import {
   MASTER_DETAIL_PLUGIN_KIND,
   type MasterDetailExpandColumnOptions,
   type MasterDetailGridOptions,
+  type MasterDetailPayload,
   type MasterDetailPluginOptions,
   type PersistedDetailGridState,
 } from './master-detail.types';
@@ -40,6 +42,14 @@ export type {
 } from './master-detail.types';
 export { MASTER_DETAIL_PLUGIN_KIND } from './master-detail.types';
 export type { MasterDetailAdapter } from './master-detail.adapter';
+
+/** Discovery key — `api.getAdapter(MASTER_DETAIL_ADAPTER)` (the shared expand store). */
+export const MASTER_DETAIL_ADAPTER = adapterKey<MasterDetailAdapter>('masterDetail');
+
+/** DOM id of an open detail row — the master row's `aria-details` target. */
+export function masterDetailRegionId(rowId: string | number): string {
+  return `al-dg-detail-${String(rowId)}`;
+}
 export { createMasterDetailAdapter } from './master-detail.adapter';
 export {
   buildMasterDetailDisplayRows,
@@ -107,6 +117,10 @@ function resolveIsRowMaster<T, D>(
  * - Default detail UI is a nested `<al-data-grid>` (`detailColumns` / `detailGrid`)
  * - Override with `detailComponent` for forms or fully custom chrome
  * - Mutually exclusive with `rowGroupPlugin` / `treeDataPlugin` (one display builder)
+ * - Keyboard: the expand column is a cell widget (Enter / Space toggle, Enter on an
+ *   open master enters the nested grid); open masters get `aria-details`
+ * - One instance may serve several grids: expand state (the held adapter) is shared,
+ *   nested detail controllers / focus realms are per grid
  *
  * @example
  * ```ts
@@ -141,7 +155,8 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   const isOpenByDefault = options.isOpenByDefault;
   const hasCustomDetail = !!options.detailComponent;
   const keepDetailGrids = options.keepDetailGrids !== false;
-  let getLocale: () => DataGridLocale = () => defaultGridLocale;
+  /** Ids of columns created by {@link MasterDetailPlugin.expandColumn}. */
+  const expandColumnIds = new Set<string>();
 
   interface CachedDetail {
     key: string;
@@ -149,28 +164,37 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     state?: DataGridState;
     selectedIds?: Array<string | number>;
   }
-  const detailCache = new Map<string, CachedDetail>();
-  const nestedRealms = new Map<string, DataGridNestedRealm>();
+  /** Per attached grid — nested controllers + focus realms never cross grids. */
+  interface GridDetails {
+    getLocale: () => DataGridLocale;
+    detailCache: Map<string, CachedDetail>;
+    nestedRealms: Map<string, DataGridNestedRealm>;
+  }
+  const grids = new Map<DataGridPluginContext<T>, GridDetails>();
+  const getLocale = (): DataGridLocale =>
+    grids.values().next().value?.getLocale() ?? defaultGridLocale;
 
   const evictStaleDetailCaches = (
+    grid: GridDetails,
     activeRows: readonly T[],
     rowId: (row: T, index: number) => string | number,
   ): void => {
-    if (!keepDetailGrids || detailCache.size === 0) {
+    if (!keepDetailGrids || grid.detailCache.size === 0) {
       return;
     }
     const active = new Set<string>();
     for (let i = 0; i < activeRows.length; i++) {
       active.add(String(rowId(activeRows[i]!, i)));
     }
-    for (const id of [...detailCache.keys()]) {
+    for (const id of [...grid.detailCache.keys()]) {
       if (!active.has(id)) {
-        detailCache.delete(id);
+        grid.detailCache.delete(id);
       }
     }
   };
 
   const obtainDetailController = (
+    grid: GridDetails,
     masterRowId: string | number,
     cfg: MasterDetailGridOptions<D>,
   ): GridController<D> => {
@@ -179,23 +203,24 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
       return createDetailGridController(cfg);
     }
     const id = String(masterRowId);
-    const hit = detailCache.get(id);
+    const hit = grid.detailCache.get(id);
     if (hit && hit.key === key) {
       return hit.controller;
     }
     const controller = createDetailGridController(cfg);
-    detailCache.set(id, { key, controller });
+    grid.detailCache.set(id, { key, controller });
     return controller;
   };
 
   const persistDetailState = (
+    grid: GridDetails,
     masterRowId: string | number,
     api: DataGridApi<D> | null,
   ): void => {
     if (!keepDetailGrids || !api) {
       return;
     }
-    const hit = detailCache.get(String(masterRowId));
+    const hit = grid.detailCache.get(String(masterRowId));
     if (!hit) {
       return;
     }
@@ -204,9 +229,10 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
   };
 
   const takePersistedDetailState = (
+    grid: GridDetails,
     masterRowId: string | number,
   ): PersistedDetailGridState | null => {
-    const hit = detailCache.get(String(masterRowId));
+    const hit = grid.detailCache.get(String(masterRowId));
     if (!hit?.state) {
       return null;
     }
@@ -232,30 +258,45 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
     expandAll: (ids) => adapter.expandAll(ids),
     collapseAll: (ids) => adapter.collapseAll(ids),
     enterDetail(rowId) {
-      return nestedRealms.get(String(rowId))?.enter() ?? false;
+      for (const grid of grids.values()) {
+        if (grid.nestedRealms.get(String(rowId))?.enter()) {
+          return true;
+        }
+      }
+      return false;
     },
 
     expandColumn(columnOptions: MasterDetailExpandColumnOptions = {}): ColumnDef<T> {
+      const id = columnOptions.id ?? '__masterDetailExpand';
+      expandColumnIds.add(id);
       return {
-        id: columnOptions.id ?? '__masterDetailExpand',
+        id,
         header: columnOptions.header ?? '',
         width: columnOptions.width ?? 44,
         minWidth: 36,
         sortable: false,
         filter: false,
         editable: false,
+        suppressExport: true,
         cellRenderer: MasterDetailExpandCell,
         cellRendererParams: {
           masterDetail: plugin,
           isRowMaster,
           openByDefault: openDefaultFor,
-          getLocale: () => getLocale(),
+          getLocale,
         },
       };
     },
 
     setup(context: DataGridPluginContext<T>): () => void {
-      getLocale = () => context.api.getLocale();
+      const grid: GridDetails = {
+        getLocale: () => context.api.getLocale(),
+        detailCache: new Map(),
+        nestedRealms: new Map(),
+      };
+      grids.set(context, grid);
+      const isMaster = (row: T): boolean => (isRowMaster ? isRowMaster(row) : true);
+
       const cleanDisplay = context.capabilities.registerDisplayBuilder({
         id: 'masterDetail',
         build: (rows, ctx) => {
@@ -263,7 +304,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             typeof context.api.getSourceRows === 'function'
               ? context.api.getSourceRows()
               : rows;
-          evictStaleDetailCaches(source, ctx.rowId);
+          evictStaleDetailCaches(grid, source, ctx.rowId);
           return buildMasterDetailDisplayRows({
             rows,
             rowId: ctx.rowId,
@@ -275,15 +316,18 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
             // Re-read options each display pass so in-place `detailGrid` updates flow.
             detailGrid: resolveDetailGrid(options),
             emptyDetailRowHeight: hasCustomDetail ? undefined : EMPTY_DETAIL_ROW_HEIGHT,
-            obtainDetailController,
-            persistDetailState,
-            takePersistedDetailState,
+            obtainDetailController: (masterRowId, cfg) =>
+              obtainDetailController(grid, masterRowId, cfg),
+            persistDetailState: (masterRowId, api) =>
+              persistDetailState(grid, masterRowId, api),
+            takePersistedDetailState: (masterRowId) =>
+              takePersistedDetailState(grid, masterRowId),
             registerNestedRealm: (masterRowId, realm) => {
               const key = String(masterRowId);
               if (realm) {
-                nestedRealms.set(key, realm);
+                grid.nestedRealms.set(key, realm);
               } else {
-                nestedRealms.delete(key);
+                grid.nestedRealms.delete(key);
               }
             },
           });
@@ -293,11 +337,42 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
       const cleanView = context.capabilities.registerDisplayView({
         kind: MASTER_DETAIL_PLUGIN_KIND,
         component: detailView,
+        // The detail panel is its own focus realm (nested grid / custom form).
+        nestedWidget: true,
+        regionId: (item) => {
+          const id = (item.payload as MasterDetailPayload<T, D> | undefined)?.masterRowId;
+          return id == null ? null : masterDetailRegionId(id);
+        },
       });
 
+      // Expand column = cell widget: Enter / Space toggle; Enter on an open master enters the detail.
+      const cleanWidget = context.capabilities.registerCellWidget({
+        id: 'masterDetailExpand',
+        columnId: (columnId) => expandColumnIds.has(columnId),
+        isActive: (row) => isMaster(row),
+        toggle: (row, rowId) => adapter.toggle(rowId, openDefaultFor(row)),
+        enter: (row, rowId) =>
+          adapter.isExpanded(rowId, openDefaultFor(row)) &&
+          (grid.nestedRealms.get(String(rowId))?.enter() ?? false),
+      });
+
+      const cleanAria = context.capabilities.registerRowAria({
+        id: 'masterDetail',
+        ariaDetails: (row, rowId) =>
+          isMaster(row) && adapter.isExpanded(rowId, openDefaultFor(row))
+            ? masterDetailRegionId(rowId)
+            : null,
+      });
+
+      const cleanAdapter = context.adapters.register(MASTER_DETAIL_ADAPTER, adapter);
+
       return () => {
-        detailCache.clear();
-        nestedRealms.clear();
+        grid.detailCache.clear();
+        grid.nestedRealms.clear();
+        grids.delete(context);
+        cleanAdapter();
+        cleanAria();
+        cleanWidget();
         cleanView();
         cleanDisplay();
       };

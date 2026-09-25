@@ -1,5 +1,4 @@
 import {
-  afterNextRender,
   computed,
   linkedSignal,
   signal,
@@ -8,11 +7,17 @@ import {
 } from '@angular/core';
 import {
   computeVirtualWindow,
-  isRowInScrollport,
-  rowHeightAt,
-  rowOffsetY,
+  rowsFittingHeight,
   type VirtualWindow,
 } from '../controllers/virtual-window';
+import {
+  displayRowElementOf,
+  measureScrollInsets,
+  nextPageIndex,
+  revealCellOffsets,
+  ScrollFocusKeeper,
+} from './viewport-dom';
+import { bodyCellElementOf } from './edit-focus';
 import { formatCellValue } from '../utils/cell-value';
 import { collectFindMatches, splitFindHighlight, type FindMatch } from '../utils/find';
 import {
@@ -22,11 +27,7 @@ import {
   resolveRowDropDataIndex,
 } from '../utils/row-interactions';
 import type { ViewportDeps } from './binder-surface';
-import type {
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-} from '../api/grid-api';
-import { leafHeaderRowIndex, type FocusCell } from '../controllers/focus';
+import { focusRealmOf, leafHeaderRowIndex, type FocusCell } from '../controllers/focus';
 import type { ResolvedColumn, SideBarConfig } from '../components/data-grid/data-grid.types';
 import {
   countPaginationSlots,
@@ -43,7 +44,6 @@ import {
   isGroupHeaderCellFocusedOf,
   isHeaderFocusedOf,
 } from './binder-template.helpers';
-import { collectAllGroupIds } from '../utils/collect-group-ids';
 
 /**
  * Owns scroll / paging / find / virtual window / group collapse / row drag / sidebar panel.
@@ -55,26 +55,43 @@ export class ViewportHost<T> {
   readonly viewportWidth: WritableSignal<number> = signal(800);
   readonly focusedCell: WritableSignal<FocusCell | null> = signal<FocusCell | null>(null);
   readonly findActiveIndex: WritableSignal<number> = signal(0);
-  readonly collapsedGroupIds: WritableSignal<ReadonlySet<string>> = signal<ReadonlySet<string>>(
-    new Set(),
+  /** Collapsed group / tree ids — read-only view of the grid's single expansion store. */
+  readonly collapsedGroupIds: Signal<ReadonlySet<string>> = computed(() =>
+    this.s.kernel().capabilities.collapsedGroupIds(),
   );
-  readonly boundRowGroupAdapter: WritableSignal<BoundRowGroupAdapter | null> = signal(null);
-  readonly boundTreeDataAdapter: WritableSignal<BoundTreeDataAdapter | null> = signal(null);
   readonly rowDragFromIndex: WritableSignal<number | null> = signal<number | null>(null);
   readonly rowDragOverIndex: WritableSignal<number | null> = signal<number | null>(null);
 
   private rowDragCleanup: (() => void) | null = null;
+  /** Parks / restores DOM focus when virtualization recycles the focused row (V2). */
+  private readonly focusKeeper = new ScrollFocusKeeper({
+    host: () => this.s.hostElement(),
+    injector: () => this.s.injector(),
+    enabled: () => this.virtualEnabled(),
+    focusedCellElement: () => {
+      const cell = this.focusedCell();
+      if (!cell || focusRealmOf(cell) !== 'body') {
+        return null;
+      }
+      const item = this.pagedDisplayRows()[cell.rowIndex];
+      return item ? bodyCellElementOf(this.s.hostElement(), item, cell.columnId) : null;
+    },
+  });
 
+  /**
+   * Resets to page 0 when the row set changes meaning (filters / quick filter /
+   * external filter / page size). Data edits, transactions and sorts keep the
+   * page, clamped to the last page.
+   */
   readonly pageIndex = linkedSignal({
-    source: () =>
-      [
-        this.s.data(),
-        this.s.filters(),
-        this.s.quickFilter(),
-        this.s.pageSize(),
-        this.s.externalFilter(),
-      ] as const,
-    computation: () => 0,
+    source: () => ({
+      filters: this.s.filters(),
+      quickFilter: this.s.quickFilter(),
+      pageSize: this.s.pageSize(),
+      externalFilter: this.s.externalFilter(),
+      totalPages: this.totalPages(),
+    }),
+    computation: (src, previous): number => nextPageIndex(src, previous),
   });
 
   readonly activeSidePanel = linkedSignal({
@@ -155,26 +172,56 @@ export class ViewportHost<T> {
       serverSide: this.s.serverSide(),
       hasActiveSort: this.s.hasActiveSort(),
       hasActiveFilter:
+        !!this.s.externalFilter() ||
         !!this.s.quickFilter().trim() ||
-        Object.values(this.s.filters()).some((v) => !!v?.trim()),
+        Object.keys(this.s.filters()).length > 0,
       displayIsFlat: !this.s.displayRows().some((row) => row.kind !== 'data'),
     }),
   );
 
-  readonly rowGroupColumnIds: Signal<readonly string[]> = computed(
-    () => this.boundRowGroupAdapter()?.columns() ?? [],
+  /** Server pagination: `[data]` is the current page, `serverRowCount` the total (V5). */
+  readonly serverPaging: Signal<boolean> = computed(
+    () => this.s.pagination() && this.s.serverSide() && this.s.serverRowCount() != null,
   );
 
-  readonly totalPages: Signal<number> = computed(() =>
-    this.s.pagination()
-      ? Math.max(1, Math.ceil(countPaginationSlots(this.s.displayRows()) / this.s.pageSize()))
-      : 1,
+  /** Total row count for status / ARIA (server total when known). */
+  readonly totalRowCount: Signal<number> = computed(
+    () => (this.s.serverSide() ? this.s.serverRowCount() : null) ?? this.s.processedRows().length,
   );
+
+  readonly totalPages: Signal<number> = computed(() => {
+    if (!this.s.pagination()) {
+      return 1;
+    }
+    const count = this.serverPaging()
+      ? (this.s.serverRowCount() ?? 0)
+      : countPaginationSlots(this.s.displayRows());
+    return Math.max(1, Math.ceil(count / this.s.pageSize()));
+  });
 
   readonly pagedDisplayRows: Signal<readonly DisplayRow<T>[]> = computed(() =>
-    this.s.pagination()
+    this.s.pagination() && !this.serverPaging()
       ? paginateDisplayRows(this.s.displayRows(), this.pageIndex(), this.s.pageSize())
       : this.s.displayRows(),
+  );
+
+  /** Rows before the current page (ARIA row index offset). */
+  readonly ariaRowOffset: Signal<number> = computed(() => {
+    if (this.serverPaging()) {
+      return this.pageIndex() * this.s.pageSize();
+    }
+    if (!this.s.pagination()) {
+      return 0;
+    }
+    const first = this.pagedDisplayRows()[0];
+    return first ? Math.max(0, this.s.displayRows().indexOf(first)) : 0;
+  });
+
+  /** `aria-rowcount` body rows: every display row, or the server total. */
+  readonly ariaBodyRowCount: Signal<number> = computed(() =>
+    this.serverPaging()
+      ? Math.max(this.s.serverRowCount() ?? 0, this.ariaRowOffset() + this.pagedDisplayRows().length)
+      : this.s.displayRows().length,
   );
 
   readonly virtualEnabled: Signal<boolean> = computed(
@@ -209,8 +256,11 @@ export class ViewportHost<T> {
 
   goToPage(index: number): void {
     this.pageIndex.set(Math.max(0, Math.min(this.totalPages() - 1, index)));
-    this.s.emitState();
-    this.s.emitQueryIfServer();
+    const scroll = this.getScrollRoot();
+    if (scroll) {
+      scroll.scrollTop = 0;
+    }
+    this.scrollTop.set(0);
   }
 
   onScroll(event: Event): void {
@@ -220,6 +270,7 @@ export class ViewportHost<T> {
     if (this.viewportHeight() !== height) {
       this.viewportHeight.set(height);
     }
+    this.focusKeeper.onScroll();
   }
 
   /** Called by `infiniteScrollPlugin` via `api.notifyNearEnd()`. */
@@ -227,47 +278,44 @@ export class ViewportHost<T> {
     this.s.publishNearEnd();
   }
 
-  ensureRowVisible(rowIndex: number): void {
-    if (this.s.pagination()) {
-      // `rowIndex` is already relative to `pagedDisplayRows`.
-      return;
-    }
-    const scroll = this.s.hostElement().querySelector(
-      '.al-data-grid__scroll',
-    ) as HTMLElement | null;
-    if (!scroll) {
-      return;
-    }
-    const thead = scroll.querySelector('.al-data-grid__thead') as HTMLElement | null;
+  /**
+   * Scroll so a body cell is fully visible: below the sticky header block, above
+   * the aggregate footer and between pinned column bands. Same path for paged,
+   * non-virtual and virtual modes. Updates `scrollTop` synchronously so the virtual
+   * window renders the target before DOM focus syncs (V1/V2).
+   */
+  scrollCellIntoView(rowIndex: number, columnId?: string | null): void {
+    const scroll = this.getScrollRoot();
     const item = this.pagedDisplayRows()[rowIndex];
-    const rowEl = item ? this.displayRowElement(item) : null;
-    if (rowEl && isRowInScrollport(rowEl, scroll, thead)) {
+    if (!scroll || !item) {
       return;
     }
-    if (!this.virtualEnabled()) {
-      return;
+    const next = revealCellOffsets({
+      scroll,
+      rowIndex,
+      rowEl: displayRowElementOf(scroll, item),
+      columnId: columnId ?? null,
+      rowHeight: this.s.rowHeight(),
+      rowHeights: this.displayRowHeights(),
+      viewportHeight: this.viewportHeight(),
+      viewportWidth: this.viewportWidth(),
+    });
+    if (next.left != null) {
+      scroll.scrollLeft = next.left;
     }
-    const heights = this.displayRowHeights();
-    const defaultH = this.s.rowHeight();
-    const top = rowOffsetY(rowIndex, defaultH, heights);
-    const height = rowHeightAt(rowIndex, defaultH, heights);
-    if (top < scroll.scrollTop) {
-      scroll.scrollTop = top;
-    } else if (top + height > scroll.scrollTop + scroll.clientHeight) {
-      scroll.scrollTop = top - scroll.clientHeight + height;
+    if (next.top != null) {
+      scroll.scrollTop = next.top;
+      this.scrollTop.set(scroll.scrollTop);
     }
   }
 
-  private displayRowElement(item: DisplayRow<T>): HTMLElement | null {
-    const root = this.s.hostElement();
-    if (item.kind === 'data') {
-      const id = cssEscapeAttr(String(item.rowId));
-      return root.querySelector(`[data-testid="al-dg-row-${id}"]`);
-    }
-    if (item.kind === 'group') {
-      return root.querySelector(`[data-testid="al-dg-group-${item.id}"]`);
-    }
-    return root.querySelector(`[data-testid="al-dg-plugin-row-${item.id}"]`);
+  /** PageUp/PageDown step: rows that fit in the body (scroller minus header/footer). */
+  pageRowCount(): number {
+    const scroll = this.getScrollRoot();
+    const insets = scroll ? measureScrollInsets(scroll) : { top: 0, bottom: 0 };
+    const height = (scroll?.clientHeight || this.viewportHeight()) - insets.top - insets.bottom;
+    const start = this.focusedCell()?.rowIndex ?? 0;
+    return rowsFittingHeight(start, height, this.s.rowHeight(), this.displayRowHeights());
   }
 
   focusCell(rowIndex: number, columnId: string): void {
@@ -357,44 +405,25 @@ export class ViewportHost<T> {
     return this.findMatches();
   }
 
+  /** Switch page if needed, then focus the match — focus scrolls it fully into view. */
   scrollToActiveFind(): void {
     const match = this.activeFindMatch();
     if (!match) {
       return;
     }
-
-    const absoluteDisplayIndex = this.s.displayRows().findIndex(
-      (item) => item.kind === 'data' && item.rowId === match.rowId,
-    );
-    const scrollIndex = absoluteDisplayIndex >= 0 ? absoluteDisplayIndex : match.rowIndex;
-
-    if (this.s.pagination()) {
-      const page = pageIndexForDisplayIndex(this.s.displayRows(), scrollIndex, this.s.pageSize());
+    const isMatch = (item: DisplayRow<T>) => item.kind === 'data' && item.rowId === match.rowId;
+    if (this.s.pagination() && !this.serverPaging()) {
+      const absolute = this.s.displayRows().findIndex(isMatch);
+      const index = absolute >= 0 ? absolute : match.rowIndex;
+      const page = pageIndexForDisplayIndex(this.s.displayRows(), index, this.s.pageSize());
       if (page !== this.pageIndex()) {
         this.pageIndex.set(page);
       }
-    } else if (this.virtualEnabled()) {
-      const h = this.s.rowHeight();
-      const heights = this.s.displayRows().map((row) => resolveDisplayRowHeight(row, h));
-      const top = Math.max(0, rowOffsetY(scrollIndex, h, heights) - h * 2);
-      this.scrollTop.set(top);
-      const scroll = this.s.hostElement().querySelector('.al-data-grid__scroll') as HTMLElement | null;
-      if (scroll) {
-        scroll.scrollTop = top;
-      }
     }
-    afterNextRender(() => {
-      const el = this.s.hostElement().querySelector(
-        `[data-testid="al-dg-cell-${match.rowId}-${match.columnId}"]`,
-      ) as HTMLElement | null;
-      el?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      const focusIndex = this.pagedDisplayRows().findIndex(
-        (item) => item.kind === 'data' && item.rowId === match.rowId,
-      );
-      if (focusIndex >= 0) {
-        this.s.kernel().focus.focusCell(focusIndex, match.columnId);
-      }
-    }, { injector: this.s.injector() });
+    const focusIndex = this.pagedDisplayRows().findIndex(isMatch);
+    if (focusIndex >= 0) {
+      this.s.kernel().focus.focusCell(focusIndex, match.columnId);
+    }
   }
 
   /** Tab / focusin on the grid frame — restore last cell or default (K4). */
@@ -410,75 +439,28 @@ export class ViewportHost<T> {
     ) {
       return;
     }
+    if (this.focusKeeper.parking) {
+      return;
+    }
     if (target.classList.contains('al-data-grid__frame') || target === this.s.hostElement()) {
       this.s.kernel().focus.restoreOrFocusDefault();
     }
   }
 
+  /** Single dispatcher for every group / tree toggle (mouse, keyboard, API). */
   toggleGroup(groupId: string): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.toggleCollapsed(groupId);
-      return;
-    }
-    this.collapsedGroupIds.update((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
-      }
-      return next;
-    });
+    this.s.kernel().capabilities.toggleGroup(groupId);
   }
 
   expandAll(): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.expandAll();
-      return;
-    }
-    this.collapsedGroupIds.set(new Set());
-  }
-
-  setRowGroupColumns(columns: readonly string[]): void {
-    this.boundRowGroupAdapter()?.setColumns(columns);
-  }
-
-  getRowGroupColumns(): string[] {
-    return [...(this.boundRowGroupAdapter()?.columns() ?? [])];
-  }
-
-  clearRowGroup(): void {
-    this.boundRowGroupAdapter()?.clear();
+    this.s.kernel().capabilities.expandAllGroups();
   }
 
   collapseAll(): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.collapseAll(
-        collectAllGroupIds(
-          this.s.processedRows(),
-          adapter.columns(),
-          this.s.rowModelContext().columnsById,
-        ),
-      );
-      return;
-    }
-    const all = this.s.kernel().capabilities.buildDisplayRows(this.s.processedRows(), {
-      ...this.s.rowModelContext(),
-      collapsedGroupIds: new Set(),
-    });
-    const ids = all.filter((row) => row.kind === 'group').map((row) => row.id);
-    this.collapsedGroupIds.set(new Set(ids));
-  }
-
-  bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {
-    this.boundRowGroupAdapter.set(adapter);
-  }
-
-  bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
-    this.boundTreeDataAdapter.set(adapter);
+    this.s.kernel().capabilities.collapseAllGroups(
+      this.s.processedRows(),
+      this.s.rowModelContext(),
+    );
   }
 
   measureViewport(): void {
@@ -596,6 +578,7 @@ export class ViewportHost<T> {
           from,
           to,
           (row, i) => this.s.resolveRowId(row, i),
+          this.s.data(),
         );
         if (payload) {
           this.s.publishRowReorder(payload);

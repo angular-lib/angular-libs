@@ -66,8 +66,37 @@ export interface DataGridLocale {
   filterTrue: string;
   filterFalse: string;
   filterPlaceholder: string;
-  filterSet: string;
   filterNoValues: string;
+  filterOperatorAriaLabel: string;
+  filterOpContains: string;
+  filterOpNotContains: string;
+  filterOpEquals: string;
+  filterOpNotEqual: string;
+  filterOpStartsWith: string;
+  filterOpEndsWith: string;
+  filterOpLessThan: string;
+  filterOpLessThanOrEqual: string;
+  filterOpGreaterThan: string;
+  filterOpGreaterThanOrEqual: string;
+  filterOpInRange: string;
+  filterOpBefore: string;
+  filterOpAfter: string;
+  filterOpBlank: string;
+  filterOpNotBlank: string;
+  filterJoinAnd: string;
+  filterJoinOr: string;
+  filterFrom: string;
+  filterTo: string;
+  filterNumberPlaceholder: string;
+  filterInvalidNumber: string;
+  filterSetAll: string;
+  filterSetNone: string;
+  filterSetSelected: string;
+  filterSetSearch: string;
+  filterSetSelectAll: string;
+  filterSetBlanks: string;
+  filterSetTruncated: string;
+  filterCustom: string;
   copyCell: string;
   copyRow: string;
   exportCsvAction: string;
@@ -82,6 +111,20 @@ export interface DataGridLocale {
   noteEdit: string;
   noteRemove: string;
   notePlaceholder: string;
+  /**
+   * BCP-47 locale for client string sorting (e.g. `'nb'` sorts Æ/Ø/Å after Z).
+   * Default: the runtime's default locale.
+   */
+  collatorLocale?: string;
+  /**
+   * BCP 47 tag for parsing / editing numbers and numeric dates
+   * (`'nb-NO'` → `1 234,5`, `25.09.2026`). Default: runtime locale.
+   */
+  numberLocale?: string;
+  invalidNumber: string;
+  invalidDate: string;
+  invalidBoolean: string;
+  invalidOption: string;
 }
 
 export const defaultGridLocale: DataGridLocale = {
@@ -147,8 +190,37 @@ export const defaultGridLocale: DataGridLocale = {
   filterTrue: 'True',
   filterFalse: 'False',
   filterPlaceholder: 'Filter…',
-  filterSet: 'Set',
   filterNoValues: 'No values',
+  filterOperatorAriaLabel: 'Filter operator',
+  filterOpContains: 'Contains',
+  filterOpNotContains: 'Does not contain',
+  filterOpEquals: 'Equals',
+  filterOpNotEqual: 'Does not equal',
+  filterOpStartsWith: 'Starts with',
+  filterOpEndsWith: 'Ends with',
+  filterOpLessThan: 'Less than',
+  filterOpLessThanOrEqual: 'Less than or equal',
+  filterOpGreaterThan: 'Greater than',
+  filterOpGreaterThanOrEqual: 'Greater than or equal',
+  filterOpInRange: 'Between',
+  filterOpBefore: 'Before',
+  filterOpAfter: 'After',
+  filterOpBlank: 'Blank',
+  filterOpNotBlank: 'Not blank',
+  filterJoinAnd: 'AND',
+  filterJoinOr: 'OR',
+  filterFrom: 'From',
+  filterTo: 'To',
+  filterNumberPlaceholder: 'e.g. >10, 5..20',
+  filterInvalidNumber: 'Use a number, >10, <=5 or 10..20',
+  filterSetAll: 'All',
+  filterSetNone: 'None',
+  filterSetSelected: '{count} selected',
+  filterSetSearch: 'Search values…',
+  filterSetSelectAll: '(Select all)',
+  filterSetBlanks: '(Blanks)',
+  filterSetTruncated: 'Showing the first {count} values',
+  filterCustom: 'Custom filter',
   copyCell: 'Copy cell',
   copyRow: 'Copy row',
   exportCsvAction: 'Export CSV',
@@ -163,6 +235,10 @@ export const defaultGridLocale: DataGridLocale = {
   noteEdit: 'Edit note',
   noteRemove: 'Remove note',
   notePlaceholder: 'Write a note…',
+  invalidNumber: 'Not a valid number',
+  invalidDate: 'Not a valid date',
+  invalidBoolean: 'Not a valid yes/no value',
+  invalidOption: 'Not an allowed value',
 };
 
 export function mergeGridLocale(partial?: Partial<DataGridLocale> | null): DataGridLocale {

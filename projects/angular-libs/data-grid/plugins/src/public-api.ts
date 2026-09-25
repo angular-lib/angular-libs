@@ -42,7 +42,7 @@ export type {
   FlashCellsParams,
   FlashCellsPluginOptions,
 } from './lib/flash-cells.types';
-export { cellRangePlugin } from './lib/cell-range.plugin';
+export { cellRangePlugin, CELL_RANGE_ADAPTER } from './lib/cell-range.plugin';
 export type {
   CellRangeAdapter,
   CellRangePlugin,
@@ -61,11 +61,12 @@ export { rowGroupPlugin } from './lib/row-group.plugin';
 export type { RowGroupPlugin, RowGroupPluginOptions } from './lib/row-group.plugin';
 export {
   createRowGroupAdapter,
+  ROW_GROUP_ADAPTER,
   buildGroupedRowsFromAdapter,
   collectAllGroupIdsFromAdapter,
 } from './lib/row-group.adapter';
 export type { RowGroupAdapter } from './lib/row-group.adapter';
-export { treeDataPlugin, createTreeDataAdapter } from './lib/tree-data.plugin';
+export { treeDataPlugin, createTreeDataAdapter, TREE_DATA_ADAPTER } from './lib/tree-data.plugin';
 export type { TreeDataPluginOptions, TreeDataPlugin, TreeDataAdapter } from './lib/tree-data.plugin';
 export {
   masterDetailPlugin,
@@ -78,6 +79,8 @@ export {
   MASTER_DETAIL_PLUGIN_KIND,
   createDetailGridController,
   detailGridConfigKey,
+  MASTER_DETAIL_ADAPTER,
+  masterDetailRegionId,
 } from './lib/master-detail.plugin';
 export type {
   MasterDetailPlugin,

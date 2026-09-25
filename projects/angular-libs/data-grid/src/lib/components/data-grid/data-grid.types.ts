@@ -6,6 +6,7 @@
 
 import type { FieldTree, SchemaOrSchemaFn } from '@angular/forms/signals';
 import type { Type, WritableSignal } from '@angular/core';
+import type { ColumnFilterModel, ColumnFilterParams } from '../../utils/filter-model';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -13,7 +14,18 @@ export type EditMode = 'cell' | 'fullRow';
 
 export type ColumnAlign = 'left' | 'center' | 'right';
 
-export type ColumnFilterType = boolean | 'text' | 'number' | 'boolean' | 'date' | 'set';
+/**
+ * Filter UI / model kind. `true` infers from `type` (number / boolean / date,
+ * else text). `'custom'` has no built-in UI — pair it with `filterPredicate`.
+ */
+export type ColumnFilterType =
+  | boolean
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'set'
+  | 'custom';
 
 export type ColumnDataType = 'text' | 'number' | 'boolean' | 'date';
 
@@ -78,14 +90,27 @@ export interface ColumnDef<T = unknown> {
   /** Minimum width when resizing / flexing. */
   minWidth?: number;
   /**
-   * Flex grow factor — becomes `minmax(minWidth, Nfr)` in the CSS Grid track list.
+   * Flex grow factor — shares the scrollport width left after fixed columns (never below `minWidth`).
    * Prefer `flex` over omitting width when the column should fill space.
    */
   flex?: number;
   /** Enable header click sorting. Default true. */
   sortable?: boolean;
-  /** Enable filter UI for this column. */
+  /** Enable filter UI for this column (see {@link ColumnFilterType}). */
   filter?: ColumnFilterType;
+  /**
+   * Value the column filter (and set-filter options) read instead of the cell
+   * value. When set, text filters match this value only (not `valueFormatter` output).
+   */
+  filterValueGetter?: (row: T, rowIndex: number) => unknown;
+  /**
+   * Replace built-in evaluation for this column: return `true` to keep the row.
+   * Receives the filter value (`filterValueGetter` / cell value) and the active model.
+   * Required for `{ kind: 'custom' }` models.
+   */
+  filterPredicate?: (value: unknown, row: T, model: ColumnFilterModel) => boolean;
+  /** Set-filter value source / limits. */
+  filterParams?: ColumnFilterParams;
   /** Allow inline editing. */
   editable?: boolean;
   /** Pin column to an edge. */
@@ -104,6 +129,14 @@ export interface ColumnDef<T = unknown> {
    * Return the next row object (do not mutate `row`).
    */
   valueSetter?: (params: ValueSetterParams<T>) => T | undefined;
+  /**
+   * Parse editor / paste text into the stored value. Return `{ value }` or
+   * `{ error }` — invalid input is never written (cell editor stays open with
+   * `aria-invalid`; paste / fill report it in `PasteEvent.invalidCells`).
+   * Default: strict built-ins by column type (locale-aware numbers, ISO / locale
+   * dates that keep the previous value's shape, booleans, select values).
+   */
+  valueParser?: (input: string, params: ValueParserParams<T>) => ValueParserResult;
   /** Static or dynamic cell class names. */
   cellClass?: string | ((value: unknown, row: T, rowIndex: number) => string | string[] | null | undefined);
   /** Custom sort comparator. */
@@ -128,6 +161,8 @@ export interface ColumnDef<T = unknown> {
   cellEditorParams?: CellEditorParamsConfig<T>;
   /** Aggregate for pinned footer row (`aggregateRowPlugin`). */
   aggFunc?: AggFunc;
+  /** Leave out of CSV export unless listed in `columnKeys` (utility columns). */
+  suppressExport?: boolean;
 }
 
 /** Nested header group — children are columns or further groups. */
@@ -146,6 +181,19 @@ export interface ValueSetterParams<T = unknown> {
   previousValue: unknown;
   value: unknown;
 }
+
+export interface ValueParserParams<T = unknown> {
+  /** Row being edited / pasted into (`null` when unknown). */
+  row: T | null;
+  column: ColumnDef<T>;
+  columnId: string;
+  previousValue: unknown;
+  /** Grid `locale.numberLocale` (BCP 47), when set. */
+  numberLocale?: string;
+  source: 'edit' | 'paste' | 'fill';
+}
+
+export type ValueParserResult = { value: unknown } | { error: string };
 
 /** Row-level class — set on `DataGrid` via `[rowClass]`. */
 export type RowClassFn<T = unknown> =
@@ -305,19 +353,43 @@ export interface RowReorderEvent<T = unknown> {
   toId: string | number;
   rowIds: Array<string | number>;
   /**
-   * Processed rows after reorder. Host should sync source data when the list is
-   * flat and unsorted/unfiltered — prefer `fromId`/`toId` when applying to source.
+   * Full source `[data]` order after the move (not the filtered/processed view),
+   * so `rows.set($event.rows)` never drops rows.
    */
   rows: T[];
 }
 
+/** A pasted / filled cell whose text failed to parse — not written. */
+export interface PasteInvalidCell {
+  rowId: string | number;
+  columnId: string;
+  text: string;
+  error: string;
+}
+
 /** Emitted when paste is handled (`clipboardPlugin`). */
 export interface PasteEvent<T = unknown> {
+  /** Processed-row index of the first written row (prefer `targetRowIds`). */
   startRowIndex: number;
   columnIds: string[];
   matrix: string[][];
-  /** Suggested next rows if host applies field writes. */
+  /**
+   * Ids of the rows `matrix` rows were written into (same index), walked in
+   * display order — skips group / detail rows and collapsed children.
+   */
+  targetRowIds: Array<string | number>;
+  /**
+   * Suggested next rows (processed order) if host applies field writes.
+   * Non-editable cells are skipped; merge by id (`rowIds`, `mergeRowsById`).
+   */
   suggestedRows: T[];
+  /**
+   * Grid row ids aligned with `suggestedRows` (same index; resolved before the
+   * writes, so index-based ids stay correct). Pass to `mergeRowsById(…, event.rowIds)`.
+   */
+  rowIds: Array<string | number>;
+  /** Cells that failed to parse (`valueParser` / built-in strict parsing). */
+  invalidCells: PasteInvalidCell[];
 }
 
 /**
@@ -338,13 +410,23 @@ export interface FillEvent<T = unknown> extends PasteEvent<T> {
   source: CellRange;
 }
 
-export interface DataGridFilterState {
-  [columnId: string]: string;
-}
+/**
+ * Column id → typed filter model. Absent = no filter. Plain JSON — safe to
+ * persist, and sent as-is to the server in `DataGridQuery.filters`.
+ */
+export type DataGridFilterState = Record<string, ColumnFilterModel>;
 
-/** Snapshot for persist / restore (localStorage, URL, etc.). */
+/**
+ * Snapshot for persist / restore (localStorage, URL, etc.) — schema version 1.
+ * Read it with `api.state()` / `grid.state()` (reactive) or `api.getState()`;
+ * restore with `createGrid({ initialState })` (before first render) or
+ * `api.setState(state, { ignore })`. Parse untrusted input with `parseGridState`.
+ */
 export interface DataGridState {
+  /** Schema version — `parseGridState` / `migrateGridState` upgrade older snapshots. */
+  version: 1;
   sorts: SortState[];
+  /** Column filter model (per-column `ColumnFilterModel`, validated by `sanitizeFilterState`). */
   filters: DataGridFilterState;
   quickFilter: string;
   hiddenColumnIds: string[];
@@ -356,12 +438,30 @@ export interface DataGridState {
    */
   columnPins: Record<string, ColumnPin | null>;
   pageIndex: number;
+  pageSize: number;
+  /** Same ids as `[(selectedIds)]`. */
+  selectedIds: Array<string | number>;
   activeSidePanel: string | null;
+  /**
+   * Plugin-contributed state keyed by slice id (`capabilities.registerStateSlice`),
+   * e.g. `rowGroup: { columns, collapsedIds }`. JSON-serializable values.
+   */
+  slices: Record<string, unknown>;
+}
+
+/** Options for `api.setState`. */
+export interface SetGridStateOptions {
+  /** Top-level keys to leave untouched (e.g. `['selectedIds', 'pageIndex']`). */
+  ignore?: readonly (keyof DataGridState)[];
 }
 
 /** Emitted in server-side mode so the host can fetch. */
 export interface DataGridQuery {
   sorts: SortState[];
+  /**
+   * Typed column filters — translate each {@link ColumnFilterModel} to your
+   * backend (`kind` + `conditions` / `values`; dates are local `yyyy-MM-dd`).
+   */
   filters: DataGridFilterState;
   quickFilter: string;
   pageIndex: number;

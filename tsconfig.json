@@ -6,13 +6,13 @@
     "paths": {
       "@angular-libs/data-grid": ["./projects/angular-libs/data-grid/src/public-api.ts"],
       "@angular-libs/data-grid/plugin": [
-        "./projects/angular-libs/data-grid/src/plugin-api.ts"
+        "./projects/angular-libs/data-grid/plugin/src/public-api.ts"
       ],
       "@angular-libs/data-grid/plugins": [
         "./projects/angular-libs/data-grid/plugins/src/public-api.ts"
       ],
       "@angular-libs/data-grid/internals": [
-        "./projects/angular-libs/data-grid/src/internals-api.ts"
+        "./projects/angular-libs/data-grid/internals/src/public-api.ts"
       ],
       "@angular-libs/dialog": ["./projects/angular-libs/dialog/src/public-api.ts"],
       "@angular-libs/dialog/testing": [
