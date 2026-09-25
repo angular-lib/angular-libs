@@ -2,11 +2,20 @@ import { signal, type WritableSignal } from '@angular/core';
 import type { FieldTree } from '@angular/forms/signals';
 import { focusRealmOf, type FocusCell } from '../controllers/focus';
 import {
+  isImeComposing,
   isTypeToEditKey,
   resolveTypeToEditSeed,
   type TypeToEditSeed,
 } from '../editing/edit-interaction';
-import { coerceCellEditValue } from '../utils/coerce-cell-value';
+import {
+  cellParseContextFromLocale,
+  formatNumberForEdit,
+  isNumberColumn,
+  parseCellInput,
+  sameCellValue,
+  type CellParseContext,
+} from '../utils/coerce-cell-value';
+import { isNumberEditorColumn, RowTextDrafts } from '../editing/row-text-drafts';
 import { isCustomEditorComponent, isSelectEditor } from '../utils/editors';
 import { isDataDisplayRow } from '../utils/row-display';
 import {
@@ -36,6 +45,12 @@ export class EditSyncHost<T> {
   readonly editingCell: WritableSignal<{ rowId: string | number; columnId: string } | null> =
     signal(null);
   readonly editDraft: WritableSignal<string> = signal('');
+  /** Parse error of the open cell editor draft (editor stays open, `aria-invalid`). */
+  readonly editError: WritableSignal<string | null> = signal(null);
+  /** Cell whose editor was seeded by type-to-edit — caret goes to the end, no select-all. */
+  private readonly caretEndCell = signal<{ rowId: string | number; columnId: string } | null>(null);
+  /** fullRow number editors: raw text + parse errors (block commit). */
+  readonly rowTextDrafts = new RowTextDrafts(() => this.parseContext());
   readonly rowEditMgr: RowEditSession<T>;
   /** Imperative adapter for full-row edit (optional DX sugar). */
   readonly rowEditAdapter: RowEditAdapter<T>;
@@ -49,11 +64,16 @@ export class EditSyncHost<T> {
       resolveColumn: (key) =>
         this.s.columnsById().get(key) ?? this.s.resolvedColumns().find((c) => c.field === key),
       parentInjector: this.s.parentInjector(),
-      onSession: (ctx) => this.s.rowEditSession.set(ctx),
+      onSession: (ctx) => {
+        this.rowTextDrafts.reset();
+        this.s.rowEditSession.set(ctx);
+      },
       onDraft: (draft) => this.s.rowEditDraft.set(draft),
       onStart: (ctx) => this.s.publishRowEditStart(ctx),
       onCommit: (event) => this.s.publishRowEdit(event),
       onCancel: (payload) => this.s.publishRowEditCancel(payload),
+      rowSwitch: () => this.s.effectiveEditInteraction().rowSwitch,
+      canCommit: () => !this.rowTextDrafts.hasErrors(),
     });
     this.rowEditAdapter = this.rowEditMgr;
   }
@@ -132,7 +152,8 @@ export class EditSyncHost<T> {
     rowIndex: number,
     column: ColumnDef<T>,
     value: unknown,
-    opts?: { seed?: TypeToEditSeed },
+    /** `pointer` never toggles booleans (checkbox click / Space / Enter do). */
+    opts?: { seed?: TypeToEditSeed; source?: 'pointer' | 'keyboard' | 'api' },
   ): void {
     if (!column.editable) {
       return;
@@ -142,17 +163,39 @@ export class EditSyncHost<T> {
 
     if (this.s.effectiveEditMode() === 'fullRow') {
       this.editingCell.set(null);
-      this.rowEditMgr.start(row, rowId, rowIndex);
+      if (!this.rowEditMgr.start(row, rowId, rowIndex)) {
+        this.refocusEditor(this.rowEditMgr.editingId()!, columnId);
+        return;
+      }
+      this.caretEndCell.set(seed?.action === 'set' ? { rowId, columnId } : null);
       if (seed?.action === 'set') {
         const key = column.field ?? column.id;
-        if (key) {
+        if (isNumberEditorColumn(column)) {
+          const field = formFieldForColumn(this.s.rowForm(), column);
+          this.rowTextDrafts.input(column, field, String(seed.value ?? ''));
+        } else if (key) {
           this.rowEditMgr.patchField(key, seed.value);
         }
       }
       this.s.syncDomFocusAfterEdit();
       return;
     }
+    const open = this.editingCell();
+    if (open && open.rowId === rowId && open.columnId === columnId) {
+      // Already editing this cell — keep the draft (fast typing appends, no reset).
+      if (seed?.action === 'set' && seed.value != null && seed.value !== '') {
+        this.editDraft.update((d) => d + String(seed.value));
+      }
+      this.s.syncDomFocusAfterEdit();
+      return;
+    }
+    if (!this.releaseEditorFor(rowId, columnId)) {
+      return;
+    }
     if (isBooleanColumn(column, value) && !isSelectEditor(column) && !isCustomEditorComponent(column)) {
+      if (opts?.source === 'pointer') {
+        return;
+      }
       const resolved =
         'minWidth' in column
           ? (column as ResolvedColumn<T>)
@@ -164,10 +207,14 @@ export class EditSyncHost<T> {
     }
     this.rowEditMgr.destroy();
     this.editingCell.set({ rowId, columnId });
+    this.editError.set(null);
+    this.caretEndCell.set(seed?.action === 'set' ? { rowId, columnId } : null);
     if (seed?.action === 'set') {
       this.editDraft.set(seed.value == null ? '' : String(seed.value));
     } else if (isDateColumn(column) || column.cellEditor === 'date') {
       this.editDraft.set(toDateKey(value) ?? '');
+    } else if (isNumberColumn(column, value)) {
+      this.editDraft.set(formatNumberForEdit(value, this.parseContext().numberLocale));
     } else {
       this.editDraft.set(value == null ? '' : String(value));
     }
@@ -198,6 +245,7 @@ export class EditSyncHost<T> {
       item.dataIndex,
       col,
       this.s.cellValue(item.row, col, item.dataIndex),
+      { source: 'keyboard' },
     );
   }
 
@@ -206,7 +254,11 @@ export class EditSyncHost<T> {
       return;
     }
     this.editingCell.set(null);
-    this.rowEditMgr.start(row, rowId, rowIndex);
+    if (!this.rowEditMgr.start(row, rowId, rowIndex)) {
+      const focus = this.s.kernel().focus.getFocus();
+      this.refocusEditor(this.rowEditMgr.editingId()!, focus?.columnId ?? '');
+      return;
+    }
     this.s.syncDomFocusAfterEdit();
   }
 
@@ -238,6 +290,7 @@ export class EditSyncHost<T> {
       dataIndex,
       col,
       this.s.cellValue(rows[dataIndex]!, col, dataIndex),
+      { source: 'api' },
     );
   }
 
@@ -277,24 +330,32 @@ export class EditSyncHost<T> {
     });
   }
 
-  commitEdit(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
+  /**
+   * Commit the open cell draft. Returns false when not editing this cell or the
+   * draft does not parse — then the editor stays open with {@link editError}.
+   */
+  commitEdit(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): boolean {
     const cell = this.editingCell();
     if (!cell || cell.rowId !== rowId || cell.columnId !== column.id) {
-      return;
+      return false;
     }
     const previousValue = getCellValue(row, column, rowIndex);
-    const value = coerceCellEditValue(column, this.editDraft(), previousValue);
-    this.editingCell.set(null);
-    this.s.syncDomFocusAfterEdit();
-    if (Object.is(value, previousValue)) {
-      return;
+    const parsed = parseCellInput(column, this.editDraft(), {
+      ...this.parseContext(),
+      row,
+      columnId: column.id,
+      previousValue,
+      source: 'edit',
+    });
+    if (!parsed.ok) {
+      this.editError.set(parsed.error);
+      return false;
     }
-    if (
-      previousValue instanceof Date &&
-      value instanceof Date &&
-      previousValue.getTime() === value.getTime()
-    ) {
-      return;
+    const value = parsed.value;
+    this.endCellEdit();
+    this.s.syncDomFocusAfterEdit();
+    if (sameCellValue(value, previousValue)) {
+      return true;
     }
     this.s.publishCellEdit({
       row,
@@ -305,13 +366,33 @@ export class EditSyncHost<T> {
       value,
       form: null,
     });
+    return true;
   }
 
-  onEditorEnter(row: T, rowId: string | number, rowIndex: number, column: ResolvedColumn<T>): void {
-    this.commitEdit(row, rowId, rowIndex, column);
-    if (this.s.effectiveEditInteraction().enterEditing === 'commitAndMoveDown') {
+  onEditorEnter(
+    row: T,
+    rowId: string | number,
+    rowIndex: number,
+    column: ResolvedColumn<T>,
+    event?: Event,
+  ): void {
+    if (isImeComposing(event)) {
+      return;
+    }
+    event?.preventDefault();
+    const committed = this.commitEdit(row, rowId, rowIndex, column);
+    if (committed && this.s.effectiveEditInteraction().enterEditing === 'commitAndMoveDown') {
       this.s.kernel().focus.move(1, 0);
     }
+  }
+
+  /** fullRow Enter: commit the row (IME composition keeps its Enter). */
+  onRowEditorEnter(event: Event): void {
+    if (isImeComposing(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.commitRowEdit();
   }
 
   onEditorTab(
@@ -327,8 +408,9 @@ export class EditSyncHost<T> {
     const keyEvent = event as KeyboardEvent;
     keyEvent.preventDefault();
     keyEvent.stopPropagation();
-    this.commitEdit(row, rowId, rowIndex, column);
-    this.s.kernel().focus.moveHorizontalWrap(keyEvent.shiftKey ? -1 : 1);
+    if (this.commitEdit(row, rowId, rowIndex, column)) {
+      this.s.kernel().focus.moveHorizontalWrap(keyEvent.shiftKey ? -1 : 1);
+    }
   }
 
   /** fullRow: Tab walks cells without committing the row (AG / excel). */
@@ -373,6 +455,44 @@ export class EditSyncHost<T> {
     this.onEditorBlur(row, rowId, rowIndex, column);
   }
 
+  /** Cell editor `(input)`: update the draft and clear a stale parse error. */
+  onEditorInput(text: string): void {
+    this.editDraft.set(text);
+    this.editError.set(null);
+  }
+
+  /**
+   * Before focus / edit moves to another cell while a cell editor is open:
+   * apply the `editorBlur` policy (commit or cancel). Returns false when the
+   * draft is invalid — the editor keeps focus and the move is refused.
+   */
+  releaseEditorFor(rowId: string | number, columnId: string): boolean {
+    const cell = this.editingCell();
+    if (!cell || (cell.rowId === rowId && cell.columnId === columnId)) {
+      return true;
+    }
+    if (this.s.effectiveEditInteraction().editorBlur === 'cancel') {
+      this.cancelEdit();
+      return true;
+    }
+    if (this.stopEditing()) {
+      return true;
+    }
+    this.refocusEditor(cell.rowId, cell.columnId);
+    return false;
+  }
+
+  /** `data-al-caret` for an editor: `'end'` after a type-to-edit seed, else select-all. */
+  caretHint(rowId: string | number, columnId: string): 'end' | null {
+    const cell = this.caretEndCell();
+    return cell && cell.rowId === rowId && cell.columnId === columnId ? 'end' : null;
+  }
+
+  /** Number editors are text inputs (`inputmode="decimal"`) parsed with the grid locale. */
+  isNumberEditor(column: ColumnDef<T>): boolean {
+    return isNumberEditorColumn(column);
+  }
+
   /** Space on a focused idle boolean cell toggles the value, not row selection. */
   tryToggleFocusedBoolean(): boolean {
     if (this.s.effectiveEditMode() === 'fullRow') {
@@ -399,7 +519,7 @@ export class EditSyncHost<T> {
     if (this.editingCell() == null) {
       return;
     }
-    this.editingCell.set(null);
+    this.endCellEdit();
     this.s.syncDomFocusAfterEdit();
   }
 
@@ -413,31 +533,31 @@ export class EditSyncHost<T> {
     }
   }
 
-  stopEditing(cancel = false): void {
+  /** Returns false when a commit was refused (invalid draft / row form). */
+  stopEditing(cancel = false): boolean {
     if (cancel) {
       if (this.rowEditMgr.editingId() != null) {
         this.cancelRowEdit();
       } else {
         this.cancelEdit();
       }
-      return;
+      return true;
     }
     if (this.rowEditMgr.editingId() != null) {
-      this.commitRowEdit();
-      return;
+      return this.commitRowEdit();
     }
     const cell = this.editingCell();
     if (!cell) {
-      return;
+      return true;
     }
     const rows = this.s.processedRows();
     const rowIndex = rows.findIndex((row, i) => this.s.effectiveRowId()(row, i) === cell.rowId);
     const column = this.s.columnsById().get(cell.columnId);
     if (rowIndex < 0 || !column) {
       this.cancelEdit();
-      return;
+      return true;
     }
-    this.commitEdit(rows[rowIndex]!, cell.rowId, rowIndex, column);
+    return this.commitEdit(rows[rowIndex]!, cell.rowId, rowIndex, column);
   }
 
   /**
@@ -495,6 +615,27 @@ export class EditSyncHost<T> {
    */
   activateFloatingFilter(columnId: string): boolean {
     return activateFloatingFilterOf(this.s.hostElement(), columnId);
+  }
+
+  private parseContext(): Pick<CellParseContext, 'numberLocale' | 'messages'> {
+    return cellParseContextFromLocale(this.s.resolvedLocale());
+  }
+
+  private endCellEdit(): void {
+    this.editingCell.set(null);
+    this.editError.set(null);
+    this.caretEndCell.set(null);
+  }
+
+  /** Move focus back to the cell / row whose edit refused to close. */
+  private refocusEditor(rowId: string | number, columnId: string): void {
+    const index = this.s
+      .pagedDisplayRows()
+      .findIndex((item) => isDataDisplayRow(item) && item.rowId === rowId);
+    if (index >= 0 && columnId) {
+      this.s.kernel().focus.focusCell(index, columnId, 'body');
+    }
+    this.s.syncDomFocusAfterEdit();
   }
 
   private editFocusModel() {

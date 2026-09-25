@@ -747,7 +747,11 @@ export class DataGrid<T = unknown> {
     displayIndex?: number,
   ): void {
     // Don't steal focus from an active editor (breaks double-click select-all).
-    if (this.editSyncHost.isEditorEventTarget(event.target)) {
+    // Mousedown is prevented (no native blur): settle an open editor elsewhere first.
+    if (
+      this.editSyncHost.isEditorEventTarget(event.target) ||
+      !this.editSyncHost.releaseEditorFor(rowId, column.id)
+    ) {
       return;
     }
     const focusIndex = displayIndex ?? rowIndex;
@@ -762,7 +766,7 @@ export class DataGrid<T = unknown> {
       event,
     });
     if (this.effectiveEditInteraction().pointerStart === 'click') {
-      this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
+      this.editSyncHost.startEdit(row, rowId, rowIndex, column, value, { source: 'pointer' });
     }
   }
 
@@ -794,7 +798,7 @@ export class DataGrid<T = unknown> {
     if (this.effectiveEditInteraction().pointerStart !== 'dblclick') {
       return;
     }
-    this.editSyncHost.startEdit(row, rowId, rowIndex, column, value);
+    this.editSyncHost.startEdit(row, rowId, rowIndex, column, value, { source: 'pointer' });
   }
 
   onGridKeydown(event: KeyboardEvent): void {

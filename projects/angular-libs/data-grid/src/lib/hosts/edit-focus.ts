@@ -39,13 +39,20 @@ export function focusEditorInCell(
     return false;
   }
   editor.focus({ preventScroll: true });
-  if (
-    select &&
-    editor instanceof HTMLInputElement &&
-    editor.type !== 'checkbox' &&
-    editor.type !== 'date' &&
-    typeof editor.select === 'function'
-  ) {
+  const textLike =
+    (editor instanceof HTMLInputElement &&
+      editor.type !== 'checkbox' &&
+      editor.type !== 'date' &&
+      editor.type !== 'number') ||
+    editor instanceof HTMLTextAreaElement;
+  if (!textLike) {
+    return true;
+  }
+  // Type-to-edit seeded the draft: caret after the seed, or the next key replaces it.
+  if (editor.getAttribute('data-al-caret') === 'end') {
+    const end = editor.value.length;
+    editor.setSelectionRange(end, end);
+  } else if (select) {
     editor.select();
   }
   return true;

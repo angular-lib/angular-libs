@@ -34,6 +34,13 @@ export interface EditInteractionConfig {
    * Cell edit mode always uses caret. Home/End/↑↓ are never stolen.
    */
   arrowEditing?: 'caret' | 'moveHorizontal';
+  /**
+   * fullRow: starting an edit on another row while one is open.
+   * - `'commit'` — commit the open row first; if it is invalid, stay on it (default)
+   * - `'cancel'` — discard the open row (emits `rowEditCancel`)
+   * - `'block'` — refuse; the open row must be committed / cancelled explicitly
+   */
+  rowSwitch?: 'commit' | 'cancel' | 'block';
 }
 
 export type EditInteractionInput = EditInteractionPreset | EditInteractionConfig;
@@ -46,6 +53,7 @@ export interface ResolvedEditInteraction {
   tabEditing: 'commitAndMove' | 'browser';
   typeToEdit: 'off' | 'replace';
   arrowEditing: 'caret' | 'moveHorizontal';
+  rowSwitch: 'commit' | 'cancel' | 'block';
 }
 
 const PRESETS: Record<EditInteractionPreset, ResolvedEditInteraction> = {
@@ -57,6 +65,7 @@ const PRESETS: Record<EditInteractionPreset, ResolvedEditInteraction> = {
     tabEditing: 'browser',
     typeToEdit: 'replace',
     arrowEditing: 'caret',
+    rowSwitch: 'commit',
   },
   excel: {
     pointerStart: 'click',
@@ -66,6 +75,7 @@ const PRESETS: Record<EditInteractionPreset, ResolvedEditInteraction> = {
     tabEditing: 'commitAndMove',
     typeToEdit: 'replace',
     arrowEditing: 'moveHorizontal',
+    rowSwitch: 'commit',
   },
 };
 
@@ -87,12 +97,27 @@ export function resolveEditInteraction(
     tabEditing: input.tabEditing ?? base.tabEditing,
     typeToEdit: input.typeToEdit ?? base.typeToEdit,
     arrowEditing: input.arrowEditing ?? base.arrowEditing,
+    rowSwitch: input.rowSwitch ?? base.rowSwitch,
   };
 }
 
-/** Printable / Backspace / Delete — excluding Space (selection) and modified shortcuts. */
+/** IME composition in progress — Enter / keys belong to the IME, not the grid. */
+export function isImeComposing(event: Event | null | undefined): boolean {
+  const e = event as KeyboardEvent | null | undefined;
+  return !!e && (e.isComposing === true || e.keyCode === 229);
+}
+
+/**
+ * Printable / Backspace / Delete — excluding Space (selection) and modified shortcuts.
+ * AltGr chars (`@ € { [` on Nordic layouts: Ctrl+Alt on Windows) are printable.
+ */
 export function isTypeToEditKey(event: KeyboardEvent): boolean {
-  if (event.ctrlKey || event.metaKey || event.altKey) {
+  if (isImeComposing(event)) {
+    return false;
+  }
+  const altGraph =
+    typeof event.getModifierState === 'function' && event.getModifierState('AltGraph');
+  if (event.metaKey || ((event.ctrlKey || event.altKey) && !altGraph)) {
     return false;
   }
   if (event.key === 'Backspace' || event.key === 'Delete') {

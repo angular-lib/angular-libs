@@ -35,6 +35,10 @@ export interface RowEditSessionHooks<T> {
   onStart: (ctx: RowEditContext<T>) => void;
   onCommit: (event: RowEditEvent<T>) => void;
   onCancel: (payload: RowEditCancelEvent<T>) => void;
+  /** Policy when `start` targets another row while one is open. Default `'commit'`. */
+  rowSwitch?: () => 'commit' | 'cancel' | 'block';
+  /** Extra commit gate (e.g. unparseable number text in an editor). False blocks commit. */
+  canCommit?: () => boolean;
 }
 
 export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
@@ -94,14 +98,25 @@ export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
     draft.set({ ...(current as object), [fieldKey]: value } as T);
   }
 
-  start(row: T, rowId: string | number, rowIndex: number): void {
+  /**
+   * Open a row session. Returns false when another row is open and the
+   * `rowSwitch` policy keeps it (`'block'`, or `'commit'` with an invalid draft).
+   */
+  start(row: T, rowId: string | number, rowIndex: number): boolean {
     if (this.editingRowId() === rowId) {
       // Same id — intentional no-op even if `row` is a fresh object after a data refresh.
-      return;
+      return true;
     }
-    // Switching rows must cancel (emit onCancel) so hosts can restore drafts.
     if (this.editingRowId() != null) {
-      this.cancel();
+      const policy = this.hooks.rowSwitch?.() ?? 'commit';
+      if (policy === 'block') {
+        return false;
+      }
+      if (policy === 'cancel') {
+        this.cancel();
+      } else if (!this.commit()) {
+        return false;
+      }
     }
 
     const original = cloneRowDraft(row);
@@ -155,6 +170,7 @@ export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
     this.sessionCtx.set(ctx);
     this.hooks.onSession(ctx);
     this.hooks.onStart(ctx);
+    return true;
   }
 
   commit(): boolean {
@@ -165,7 +181,7 @@ export class RowEditSession<T = unknown> implements RowEditAdapter<T> {
     if (!tree || rowId == null || original == null || !draftSignal) {
       return false;
     }
-    if (tree().invalid()) {
+    if (tree().invalid() || this.hooks.canCommit?.() === false) {
       tree().markAsTouched();
       return false;
     }

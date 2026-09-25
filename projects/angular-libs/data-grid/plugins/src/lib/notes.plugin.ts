@@ -272,7 +272,7 @@ export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlug
             if (rowIdAttr == null || columnId == null) {
               return;
             }
-            const cell = { rowId: coerceId(rowIdAttr), columnId };
+            const cell = { rowId: coerceId(rowIdAttr, context.api.getPagedDisplayRows?.() ?? []), columnId };
             if (activeCell && sameCell(activeCell, cell) && activeMode === 'preview') {
               clearHide();
               return;
@@ -390,11 +390,17 @@ function cssEscape(value: string): string {
   return value.replace(/"/g, '\\"');
 }
 
-function coerceId(raw: string): string | number {
-  if (/^-?\d+$/.test(raw)) {
-    const n = Number(raw);
-    if (Number.isSafeInteger(n)) {
-      return n;
+/**
+ * Real row id for a `data-row-id` attribute — looked up among display rows by
+ * string form, so `"000123"` / `"12"` string ids are not turned into numbers.
+ */
+function coerceId(
+  raw: string,
+  rows: readonly { kind?: string; rowId?: string | number }[],
+): string | number {
+  for (const item of rows) {
+    if (item.kind === 'data' && item.rowId != null && String(item.rowId) === raw) {
+      return item.rowId;
     }
   }
   return raw;

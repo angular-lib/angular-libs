@@ -425,6 +425,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     },
     publishRowEditCancel: (payload) =>
       opts.publish('rowEditCancel', out.rowEditCancel, payload),
+    resolvedLocale: () => opts.resolvedLocale(),
     syncDomFocusAfterEdit: () => editSync.syncDomFocus(kernel.focus.getFocus()),
   });
 

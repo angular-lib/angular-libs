@@ -269,6 +269,25 @@ Leave `serverRowCount` `null` to page the returned rows on the client.
 - Optional `cellRenderer` / `cellEditor` as a typed Angular `Type` (inputs: `params`)
 - `alGridCell` templates win over `cellRenderer` when both are set
 
+### Parsing & validation (edit, paste, fill)
+
+Editor text, pasted cells, and cross-column fill go through one strict parser
+(`parseCellInput`). Invalid input is **never written**: the cell editor stays open
+with `aria-invalid` (Enter / Tab / click-elsewhere are refused), and paste / fill
+report it in `PasteEvent.invalidCells`.
+
+- **Numbers** — decimal / group separators from `locale.numberLocale` (BCP 47,
+  default runtime locale): `[locale]="{ numberLocale: 'nb-NO' }"` accepts `1 234,5`.
+  Optional currency affix; `abc`, `10-20`, `0x10`, `(100)`, `50%` are rejected.
+  Number editors are `type="text" inputmode="decimal"` (no browser `""` for `1,5`).
+- **Dates** — ISO `yyyy-mm-dd` or the locale's numeric order with a 4-digit year
+  (`25.09.2026` nb); components are validated. The previous value's shape is kept
+  (Date stays Date, ISO string stays string; empty cells get an ISO string).
+- **Custom** — `valueParser: (input, params) => ({ value }) | ({ error })`.
+- Paste / fill skip non-editable columns and `valueGetter`-only columns
+  (no `field` / `valueSetter`). Clipboard text is TSV (quoted fields may hold tabs /
+  newlines); commas never split a cell.
+
 ## Column groups
 
 Groups are **membership**, not decoration:
