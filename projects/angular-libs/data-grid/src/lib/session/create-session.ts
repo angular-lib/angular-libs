@@ -7,6 +7,8 @@
 
 import {
   computed,
+  effect,
+  untracked,
   type EnvironmentInjector,
   type Injector,
   type OutputEmitterRef,
@@ -18,6 +20,8 @@ import { DataGridApi } from '../api/grid-api';
 import type { DataGridEventMap } from '../api/grid-events';
 import type { GridController } from '../create-grid';
 import { GridKernel } from '../kernel/grid-kernel';
+import { focusRealmOf } from '../controllers/focus';
+import { domFocusOnOwnCell } from '../a11y/grid-keydown';
 import { getCellValue } from '../utils/cell-value';
 import { applyCellEdit, applyRowEdit, mergeRowsById } from '../utils/apply-edit';
 import { runGridRowModel } from '../utils/grid-row-model';
@@ -395,6 +399,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     selectedIds: () => models.selectedIds(),
     resolvedLocale: () => opts.resolvedLocale(),
     hostElement: opts.hostElement,
+    injector: opts.injector,
     kernel: () => kernel,
     isRowEditing: (rowId) => editSync.isRowEditing(rowId),
     rowForm: () => models.rowForm(),
@@ -513,10 +518,23 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       getDisplayRowCount: () => viewport.pagedDisplayRows().length,
       getColumnIds: () => columnLayout.visibleColumns().map((c) => c.id),
       ensureRowVisible: (rowIndex) => viewport.ensureRowVisible(rowIndex),
-      onFocusChange: (cell) => {
+      onFocusChange: (cell, reason) => {
         viewport.focusedCell.set(cell);
-        editSync.syncDomFocus(cell, { force: true });
+        if (reason !== 'reconcile') {
+          editSync.syncDomFocus(cell, { force: true });
+          return;
+        }
+        // Re-anchored after sort / filter / column change: follow with DOM focus
+        // only when it was on this grid's own cell — never steal from elsewhere.
+        if (cell && domFocusOnOwnCell(opts.hostElement())) {
+          if (focusRealmOf(cell) === 'body') {
+            viewport.ensureRowVisible(cell.rowIndex);
+          }
+          editSync.syncDomFocus(cell, { force: true });
+        }
       },
+      getRowKey: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.id,
+      findRowIndex: (rowKey) => viewport.pagedDisplayRows().findIndex((row) => row.id === rowKey),
       onStartEdit: (cell, reason) =>
         editSync.startEditAtFocus(cell.rowIndex, cell.columnId, reason),
       onCancelEdit: () => editSync.cancelActiveEdit(),
@@ -564,6 +582,20 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   );
 
   api.attachPluginLifecycle(kernel);
+
+  // K4: focus follows its row identity (sort / filter / page / column hide).
+  // Tracks only the row model + visible columns; reconcile writes only on change.
+  effect(
+    () => {
+      viewport.pagedDisplayRows();
+      columnLayout.visibleColumns();
+      columnLayout.hasColumnGroups();
+      columnLayout.hasFilters();
+      ctrl().chrome.floatingFilters();
+      untracked(() => kernel.focus.reconcile());
+    },
+    { injector: opts.injector() },
+  );
 
   const paintedOverlays = createPaintedOverlays({
     kernel: () => kernel,

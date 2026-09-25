@@ -170,6 +170,8 @@ export interface MenuDeps<T> {
   selectedIds(): Array<string | number>;
   resolvedLocale(): DataGridLocale;
   hostElement(): HTMLElement;
+  /** Component injector — menu focus is scheduled with `afterNextRender`. */
+  injector(): Injector;
   kernel(): GridKernel<T>;
   isRowEditing(rowId: string | number): boolean;
   rowForm(): FieldTree<T> | null;

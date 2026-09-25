@@ -4,7 +4,7 @@
  */
 
 import { Injector, signal, untracked, type WritableSignal } from '@angular/core';
-import { FocusController, type FocusCell } from '../controllers/focus';
+import { FocusController, type FocusCell, type FocusChangeReason } from '../controllers/focus';
 import { FindController } from '../controllers/find';
 import { DataGridApi } from '../api/grid-api';
 import { GridCapabilities } from '../plugins/capabilities';
@@ -25,7 +25,10 @@ export interface GridKernelOptions<T> {
   getDisplayRowCount: () => number;
   getColumnIds: () => string[];
   ensureRowVisible?: (rowIndex: number) => void;
-  onFocusChange?: (cell: FocusCell | null) => void;
+  onFocusChange?: (cell: FocusCell | null, reason?: FocusChangeReason) => void;
+  /** Stable display-row identity at `rowIndex` — focus follows the row (K4). */
+  getRowKey?: (rowIndex: number) => string | undefined;
+  findRowIndex?: (rowKey: string) => number;
   onStartEdit?: (cell: FocusCell, reason: 'enter' | 'f2') => void;
   onCancelEdit?: () => void;
   onToggleSelect?: (rowIndex: number) => void;
@@ -92,9 +95,11 @@ export class GridKernel<T = unknown> {
       getRowCount: () => this.options.getDisplayRowCount(),
       getColumnIds: () => this.options.getColumnIds(),
       ensureRowVisible: (i) => this.options.ensureRowVisible?.(i),
-      onFocusChange: (cell) => {
-        this.options.onFocusChange?.(cell);
+      onFocusChange: (cell, reason) => {
+        this.options.onFocusChange?.(cell, reason);
       },
+      getRowKey: (i) => this.options.getRowKey?.(i),
+      findRowIndex: (key) => this.options.findRowIndex?.(key) ?? -1,
       onStartEdit: (cell, reason) => this.options.onStartEdit?.(cell, reason),
       onCancelEdit: () => this.options.onCancelEdit?.(),
       onToggleSelect: (i) => this.options.onToggleSelect?.(i),

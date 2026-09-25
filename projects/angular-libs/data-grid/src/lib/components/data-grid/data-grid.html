@@ -32,7 +32,7 @@
         <div
           class="al-data-grid__frame"
           role="grid"
-          [attr.tabindex]="viewportHost.focusedCell() ? -1 : 0"
+          [attr.tabindex]="frameTabIndex()"
           [attr.aria-rowcount]="ariaRowCount()"
           [attr.aria-colcount]="colSpan()"
           [attr.aria-label]="resolvedLocale().gridAriaLabel"
@@ -758,6 +758,7 @@
       <div
         class="al-data-grid__ctx"
         role="menu"
+        tabindex="-1"
         data-testid="al-dg-context-menu"
         [style.left.px]="menu.left"
         [style.top.px]="menu.top"
