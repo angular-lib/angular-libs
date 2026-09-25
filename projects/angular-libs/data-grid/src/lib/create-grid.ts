@@ -57,6 +57,9 @@ export interface GridChromeOptions {
   contextMenu?: boolean;
 }
 
+/** Scope of header select-all — see {@link CreateGridOptions.selectAll}. */
+export type SelectAllScope = 'filtered' | 'page' | 'all';
+
 export interface CreateGridOptions<T = unknown> {
   columns: readonly ColumnOrGroupDef<T>[];
   /**
@@ -79,6 +82,13 @@ export interface CreateGridOptions<T = unknown> {
    * Default false — checkbox / Space own row selection (§5d).
    */
   rowClickSelects?: boolean;
+  /**
+   * Rows the header select-all checkbox (and Ctrl+A) adds / removes:
+   * `'filtered'` (default) = every row passing filters, across pages;
+   * `'page'` = data rows on the current page; `'all'` = every bound row.
+   * Non-selectable rows are skipped; selection outside the scope is kept.
+   */
+  selectAll?: SelectAllScope;
   /** Schema wiring for full-row Signal Forms (component still binds `[rowForm]`). */
   editMode?: EditMode;
   rowEditSchema?: RowEditSchema<T> | null;
@@ -126,6 +136,7 @@ export interface GridController<T = unknown> {
   readonly selection: SelectionMode;
   readonly isRowSelectable: IsRowSelectableFn<T> | null;
   readonly rowClickSelects: boolean;
+  readonly selectAll: SelectAllScope;
   /** Writable — toggle cell vs full-row edit at runtime (`grid.editMode.set('fullRow')`). */
   readonly editMode: WritableSignal<EditMode>;
   readonly editInteraction: ResolvedEditInteraction;
@@ -284,6 +295,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     selection: options.selection ?? 'none',
     isRowSelectable: options.isRowSelectable ?? null,
     rowClickSelects: options.rowClickSelects ?? false,
+    selectAll: options.selectAll ?? 'filtered',
     editMode: signal(options.editMode ?? 'cell'),
     editInteraction,
     rowEditSchema: options.rowEditSchema ?? null,

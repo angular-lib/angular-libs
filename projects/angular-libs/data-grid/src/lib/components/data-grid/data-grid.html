@@ -111,8 +111,8 @@
                         <input
                           type="checkbox"
                           tabindex="-1"
-                          [checked]="selectionHost.allVisibleSelected()"
-                          [indeterminate]="selectionHost.someVisibleSelected() && !selectionHost.allVisibleSelected()"
+                          [checked]="selectionHost.selectAllState().checked"
+                          [indeterminate]="selectionHost.selectAllState().indeterminate"
                           (change)="selectionHost.toggleSelectAll($event)"
                           [attr.aria-label]="resolvedLocale().selectAllAriaLabel"
                           data-testid="al-dg-select-all"
@@ -201,7 +201,7 @@
                           <al-data-grid-filter-field
                             [column]="$any(col)"
                             [value]="columnLayoutHost.filters()[col.id] ?? ''"
-                            [setOptions]="columnLayoutHost.setFilterOptions(col)"
+                            [setOptions]="col.filter === 'set' ? (columnLayoutHost.setFilterOptionsById().get(col.id) ?? []) : []"
                             [ariaLabel]="resolvedLocale().filterColumnAriaLabel + ' ' + col.header"
                             [locale]="resolvedLocale()"
                             variant="floating"

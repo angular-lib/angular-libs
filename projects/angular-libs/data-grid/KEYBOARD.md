@@ -40,7 +40,7 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Space | Toggle row selection (group or expand column: expand/collapse; focused boolean cell: toggle value) |
 | Shift+F2 | Notes editor (`notesPlugin`) — does **not** start cell/row edit |
 | Escape | Cancel edit (does not clear range); second Escape clears range / close context menu |
-| Ctrl/Cmd+A | Select all visible rows when `selection: 'multi'` |
+| Ctrl/Cmd+A | Select all rows in the `selectAll` scope (default: filtered) when `selection: 'multi'` |
 
 ## Body — edit (cell editor open)
 

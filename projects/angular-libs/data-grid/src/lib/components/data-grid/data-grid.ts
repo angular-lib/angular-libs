@@ -732,7 +732,7 @@ export class DataGrid<T = unknown> {
       this.api.getCellRange(),
       displayIndex,
       columnId,
-      this.columnLayoutHost.visibleColumns().map((c) => c.id),
+      this.columnLayoutHost.visibleColumnIds(),
     );
   }
 

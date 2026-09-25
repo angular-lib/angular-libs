@@ -312,6 +312,7 @@ columns: ColumnOrGroupDef<Emp>[] = [
 
 ```ts
 grid.api()?.exportDataAsCsv();
+grid.api()?.exportCsv({ filename: 'people.csv', columnKeys: ['name', 'city'], onlySelected: true });
 grid.api()?.setFilterModel({ name: 'Ada' });
 grid.api()?.getState();
 grid.api()?.getLocale(); // plugins use this for chrome strings
@@ -320,6 +321,15 @@ grid.api()?.getLocale(); // plugins use this for chrome strings
 Feature ops prefer held plugin adapters (`groups.setColumns`, `ranges.clearRange`).
 `DataGridApi` methods are thin façades over those adapters (or host passthrough).
 `bind*Adapter` / host-passthrough wiring is `@internal`.
+
+CSV export (`api.exportCsv(filenameOrOptions)`, `csvExportPlugin(options)`) writes
+processed rows (filter + sort order) with a UTF-8 BOM, CRLF line endings, `;` as
+separator when the locale's decimal mark is `,` (else `,`), and prefixes text
+starting with `= + - @` (not plain numbers) with `'` against formula injection.
+Options: `columnKeys`, `onlySelected`, `columnSeparator`, `locale`, `useFormatter`,
+`processCell`, `includeHeaders`, `escapeFormulas`, `bom`. Columns with
+`suppressExport: true` (e.g. the master-detail expand column) are skipped unless
+listed in `columnKeys`.
 
 ## Locale
 
@@ -342,7 +352,10 @@ of non-blank values; `sum` / `avg` / `min` / `max` use finite numbers only
 
 - Signals / models, OnPush, CSS variables, test ids
 - Sort, filter (text/number/boolean/date/set), quick filter, external filter
-- Selection, pagination or virtualization, flex widths, pin/reorder/resize
+- Selection (header select-all scope: `createGrid({ selectAll: 'filtered' | 'page' | 'all' })`,
+  default `'filtered'`; adds to / removes from the existing selection)
+- Pagination or virtualization, flex widths (resolved to px from the measured
+  viewport; resizing one column leaves flex columns flexing), pin/reorder/resize
   (header right-click: Pin left / Pin right / Unpin; drag onto a pinned/unpinned
   column also changes pin; `api.setColumnPinned`)
 - Cell + full-row Signal Forms editing, header/cell templates

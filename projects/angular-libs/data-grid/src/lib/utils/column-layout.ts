@@ -15,45 +15,32 @@ export interface ColumnTracksChrome {
 }
 
 export interface ColumnTrackLayout {
-  /** CSS `grid-template-columns` value (chrome + data columns). */
+  /** CSS `grid-template-columns` value (chrome + data columns), all px tracks. */
   tracks: string;
-  /**
-   * Known pixel width per data column id.
-   * `null` = flex/`fr` track (not a fixed px; pin offsets should materialize first).
-   */
-  widthsPx: Record<string, number | null>;
+  /** Rendered pixel width per data column id (flex + fill already resolved). */
+  widthsPx: Record<string, number>;
 }
 
-function trackForColumn<T>(
-  col: ResolvedColumn<T>,
-  overrides: Record<string, number>,
-): { track: string; widthPx: number | null } {
-  const override = overrides[col.id];
-  if (override != null) {
-    const px = Math.max(col.minWidth, override);
-    return { track: `${px}px`, widthPx: px };
-  }
-  if (col.width != null) {
-    const px = Math.max(col.minWidth, col.width);
-    return { track: `${px}px`, widthPx: px };
-  }
-  const flex = col.flex ?? 0;
-  if (flex > 0) {
-    return {
-      track: `minmax(${col.minWidth}px, ${flex}fr)`,
-      widthPx: null,
-    };
-  }
-  return { track: `${col.minWidth}px`, widthPx: col.minWidth };
+function chromeWidth(chrome: ColumnTracksChrome): number {
+  return (
+    (chrome.drag ? CHROME_TRACK.drag : 0) +
+    (chrome.select ? CHROME_TRACK.select : 0) +
+    (chrome.rowEdit ? CHROME_TRACK.rowEdit : 0)
+  );
 }
 
 /**
  * Build CSS Grid track list for chrome + visible columns.
- * Flex columns become `minmax(min, Nfr)` — no viewport measurement.
  *
- * When every data column is fixed px (e.g. after resize lock), the last
- * unpinned column becomes `minmax(px, 1fr)` so leftover viewport space is
- * filled instead of leaving a gap before sticky right chrome.
+ * Every track is resolved to **px** against `containerWidth` (the scrollport's
+ * inner width) so each row grid lays out identically regardless of which rows
+ * are rendered — `fr` tracks inside `width: max-content` rows would size to
+ * the longest rendered cell text. Flex columns share the space left after
+ * fixed columns + chrome (never below `minWidth`).
+ *
+ * With no flex columns, the last unpinned column grows to fill leftover space
+ * (so sticky right chrome sits at the edge) until the user resizes it — a
+ * width override on that column opts it out, leaving a gap instead.
  * `rowEdit` appends a 132px actions track — callers may keep that flag on after
  * leaving full-row mode so flex columns do not reflow.
  */
@@ -61,7 +48,32 @@ export function resolveColumnTracks<T>(
   columns: readonly ResolvedColumn<T>[],
   overrides: Record<string, number> = {},
   chrome: ColumnTracksChrome = {},
+  containerWidth = 0,
 ): ColumnTrackLayout {
+  const reserved = chromeWidth(chrome);
+  const widthsPx = resolveColumnWidths(columns, overrides, containerWidth, reserved);
+
+  const hasFlex = columns.some(
+    (col) => overrides[col.id] == null && col.width == null && (col.flex ?? 0) > 0,
+  );
+  if (!hasFlex) {
+    let fill: ResolvedColumn<T> | undefined;
+    for (let i = columns.length - 1; i >= 0; i--) {
+      const col = columns[i]!;
+      if (col.pinned !== 'left' && col.pinned !== 'right') {
+        fill = col;
+        break;
+      }
+    }
+    if (fill && overrides[fill.id] == null) {
+      const used = columns.reduce((sum, col) => sum + widthsPx[col.id]!, 0);
+      const leftover = Math.floor(containerWidth - reserved - used);
+      if (leftover > 0) {
+        widthsPx[fill.id] = widthsPx[fill.id]! + leftover;
+      }
+    }
+  }
+
   const parts: string[] = [];
   if (chrome.drag) {
     parts.push(`${CHROME_TRACK.drag}px`);
@@ -69,34 +81,9 @@ export function resolveColumnTracks<T>(
   if (chrome.select) {
     parts.push(`${CHROME_TRACK.select}px`);
   }
-
-  const resolved = columns.map((col) => trackForColumn(col, overrides));
-  const allFixed = resolved.length > 0 && resolved.every((r) => r.widthPx != null);
-  let fillIndex = -1;
-  if (allFixed) {
-    for (let i = columns.length - 1; i >= 0; i--) {
-      const pinned = columns[i]!.pinned;
-      if (pinned !== 'left' && pinned !== 'right') {
-        fillIndex = i;
-        break;
-      }
-    }
-    if (fillIndex < 0) {
-      fillIndex = columns.length - 1;
-    }
+  for (const col of columns) {
+    parts.push(`${widthsPx[col.id]}px`);
   }
-
-  const widthsPx: Record<string, number | null> = {};
-  for (let i = 0; i < columns.length; i++) {
-    const col = columns[i]!;
-    let { track, widthPx } = resolved[i]!;
-    if (i === fillIndex && widthPx != null) {
-      track = `minmax(${widthPx}px, 1fr)`;
-    }
-    parts.push(track);
-    widthsPx[col.id] = widthPx;
-  }
-
   if (chrome.rowEdit) {
     parts.push(`${CHROME_TRACK.rowEdit}px`);
   }
@@ -109,7 +96,10 @@ export function resolveColumnTracks<T>(
 
 /**
  * Resolve pixel widths for visible columns against a container.
- * Prefer {@link resolveColumnTracks} for layout; keep this for tests / legacy px math.
+ * Overrides / `width` are fixed; columns with neither and no `flex` use
+ * `minWidth`. Flex columns split what is left (`containerInnerWidth` minus
+ * `reservedWidth` minus fixed), proportional to `flex`; a column whose share
+ * would drop below `minWidth` is clamped and the rest is redistributed.
  */
 export function resolveColumnWidths<T>(
   columns: readonly ResolvedColumn<T>[],
@@ -118,56 +108,47 @@ export function resolveColumnWidths<T>(
   reservedWidth = 0,
 ): Record<string, number> {
   const result: Record<string, number> = {};
-  if (!columns.length) {
-    return result;
-  }
-
   let fixedTotal = 0;
-  let flexTotal = 0;
-  const flexCols: ResolvedColumn<T>[] = [];
+  let flexCols: ResolvedColumn<T>[] = [];
 
   for (const col of columns) {
     const override = overrides[col.id];
     if (override != null) {
-      result[col.id] = Math.max(col.minWidth, override);
-      fixedTotal += result[col.id]!;
-      continue;
-    }
-    if (col.width != null) {
+      result[col.id] = Math.max(col.minWidth, Math.round(override));
+    } else if (col.width != null) {
       result[col.id] = Math.max(col.minWidth, col.width);
-      fixedTotal += result[col.id]!;
-      continue;
-    }
-    const flex = col.flex ?? 0;
-    if (flex > 0) {
+    } else if ((col.flex ?? 0) > 0) {
       flexCols.push(col);
-      flexTotal += flex;
+      continue;
     } else {
       result[col.id] = col.minWidth;
-      fixedTotal += col.minWidth;
     }
+    fixedTotal += result[col.id]!;
   }
 
-  const available = Math.max(0, containerInnerWidth - reservedWidth - fixedTotal);
+  let available = Math.max(0, Math.floor(containerInnerWidth - reservedWidth - fixedTotal));
 
-  if (!flexCols.length) {
-    return result;
-  }
-
-  if (flexTotal <= 0 || available <= 0) {
-    for (const col of flexCols) {
+  // Clamp flex columns whose proportional share is under minWidth, then retry.
+  for (;;) {
+    const flexTotal = flexCols.reduce((sum, col) => sum + col.flex!, 0);
+    const clamped = flexCols.filter((col) => (available * col.flex!) / flexTotal < col.minWidth);
+    if (!clamped.length) {
+      break;
+    }
+    for (const col of clamped) {
       result[col.id] = col.minWidth;
+      available = Math.max(0, available - col.minWidth);
     }
-    return result;
+    flexCols = flexCols.filter((col) => !clamped.includes(col));
   }
 
+  const flexTotal = flexCols.reduce((sum, col) => sum + col.flex!, 0);
   let used = 0;
   flexCols.forEach((col, index) => {
-    const flex = col.flex ?? 1;
     const share =
       index === flexCols.length - 1
-        ? Math.max(col.minWidth, available - used)
-        : Math.max(col.minWidth, Math.floor((available * flex) / flexTotal));
+        ? available - used
+        : Math.floor((available * col.flex!) / flexTotal);
     result[col.id] = share;
     used += share;
   });

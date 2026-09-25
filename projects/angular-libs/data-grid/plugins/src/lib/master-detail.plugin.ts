@@ -244,6 +244,7 @@ export function masterDetailPlugin<T = unknown, D = unknown>(
         sortable: false,
         filter: false,
         editable: false,
+        suppressExport: true,
         cellRenderer: MasterDetailExpandCell,
         cellRendererParams: {
           masterDetail: plugin,

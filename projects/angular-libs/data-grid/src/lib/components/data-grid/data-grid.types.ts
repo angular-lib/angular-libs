@@ -78,7 +78,7 @@ export interface ColumnDef<T = unknown> {
   /** Minimum width when resizing / flexing. */
   minWidth?: number;
   /**
-   * Flex grow factor — becomes `minmax(minWidth, Nfr)` in the CSS Grid track list.
+   * Flex grow factor — shares the scrollport width left after fixed columns (never below `minWidth`).
    * Prefer `flex` over omitting width when the column should fill space.
    */
   flex?: number;
@@ -136,6 +136,8 @@ export interface ColumnDef<T = unknown> {
   cellEditorParams?: CellEditorParamsConfig<T>;
   /** Aggregate for pinned footer row (`aggregateRowPlugin`). */
   aggFunc?: AggFunc;
+  /** Leave out of CSV export unless listed in `columnKeys` (utility columns). */
+  suppressExport?: boolean;
 }
 
 /** Nested header group — children are columns or further groups. */

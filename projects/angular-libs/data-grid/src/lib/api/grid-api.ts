@@ -6,6 +6,7 @@ import type {
   PasteEvent,
   SortState,
 } from '../components/data-grid/data-grid.types';
+import type { CsvExportOptions } from '../utils/csv';
 import type { FindMatch } from '../utils/find';
 import type { DisplayRow } from '../utils/row-display';
 import type { FocusCell } from '../controllers/focus';
@@ -73,7 +74,7 @@ export interface DataGridSelectionHost<T = unknown> {
 
 /** Column layout / filter / sort / state persistence. */
 export interface DataGridColumnsHost {
-  exportCsv(filename?: string): string;
+  exportCsv(filenameOrOptions?: string | CsvExportOptions<any>): string;
   autoSizeColumns(columnIds?: string[]): void;
   clearFilters(): void;
   getState(): DataGridState;
@@ -177,7 +178,8 @@ export type DataGridApiHost<T = unknown> = DataGridSelectionHost<T> &
  * façades over those adapters (or host passthrough when unbound).
  */
 export class DataGridApi<T = unknown> {
-  exportDataAsCsv = (filename?: string): string => this.exportCsv(filename);
+  exportDataAsCsv = (filenameOrOptions?: string | CsvExportOptions<T>): string =>
+    this.exportCsv(filenameOrOptions);
 
   /**
    * Typed event bus mirroring Angular `output()`s.
@@ -199,8 +201,14 @@ export class DataGridApi<T = unknown> {
     this.pluginLifecycle = lifecycle;
   }
 
-  exportCsv(filename?: string): string {
-    return this.host.exportCsv(filename);
+  /**
+   * Download processed rows as CSV and return the text. Pass a filename or
+   * {@link CsvExportOptions} (`columnKeys`, `onlySelected`, `columnSeparator`,
+   * `processCell`, …). Defaults: locale list separator, CRLF, UTF-8 BOM,
+   * formula-injection escaping.
+   */
+  exportCsv(filenameOrOptions?: string | CsvExportOptions<T>): string {
+    return this.host.exportCsv(filenameOrOptions);
   }
 
   autoSizeColumns(columnIds?: string[]): void {
