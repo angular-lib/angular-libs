@@ -74,6 +74,8 @@ export function buildGroupedRowsFromAdapter<T>(
   adapter: RowGroupAdapter,
   columnsById: Map<string, ColumnDef<T>>,
   rowId: (row: T, index: number) => string | number,
+  /** Collapsed ids (the builder passes `ctx.collapsedGroupIds`). Default: the adapter's. */
+  collapsedGroupIds: ReadonlySet<string> = adapter.collapsedIds(),
 ): DisplayRow<T>[] {
   const config: RowGroupConfig = { columns: adapter.columns() };
   if (!config.columns.length) {
@@ -90,7 +92,7 @@ export function buildGroupedRowsFromAdapter<T>(
     rows,
     rowId,
     columnsById,
-    collapsedGroupIds: adapter.collapsedIds(),
+    collapsedGroupIds,
     rowGroup: config,
     treeData: null,
   });

@@ -1,4 +1,5 @@
 import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
+import { collectAllGroupIds } from '@angular-libs/data-grid/internals';
 import {
   buildGroupedRowsFromAdapter,
   createRowGroupAdapter,
@@ -51,7 +52,17 @@ export function rowGroupPlugin<T = unknown>(
       const cleanDisplay = context.capabilities.registerDisplayBuilder({
         id: 'rowGroup',
         build: (rows, ctx) =>
-          buildGroupedRowsFromAdapter(rows, adapter, ctx.columnsById, ctx.rowId),
+          buildGroupedRowsFromAdapter(
+            rows,
+            adapter,
+            ctx.columnsById,
+            ctx.rowId,
+            ctx.collapsedGroupIds,
+          ),
+        // The held adapter is the grid's expansion store while this builder is active.
+        expansion: adapter,
+        collectGroupIds: (rows, ctx) =>
+          collectAllGroupIds(rows, adapter.columns(), ctx.columnsById),
       });
 
       const cleanSidebar = context.slots.registerSidebar({

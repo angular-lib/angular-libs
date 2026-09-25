@@ -8,7 +8,8 @@ export function filterRows<T>(
 ): T[] {
   const active = Object.entries(filters).filter(([, value]) => value.trim().length > 0);
   if (!active.length) {
-    return [...rows];
+    // No-op stage: return the input unchanged (no copy); treat as read-only.
+    return rows as T[];
   }
 
   return rows.filter((row, rowIndex) =>
@@ -82,7 +83,7 @@ export function quickFilterRows<T>(
 ): T[] {
   const needle = query.trim().toLowerCase();
   if (!needle) {
-    return [...rows];
+    return rows as T[];
   }
 
   return rows.filter((row, rowIndex) =>
@@ -99,7 +100,7 @@ export function applyExternalFilter<T>(
   predicate: ((row: T) => boolean) | null | undefined,
 ): T[] {
   if (!predicate) {
-    return [...rows];
+    return rows as T[];
   }
   return rows.filter(predicate);
 }

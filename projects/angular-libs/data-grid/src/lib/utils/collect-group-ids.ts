@@ -4,7 +4,7 @@
  */
 
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
-import { getCellValue } from './cell-value';
+import { bucketByGroupField, rowGroupId } from './group-key';
 
 export function collectAllGroupIds<T>(
   rows: readonly T[],
@@ -20,30 +20,18 @@ export function collectAllGroupIds<T>(
   const walk = (
     subset: readonly { row: T; dataIndex: number }[],
     depth: number,
-    pathPrefix: string,
+    path: readonly (readonly [string, string])[],
   ): void => {
     const field = groupColumns[depth];
     if (!field) {
       return;
     }
 
-    const column = columnsById.get(field);
-    const buckets = new Map<string, { row: T; dataIndex: number }[]>();
-    for (const item of subset) {
-      const raw = column
-        ? getCellValue(item.row, column, item.dataIndex)
-        : (item.row as Record<string, unknown>)[field];
-      const key = raw == null || raw === '' ? '(blank)' : String(raw);
-      const list = buckets.get(key) ?? [];
-      list.push(item);
-      buckets.set(key, list);
-    }
-
-    for (const [key, children] of buckets) {
-      const groupId = `${pathPrefix}/${field}=${key}`;
-      ids.push(groupId);
+    for (const bucket of bucketByGroupField(subset, field, columnsById.get(field))) {
+      const groupPath = [...path, [field, bucket.tag] as const];
+      ids.push(rowGroupId(groupPath));
       if (depth + 1 < groupColumns.length) {
-        walk(children, depth + 1, groupId);
+        walk(bucket.items, depth + 1, groupPath);
       }
     }
   };
@@ -51,7 +39,7 @@ export function collectAllGroupIds<T>(
   walk(
     rows.map((row, dataIndex) => ({ row, dataIndex })),
     0,
-    'g',
+    [],
   );
   return ids;
 }

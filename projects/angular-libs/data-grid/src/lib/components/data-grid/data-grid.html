@@ -324,6 +324,7 @@
                       role="row"
                       [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                       [attr.aria-details]="masterAriaDetails(id)"
+                      [attr.aria-expanded]="item.hasChildren ? !!item.expanded : null"
                       [attr.data-testid]="'al-dg-row-' + id"
                       [class]="rowClasses(row, rowIndex)"
                       [class.al-data-grid__row--selected]="selectionHost.isSelected(id)"
@@ -406,6 +407,18 @@
                           (dblclick)="onCellDblClick(row, id, rowIndex, col, value, $event)"
                           (contextmenu)="onCellContextMenu(row, id, rowIndex, col, value, $event, displayIndex)"
                         >
+                          @if (item.hasChildren && item.groupId && col === columnLayoutHost.visibleColumns()[0]) {
+                            <button
+                              type="button"
+                              class="al-data-grid__group-toggle"
+                              tabindex="-1"
+                              [attr.data-testid]="'al-dg-tree-toggle-' + id"
+                              [attr.aria-expanded]="!!item.expanded"
+                              (click)="viewportHost.toggleGroup(item.groupId); $event.stopPropagation()"
+                            >
+                              {{ item.expanded ? '▼' : '▶' }}
+                            </button>
+                          }
                           @if (rowEditing && col.editable && field) {
                             @if (booleanCol) {
                               <input

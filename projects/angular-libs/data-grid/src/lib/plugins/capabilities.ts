@@ -14,8 +14,29 @@ import { wrapDataRows } from '../utils/row-display';
 
 export interface RowModelContext<T = unknown> {
   columnsById: Map<string, ColumnDef<T>>;
+  /**
+   * Grid row id. In a mounted grid this resolves the row's **source** index
+   * (position in `[data]`) itself; the `index` argument is only a fallback for
+   * rows not in the source array.
+   */
   rowId: (row: T, index: number) => string | number;
-  collapsedGroupIds: ReadonlySet<string>;
+  /**
+   * Collapsed group / tree node ids from the grid's single expansion store
+   * ({@link GridCapabilities.groupExpansion}). Display builders must read this
+   * rather than their own adapter state.
+   */
+  readonly collapsedGroupIds: ReadonlySet<string>;
+}
+
+/**
+ * Expand/collapse state for group / tree node ids. One store is active per grid:
+ * the active display builder's `expansion`, else a grid-owned fallback.
+ */
+export interface GroupExpansionStore {
+  collapsedIds(): ReadonlySet<string>;
+  toggleCollapsed(groupId: string): void;
+  expandAll(): void;
+  collapseAll(allGroupIds: readonly string[]): void;
 }
 
 /**
@@ -34,6 +55,16 @@ export interface RowModelDataStage<T = unknown> {
 export interface RowModelDisplayBuilder<T = unknown> {
   id: string;
   build: (rows: readonly T[], ctx: RowModelContext<T>) => DisplayRow<T>[];
+  /**
+   * Plugin-held expansion store (e.g. the row-group / tree adapter). When set,
+   * every toggle (mouse, keyboard, API, adapter) reads/writes this store.
+   */
+  expansion?: GroupExpansionStore;
+  /**
+   * Every collapsible id for Collapse-all (including ids under collapsed parents).
+   * Default: build with nothing collapsed and collect group / parent-row ids.
+   */
+  collectGroupIds?: (rows: readonly T[], ctx: RowModelContext<T>) => string[];
 }
 
 export interface InteractionContribution {
@@ -117,8 +148,30 @@ export class GridCapabilities<T = unknown> {
   private readonly overlayContributions: WritableSignal<OverlayContribution[]> = signal([]);
   /** Bumped when overlay layouts should be re-read (range/scroll/resize). */
   private readonly overlayPaintEpochSignal: WritableSignal<number> = signal(0);
+  /** Grid-owned expansion state for display builders without their own store. */
+  private readonly fallbackCollapsed: WritableSignal<ReadonlySet<string>> = signal<
+    ReadonlySet<string>
+  >(new Set());
+  private readonly fallbackExpansion: GroupExpansionStore = {
+    collapsedIds: () => this.fallbackCollapsed(),
+    toggleCollapsed: (groupId) =>
+      this.fallbackCollapsed.update((prev) => toggleInSet(prev, groupId)),
+    expandAll: () => this.fallbackCollapsed.set(new Set()),
+    collapseAll: (ids) => this.fallbackCollapsed.set(new Set(ids)),
+  };
 
   readonly hasDisplayBuilder = computed(() => this.displayBuilders().length > 0);
+  /**
+   * The grid's single expansion store: the active display builder's
+   * `expansion`, else the grid-owned fallback. All group toggles go through it.
+   */
+  readonly groupExpansion: Signal<GroupExpansionStore> = computed(
+    () => this.activeDisplayBuilder()?.expansion ?? this.fallbackExpansion,
+  );
+  /** Collapsed ids of {@link groupExpansion} (what `RowModelContext.collapsedGroupIds` reads). */
+  readonly collapsedGroupIds: Signal<ReadonlySet<string>> = computed(() =>
+    this.groupExpansion().collapsedIds(),
+  );
   readonly hasAggregate = computed(() => this.aggregates().length > 0);
   readonly hasContextMenuItems = computed(() => this.contextMenuContributions().length > 0);
   /** Registered overlay contributions (binder paints these). */
@@ -261,21 +314,48 @@ export class GridCapabilities<T = unknown> {
     return items;
   }
 
-  runDataStages(rows: readonly T[], ctx: RowModelContext<T>): T[] {
-    let next = [...rows];
+  /** Run data stages in order. Returns `rows` itself when no stage is registered. */
+  runDataStages(rows: readonly T[], ctx: RowModelContext<T>): readonly T[] {
+    let next = rows;
     for (const stage of this.dataStages()) {
-      next = [...stage.transform(next, ctx)];
+      next = stage.transform(next, ctx);
     }
     return next;
   }
 
   buildDisplayRows(rows: readonly T[], ctx: RowModelContext<T>): DisplayRow<T>[] {
-    const builders = this.displayBuilders();
-    if (!builders.length) {
+    const builder = this.activeDisplayBuilder();
+    if (!builder) {
       return wrapDataRows(rows, ctx.rowId);
     }
-    // Last registered builder wins (e.g. tree over group if both somehow present).
-    return builders[builders.length - 1]!.build(rows, ctx);
+    return builder.build(rows, ctx);
+  }
+
+  /** Toggle one group / tree node in the active expansion store. */
+  toggleGroup(groupId: string): void {
+    this.groupExpansion().toggleCollapsed(groupId);
+  }
+
+  expandAllGroups(): void {
+    this.groupExpansion().expandAll();
+  }
+
+  /** Collapse every collapsible id of the active display builder. */
+  collapseAllGroups(rows: readonly T[], ctx: RowModelContext<T>): void {
+    const builder = this.activeDisplayBuilder();
+    const open: RowModelContext<T> = { ...ctx, collapsedGroupIds: new Set() };
+    const ids = builder?.collectGroupIds
+      ? builder.collectGroupIds(rows, open)
+      : this.buildDisplayRows(rows, open).flatMap((row) =>
+          row.kind === 'group' ? [row.id] : row.kind === 'data' && row.groupId ? [row.groupId] : [],
+        );
+    this.groupExpansion().collapseAll(ids);
+  }
+
+  /** Last registered builder wins (e.g. tree over group if both somehow present). */
+  private activeDisplayBuilder(): RowModelDisplayBuilder<T> | null {
+    const builders = this.displayBuilders();
+    return builders[builders.length - 1] ?? null;
   }
 
   collectAggregates(
@@ -302,7 +382,18 @@ export class GridCapabilities<T = unknown> {
     this.contextMenuContributions.set([]);
     this.overlayContributions.set([]);
     this.overlayPaintEpochSignal.set(0);
+    this.fallbackCollapsed.set(new Set());
   }
+}
+
+function toggleInSet(prev: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  const next = new Set(prev);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
 }
 
 function sortByOrder<T extends { id: string; order?: number }>(items: T[]): T[] {

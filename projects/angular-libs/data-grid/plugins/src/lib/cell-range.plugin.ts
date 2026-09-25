@@ -476,6 +476,7 @@ function runFill<T>(
     columnIds: targetNorm.columnIds,
     matrix: tiled,
     suggestedRows,
+    rowIds: processed.map((row, index) => context.api.resolveRowId(row, index)),
     range: target,
     source,
   };

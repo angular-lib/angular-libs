@@ -11,6 +11,8 @@ export type { ValueSetterParams };
  * Immutable cell update helper — preferred over mutating `event.row`.
  *
  * Uses `column.valueSetter` when provided; otherwise writes `column.field`.
+ * `rows` must be the grid's source `[data]` array: `rowId` gets each row's
+ * index in it (the same index the grid uses for index-based ids).
  */
 export function applyCellEdit<T>(
   rows: readonly T[],
@@ -37,11 +39,17 @@ export function applyRowEdit<T>(
 /**
  * Merge `suggested` rows into `source` by `rowId` (paste / fill write-back).
  * Source order is preserved; ids only in `suggested` are ignored.
+ *
+ * `rowId` is called with each source row's index in `source`. Suggested rows are
+ * (partly) copies, so their ids should come from `suggestedRowIds` (aligned with
+ * `suggested`, e.g. `PasteEvent.rowIds`). Without it, `rowId(suggested[i], i)` is
+ * used — fine for field-based ids, wrong for index-based ids.
  */
 export function mergeRowsById<T>(
   source: readonly T[],
   suggested: readonly T[],
   rowId: (row: T, index: number) => string | number,
+  suggestedRowIds?: readonly (string | number)[] | null,
 ): T[] {
   if (!suggested.length) {
     return [...source];
@@ -49,7 +57,7 @@ export function mergeRowsById<T>(
   const byId = new Map<string | number, T>();
   for (let i = 0; i < suggested.length; i++) {
     const row = suggested[i]!;
-    byId.set(rowId(row, i), row);
+    byId.set(suggestedRowIds?.[i] ?? rowId(row, i), row);
   }
   return source.map((row, i) => {
     const id = rowId(row, i);

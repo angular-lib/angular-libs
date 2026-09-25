@@ -48,7 +48,6 @@ import {
   isGroupHeaderCellFocusedOf,
   isHeaderFocusedOf,
 } from './binder-template.helpers';
-import { collectAllGroupIds } from '../utils/collect-group-ids';
 
 /**
  * Owns scroll / paging / find / virtual window / group collapse / row drag / sidebar panel.
@@ -60,8 +59,9 @@ export class ViewportHost<T> {
   readonly viewportWidth: WritableSignal<number> = signal(800);
   readonly focusedCell: WritableSignal<FocusCell | null> = signal<FocusCell | null>(null);
   readonly findActiveIndex: WritableSignal<number> = signal(0);
-  readonly collapsedGroupIds: WritableSignal<ReadonlySet<string>> = signal<ReadonlySet<string>>(
-    new Set(),
+  /** Collapsed group / tree ids — read-only view of the grid's single expansion store. */
+  readonly collapsedGroupIds: Signal<ReadonlySet<string>> = computed(() =>
+    this.s.kernel().capabilities.collapsedGroupIds(),
   );
   readonly boundRowGroupAdapter: WritableSignal<BoundRowGroupAdapter | null> = signal(null);
   readonly boundTreeDataAdapter: WritableSignal<BoundTreeDataAdapter | null> = signal(null);
@@ -459,30 +459,13 @@ export class ViewportHost<T> {
     }
   }
 
+  /** Single dispatcher for every group / tree toggle (mouse, keyboard, API). */
   toggleGroup(groupId: string): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.toggleCollapsed(groupId);
-      return;
-    }
-    this.collapsedGroupIds.update((prev) => {
-      const next = new Set(prev);
-      if (next.has(groupId)) {
-        next.delete(groupId);
-      } else {
-        next.add(groupId);
-      }
-      return next;
-    });
+    this.s.kernel().capabilities.toggleGroup(groupId);
   }
 
   expandAll(): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.expandAll();
-      return;
-    }
-    this.collapsedGroupIds.set(new Set());
+    this.s.kernel().capabilities.expandAllGroups();
   }
 
   setRowGroupColumns(columns: readonly string[]): void {
@@ -498,23 +481,10 @@ export class ViewportHost<T> {
   }
 
   collapseAll(): void {
-    const adapter = this.boundRowGroupAdapter();
-    if (adapter) {
-      adapter.collapseAll(
-        collectAllGroupIds(
-          this.s.processedRows(),
-          adapter.columns(),
-          this.s.rowModelContext().columnsById,
-        ),
-      );
-      return;
-    }
-    const all = this.s.kernel().capabilities.buildDisplayRows(this.s.processedRows(), {
-      ...this.s.rowModelContext(),
-      collapsedGroupIds: new Set(),
-    });
-    const ids = all.filter((row) => row.kind === 'group').map((row) => row.id);
-    this.collapsedGroupIds.set(new Set(ids));
+    this.s.kernel().capabilities.collapseAllGroups(
+      this.s.processedRows(),
+      this.s.rowModelContext(),
+    );
   }
 
   bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {

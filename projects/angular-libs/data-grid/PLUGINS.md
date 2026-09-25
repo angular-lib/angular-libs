@@ -104,9 +104,17 @@ replaces the previous (row group, tree, and master-detail cannot run together).
 ```ts
 context.capabilities.registerDisplayBuilder({
   id: 'myGrouping',
-  build: (rows, ctx) => /* DisplayRow<T>[] */,
+  build: (rows, ctx) => /* DisplayRow<T>[] — read ctx.collapsedGroupIds */,
+  // Optional: a held store becomes the grid's single expansion store.
+  expansion: adapter, // { collapsedIds(), toggleCollapsed, expandAll, collapseAll }
+  collectGroupIds: (rows, ctx) => /* every collapsible id, for Collapse-all */,
 });
 ```
+
+Builders read collapse state from `ctx.collapsedGroupIds` (never their own
+adapter directly): every toggle — click, keyboard, `api.toggleGroup`, the
+adapter — goes through one store (the builder's `expansion`, else a grid-owned
+fallback). `ctx.rowId(row, i)` resolves the row's source index itself.
 
 ### Data stage
 
