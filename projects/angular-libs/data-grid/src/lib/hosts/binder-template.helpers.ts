@@ -162,11 +162,16 @@ export function ariaRowCountOf(
   return headerRows + displayRowCount;
 }
 
+/**
+ * 1-based `aria-rowindex` for a body row. `rowOffset` = rows before the current
+ * page (pagination), so indices stay absolute across pages.
+ */
 export function ariaBodyRowIndexOf(
   headerRows: number,
   displayIndex: number,
+  rowOffset = 0,
 ): number {
-  return headerRows + displayIndex + 1;
+  return headerRows + rowOffset + displayIndex + 1;
 }
 
 /**

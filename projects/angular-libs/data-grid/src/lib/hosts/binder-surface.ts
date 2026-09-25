@@ -199,6 +199,8 @@ export interface ViewportDeps<T> {
   rowHeight(): number;
   overscan(): number;
   serverSide(): boolean;
+  /** Server total row count (`GridController.serverRowCount`); `null` = unknown. */
+  serverRowCount(): number | null;
   displayRows(): readonly DisplayRow<T>[];
   processedRows(): readonly T[];
   visibleColumns(): readonly ResolvedColumn<T>[];

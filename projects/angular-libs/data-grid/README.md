@@ -195,14 +195,37 @@ columns = [md.expandColumn(), { field: 'name' }];
 
 ## Row drag
 
-Enabled only for a **flat** client-side list with **no** active sort/filter/quick-filter
-and not `serverSide`. `(rowReorder)` includes `fromId` / `toId` plus suggested `rows`:
+Enabled only for a **flat** client-side list with **no** active sort/filter/quick-filter/
+`externalFilter` and not `serverSide`. `(rowReorder)` includes `fromId` / `toId` plus
+`rows` — the **full source** `[data]` order with the row moved, so it is always safe to
+assign back:
 
 ```html
 (rowReorder)="rows.set($event.rows)"
 ```
 
-Prefer applying by id when syncing back to unsorted source data.
+## Pagination & server-side paging
+
+Client pagination keeps the current page on data edits, transactions and sorts
+(clamped to the last page); filters / quick filter / `externalFilter` / page size
+reset to page 1. Changing page scrolls back to the top.
+
+For server paging, pass the total and bind only the current page as `[data]`:
+
+```ts
+const grid = createGrid({ columns, serverSide: true, viewport: { pagination: true, pageSize: 50 } });
+// (queryChange)="load($event)" — { sorts, filters, quickFilter, pageIndex, pageSize }
+async load(q: DataGridQuery) {
+  const res = await api.fetch(q);
+  this.rows.set(res.rows);
+  grid.serverRowCount.set(res.total);
+}
+```
+
+With `serverRowCount` set the grid skips client slicing, pages by the total, emits
+`queryChange` on page change, and offsets `aria-rowindex` / `aria-rowcount` by it.
+Grouping, aggregates, find, CSV export and select-all only cover the **current page**.
+Leave `serverRowCount` `null` to page the returned rows on the client.
 
 ## Editors & renderers
 
