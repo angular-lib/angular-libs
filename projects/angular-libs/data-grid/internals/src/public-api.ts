@@ -80,9 +80,8 @@ export type {
   ɵHeaderGroupCell as HeaderGroupCell,
 } from '@angular-libs/data-grid';
 export {
-  ɵparseSetFilter as parseSetFilter,
-  ɵserializeSetFilter as serializeSetFilter,
   ɵcollectSetFilterValues as collectSetFilterValues,
+  ɵcompileColumnFilter as compileColumnFilter,
 } from '@angular-libs/data-grid';
 export {
   ɵisCustomEditorComponent as isCustomEditorComponent,

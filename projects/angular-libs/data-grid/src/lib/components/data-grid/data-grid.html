@@ -22,6 +22,7 @@
             [findActiveIndex]="viewportHost.findActiveIndex()"
             [slotItems]="resolvedToolbarActions()"
             [labels]="toolbarLabels()"
+            [debounceMs]="controller().chrome.filterDebounceMs()"
             (quickFilterChange)="columnLayoutHost.setQuickFilter($event)"
             (findQueryChange)="viewportHost.setFindQuery($event)"
             (findNext)="viewportHost.findNext()"
@@ -200,12 +201,13 @@
                         @if (col.filter) {
                           <al-data-grid-filter-field
                             [column]="$any(col)"
-                            [value]="columnLayoutHost.filters()[col.id] ?? ''"
-                            [setOptions]="col.filter === 'set' ? (columnLayoutHost.setFilterOptionsById().get(col.id) ?? []) : []"
+                            [model]="columnLayoutHost.filters()[col.id] ?? null"
+                            [setOptions]="columnLayoutHost.setFilterOptionsFn(col.id)"
                             [ariaLabel]="resolvedLocale().filterColumnAriaLabel + ' ' + col.header"
                             [locale]="resolvedLocale()"
+                            [debounceMs]="controller().chrome.filterDebounceMs()"
                             variant="floating"
-                            (valueChange)="columnLayoutHost.setFilter(col.id, $event)"
+                            (modelChange)="columnLayoutHost.setColumnFilter(col.id, $event)"
                           />
                         }
                       </div>
@@ -781,13 +783,13 @@
         [quickFilter]="quickFilter()"
         [groupColumnIds]="viewportHost.rowGroupColumnIds()"
         [locale]="resolvedLocale()"
-        [setFilterOptionsById]="columnLayoutHost.setFilterOptionsById()"
+        [setFilterOptions]="columnLayoutHost.setFilterOptionsFn"
         (openPanelChange)="viewportHost.activeSidePanel.set($event)"
         (visibilityChange)="columnLayoutHost.onColumnVisibility($event)"
         (reorder)="columnLayoutHost.onPanelReorder($event)"
         (showAll)="columnLayoutHost.showAllColumns()"
         (autoSize)="columnLayoutHost.autoSizeColumns()"
-        (filterChange)="columnLayoutHost.setFilter($event.columnId, $event.value)"
+        (filterChange)="columnLayoutHost.setColumnFilter($event.columnId, $event.model)"
         (quickFilterChange)="columnLayoutHost.setQuickFilter($event)"
         (clearAll)="columnLayoutHost.clearFilters()"
         (groupColumnsChange)="viewportHost.setRowGroupColumns($event)"

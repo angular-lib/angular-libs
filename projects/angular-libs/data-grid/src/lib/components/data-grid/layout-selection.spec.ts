@@ -46,12 +46,15 @@ describe('DataGrid layout / selection bindings', () => {
         .queryAll(By.directive(DataGridFilterField))
         .map((d) => d.componentInstance as DataGridFilterField);
     const [text, set] = fields();
-    const before = set!.setOptions();
-    expect(before).toEqual(['Bergen', 'Oslo']);
-    expect(text!.setOptions()).toEqual([]);
+    const getter = set!.setOptions();
+    const before = getter();
+    expect(before.options.map((o) => o.key)).toEqual(['Bergen', 'Oslo']);
+    expect(text!.setOptions()().options).toEqual([]);
 
     fixture.detectChanges();
-    expect(fields()[1]!.setOptions()).toBe(before);
+    // Stable getter per column + memoized options until `[data]` changes.
+    expect(fields()[1]!.setOptions()).toBe(getter);
+    expect(fields()[1]!.setOptions()()).toBe(before);
   });
 
   it('header checkbox reflects selectable rows across pages (selectAll: filtered)', async () => {

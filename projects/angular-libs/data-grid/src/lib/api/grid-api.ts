@@ -7,6 +7,7 @@ import type {
   SortState,
 } from '../components/data-grid/data-grid.types';
 import type { CsvExportOptions } from '../utils/csv';
+import type { ColumnFilterModel } from '../utils/filter-model';
 import type { FindMatch } from '../utils/find';
 import type { DisplayRow } from '../utils/row-display';
 import type { FocusCell } from '../controllers/focus';
@@ -81,6 +82,8 @@ export interface DataGridColumnsHost {
   setState(state: Partial<DataGridState>): void;
   getFilterModel(): DataGridFilterState;
   setFilterModel(filters: DataGridFilterState): void;
+  getColumnFilter(columnId: string): ColumnFilterModel | null;
+  setColumnFilter(columnId: string, model: ColumnFilterModel | null): void;
   getSortModel(): SortState[];
   setSortModel(sorts: SortState[]): void;
   getQuickFilter(): string;
@@ -235,8 +238,23 @@ export class DataGridApi<T = unknown> {
     return this.host.getFilterModel();
   }
 
+  /** Replace all column filters (invalid / empty models are dropped). */
   setFilterModel(filters: DataGridFilterState): void {
     this.host.setFilterModel(filters);
+  }
+
+  /** One column's typed filter model, or `null`. */
+  getColumnFilter(columnId: string): ColumnFilterModel | null {
+    return this.host.getColumnFilter(columnId);
+  }
+
+  /**
+   * Set one column's filter, e.g.
+   * `{ kind: 'number', conditions: [{ op: 'greaterThan', value: 100 }] }`;
+   * `null` clears it.
+   */
+  setColumnFilter(columnId: string, model: ColumnFilterModel | null): void {
+    this.host.setColumnFilter(columnId, model);
   }
 
   getSortModel(): SortState[] {

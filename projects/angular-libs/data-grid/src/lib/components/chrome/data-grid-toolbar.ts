@@ -1,6 +1,8 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
+  inject,
   input,
   output,
   signal,
@@ -12,6 +14,7 @@ import type {
   DataGridToolbarSlotItem,
 } from '../../plugins/types';
 import { DataGridFindBar } from './data-grid-find-bar';
+import { DEFAULT_FILTER_DEBOUNCE_MS, InputDebouncer } from '../../utils/debounce';
 
 export interface DataGridToolbarLabels {
   quickFilterPlaceholder: string;
@@ -37,7 +40,9 @@ export interface DataGridToolbarLabels {
           class="al-data-grid__quick-input"
           type="search"
           [value]="quickFilter()"
-          (input)="quickFilterChange.emit($any($event.target).value)"
+          (input)="quickFilterInput.push($any($event.target).value)"
+          (keydown.enter)="quickFilterInput.flush()"
+          (blur)="quickFilterInput.flush()"
           [placeholder]="labels().quickFilterPlaceholder"
           data-testid="al-dg-toolbar-quick-filter"
           [attr.aria-label]="labels().quickFilterAriaLabel"
@@ -52,6 +57,7 @@ export interface DataGridToolbarLabels {
           [ariaLabel]="labels().findAriaLabel"
           [prevAriaLabel]="labels().findPrevAriaLabel"
           [nextAriaLabel]="labels().findNextAriaLabel"
+          [debounceMs]="debounceMs()"
           (queryChange)="findQueryChange.emit($event)"
           (next)="findNext.emit()"
           (prev)="findPrev.emit()"
@@ -146,6 +152,8 @@ export class DataGridToolbar {
   readonly findActiveIndex = input(0);
   readonly slotItems = input<readonly DataGridToolbarSlotItem[]>([]);
   readonly labels = input.required<DataGridToolbarLabels>();
+  /** `chrome.filterDebounceMs` for the quick filter + find inputs (`0` = per keystroke). */
+  readonly debounceMs = input(DEFAULT_FILTER_DEBOUNCE_MS);
 
   readonly quickFilterChange = output<string>();
   readonly findQueryChange = output<string>();
@@ -153,6 +161,15 @@ export class DataGridToolbar {
   readonly findPrev = output<void>();
 
   readonly busyIds = signal<ReadonlySet<string>>(new Set());
+
+  readonly quickFilterInput = new InputDebouncer<string>(
+    (value) => this.quickFilterChange.emit(value),
+    () => this.debounceMs(),
+  );
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.quickFilterInput.cancel());
+  }
 
   actionParams(event?: MouseEvent): DataGridToolbarActionParams {
     return {

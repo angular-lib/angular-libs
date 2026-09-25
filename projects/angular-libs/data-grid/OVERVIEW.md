@@ -124,9 +124,9 @@ exception (with tooltips) — not forced through `registerOverlay`.
 | Domain | Status | Our surface | Notes |
 | --- | --- | --- | --- |
 | Multi-sort | **Done** | `createGrid({ multiSort })`, `api.get/setSortModel`, `(sortChange)` | Custom `comparator` |
-| Column filters | **Done** | text/number/boolean/date/set + floating | Simple string models, not AG filter instances |
+| Column filters | **Done** | text/number/boolean/date/set/custom + floating | Typed JSON model (`ColumnFilterModel`: operators, 2 conditions AND/OR, blanks); `filterPredicate` / `filterValueGetter`; not AG filter instances |
 | Quick / external filter | **Done** | `[(quickFilter)]`, `[externalFilter]` | |
-| Filter API | **Partial** | `get/setFilterModel`, `clearFilters` | No `getColumnFilterInstance` |
+| Filter API | **Done** | `get/setFilterModel`, `get/setColumnFilter`, `clearFilters` | No `getColumnFilterInstance` (models, not instances) |
 | Custom filter components | **Later** | — | Typed seam; refuse AG filter-module explosion |
 | Row selection | **Done** | `none` \| `single` \| `multi`, `[(selectedIds)]` | Depth / coexistence — §5d |
 | Cell range selection | **Done** | Opt-in `cellRangePlugin` — §5 | Coexists with rows — §5d |
