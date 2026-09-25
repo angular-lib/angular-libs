@@ -20,7 +20,7 @@ import {
   type HeaderGroupCell,
 } from '../utils/column-groups';
 import { estimateColumnWidth } from '../utils/autosize';
-import { downloadCsv, rowsToCsv } from '../utils/csv';
+import { downloadCsv, rowsToCsvExport, type CsvExportOptions } from '../utils/csv';
 import { collectSetFilterValues } from '../utils/filter-rows';
 import { nextSortDirection } from '../utils/sort-rows';
 import { createEmptyGridState } from '../utils/state';
@@ -96,6 +96,11 @@ export class ColumnLayoutHost<T> {
     return this.orderedColumns().filter((c) => !hidden.has(c.id));
   });
 
+  /** Stable id list for per-cell helpers (range / ARIA) — avoid `.map` per cell. */
+  readonly visibleColumnIds: Signal<string[]> = computed(() =>
+    this.visibleColumns().map((c) => c.id),
+  );
+
   readonly filterableColumns: Signal<ResolvedColumn<T>[]> = computed(() =>
     this.orderedColumns().filter((c) => !!c.filter),
   );
@@ -139,26 +144,29 @@ export class ColumnLayoutHost<T> {
     return w;
   });
 
-  /** CSS Grid track list — flex columns use `fr`, no viewport width measure. */
+  /**
+   * CSS Grid track list — every track resolved to px against the measured
+   * scrollport width, so rows lay out identically whatever is rendered.
+   */
   readonly columnTrackLayout: Signal<ColumnTrackLayout> = computed(() =>
-    resolveColumnTracks(this.visibleColumns(), this.widthOverrides(), {
-      drag: this.s.rowDragEnabled(),
-      select: this.s.showSelection(),
-      rowEdit: this.reserveRowEditColumn(),
-    }),
+    resolveColumnTracks(
+      this.visibleColumns(),
+      this.widthOverrides(),
+      {
+        drag: this.s.rowDragEnabled(),
+        select: this.s.showSelection(),
+        rowEdit: this.reserveRowEditColumn(),
+      },
+      this.s.viewportWidth(),
+    ),
   );
 
   readonly gridTemplateColumns: Signal<string> = computed(() => this.columnTrackLayout().tracks);
 
-  /** Pixel widths for pin offsets / resize; flex tracks are null → use minWidth. */
-  readonly resolvedWidths: Signal<Record<string, number>> = computed(() => {
-    const { widthsPx } = this.columnTrackLayout();
-    const out: Record<string, number> = {};
-    for (const col of this.visibleColumns()) {
-      out[col.id] = widthsPx[col.id] ?? col.minWidth;
-    }
-    return out;
-  });
+  /** Rendered pixel widths (same numbers as the tracks) for pin offsets / resize. */
+  readonly resolvedWidths: Signal<Record<string, number>> = computed(
+    () => this.columnTrackLayout().widthsPx,
+  );
 
   constructor(private readonly s: ColumnLayoutDeps<T>) {}
 
@@ -351,8 +359,9 @@ export class ColumnLayoutHost<T> {
   }
 
   /**
-   * Lock every column to its rendered px width, then drag `columnIds`.
+   * Lock only `columnIds` to their rendered px width, then drag them.
    * Delta is split evenly (1 column = normal resize; many = group resize).
+   * Other columns keep their sizing — flex columns absorb the change.
    */
   beginResize(event: PointerEvent, columnIds: readonly string[]): void {
     event.preventDefault();
@@ -362,18 +371,16 @@ export class ColumnLayoutHost<T> {
     }
 
     const byId = this.columnsById();
-    const locked: Record<string, number> = { ...this.widthOverrides() };
-    const root = this.s.hostElement();
-    for (const col of this.visibleColumns()) {
-      const el = root.querySelector(
-        `[data-testid="al-dg-col-${CSS.escape(col.id)}"]`,
-      ) as HTMLElement | null;
-      locked[col.id] = Math.max(
-        col.minWidth,
-        Math.round(el?.getBoundingClientRect().width ?? locked[col.id] ?? col.minWidth),
+    const rendered = this.resolvedWidths();
+    const locked: Record<string, number> = {};
+    for (const id of columnIds) {
+      const col = byId.get(id);
+      locked[id] = Math.max(
+        col?.minWidth ?? 48,
+        rendered[id] ?? this.widthOverrides()[id] ?? col?.minWidth ?? 48,
       );
     }
-    this.widthOverrides.set(locked);
+    this.widthOverrides.set({ ...this.widthOverrides(), ...locked });
 
     const targets = columnIds.map((id) => ({
       id,
@@ -454,9 +461,22 @@ export class ColumnLayoutHost<T> {
     this.s.emitState();
   }
 
-  exportCsv(filename = 'data-grid.csv'): string {
-    const csv = rowsToCsv(this.s.processedRows(), this.visibleColumns());
-    downloadCsv(filename, csv);
+  /**
+   * Download processed rows (filter + sort order) as CSV; returns the text
+   * (without BOM). A string argument is the filename.
+   */
+  exportCsv(filenameOrOptions: string | CsvExportOptions<T> = {}): string {
+    const options: CsvExportOptions<T> =
+      typeof filenameOrOptions === 'string' ? { filename: filenameOrOptions } : filenameOrOptions;
+    const byId = this.columnsById();
+    const columns = options.columnKeys
+      ? options.columnKeys.flatMap((id) => byId.get(id) ?? [])
+      : this.visibleColumns().filter((c) => !c.suppressExport);
+    const rows = options.onlySelected
+      ? this.s.processedRows().filter((row) => this.s.isRowSelected(row))
+      : this.s.processedRows();
+    const csv = rowsToCsvExport(rows, columns, options);
+    downloadCsv(options.filename ?? 'data-grid.csv', csv, { bom: options.bom });
     return csv;
   }
 
@@ -493,10 +513,6 @@ export class ColumnLayoutHost<T> {
     });
     this.s.emitState();
     this.s.emitQueryIfServer();
-  }
-
-  setFilterOptions(column: ResolvedColumn<T>): string[] {
-    return collectSetFilterValues(this.s.data(), column);
   }
 
   getColumnsById(): Map<string, ColumnDef<any>> {

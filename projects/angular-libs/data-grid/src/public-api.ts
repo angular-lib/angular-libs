@@ -32,6 +32,7 @@ export type {
   GridController,
   GridViewportOptions,
   IsRowSelectableFn,
+  SelectAllScope,
 } from './lib/create-grid';
 export {
   resolveEditInteraction,
@@ -128,7 +129,13 @@ export type {
   SortState,
   ValueSetterParams,
 } from './lib/components/data-grid/data-grid.types';
-export { rowsToCsv, downloadCsv } from './lib/utils/csv';
+export {
+  rowsToCsv,
+  rowsToCsvExport,
+  defaultCsvColumnSeparator,
+  downloadCsv,
+} from './lib/utils/csv';
+export type { CsvExportOptions, CsvProcessCellParams, RowsToCsvOptions } from './lib/utils/csv';
 export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
 export type { FindMatch, FindMatchesChangeEvent, FindTextPart } from './lib/utils/find';

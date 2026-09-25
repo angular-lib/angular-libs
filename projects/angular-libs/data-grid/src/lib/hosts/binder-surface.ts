@@ -75,6 +75,10 @@ export interface ColumnLayoutDeps<T> {
   processedRows(): readonly T[];
   data(): readonly T[];
   hostElement(): HTMLElement;
+  /** Scrollport inner width (px) — flex columns resolve against it. */
+  viewportWidth(): number;
+  /** CSV `onlySelected` export. */
+  isRowSelected(row: T): boolean;
   publishSort(event: SortChangeEvent): void;
   publishFilter(event: FilterChangeEvent): void;
   publishColumnOrder(event: ColumnOrderChangeEvent): void;
@@ -98,6 +102,8 @@ export interface SelectionDeps<T> {
   rowClick: OutputEmitterRef<RowClickEvent<T>>;
   effectiveSelectionMode(): SelectionMode;
   effectiveRowClickSelects(): boolean;
+  /** Header select-all scope (`createGrid({ selectAll })`). */
+  selectAllScope(): 'filtered' | 'page' | 'all';
   isRowSelectableFn(): ((row: T, rowId: string | number) => boolean) | null | undefined;
   data(): readonly T[];
   effectiveRowId(): (row: T, index: number) => string | number;

@@ -269,6 +269,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     processedRows: () => processedRows(),
     data: () => opts.data(),
     hostElement: opts.hostElement,
+    viewportWidth: () => viewport.viewportWidth(),
+    isRowSelected: (row) => selection.isRowSelectedByRef(row),
     publishSort: (event) => opts.publish('sortChange', out.sortChange, event),
     publishFilter: (event) => opts.publish('filterChange', out.filterChange, event),
     publishColumnOrder: (event) =>
@@ -327,6 +329,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     rowClick: out.rowClick,
     effectiveSelectionMode,
     effectiveRowClickSelects,
+    selectAllScope: () => ctrl().selectAll,
     isRowSelectableFn: () => ctrl().isRowSelectable,
     data: () => opts.data(),
     effectiveRowId,

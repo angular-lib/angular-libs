@@ -287,6 +287,19 @@
   align-items: stretch;
 }
 
+/*
+ * The whole header block sticks (not each cell): a cell can only stick inside
+ * its own row box, so per-cell `top` scrolled away with the row.
+ * Layering: header (6) > range overlays (5) > body chrome (3) > pinned body (2).
+ * Inside the header: select/drag (6) > pinned (5) > unpinned (auto).
+ */
+.al-data-grid__thead {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  background: var(--al-dg-header-bg);
+}
+
 .al-data-grid__tfoot {
   position: sticky;
   bottom: 0;
@@ -373,14 +386,9 @@
   box-shadow: -1px 0 0 0 var(--al-dg-border);
 }
 
-/*
- * Vertical sticky headers (per-cell). Row tops stack:
- * group 0 → leaf headerHeight → filter headerHeight|2×headerHeight.
- */
+/* Vertical stickiness lives on `.al-data-grid__thead`; pinned cells add left/right. */
 .al-data-grid__th {
-  position: sticky;
-  top: 0;
-  z-index: 3;
+  position: relative;
   height: var(--al-dg-header-height);
   background: var(--al-dg-header-bg);
   font-weight: 500;
@@ -391,24 +399,11 @@
   padding: 0 16px;
 }
 
-.al-data-grid__header-row--group .al-data-grid__th {
-  top: 0;
-  z-index: 5;
-}
-
-.al-data-grid__table--col-groups
-  .al-data-grid__header-row:not(.al-data-grid__header-row--group)
-  .al-data-grid__th {
-  top: var(--al-dg-header-height);
-}
-
 .al-data-grid__th--filter,
 .al-data-grid__filter-row .al-data-grid__th {
   height: 40px;
   font-weight: 400;
   font-size: 13px;
-  top: var(--al-dg-header-height);
-  z-index: 8;
   padding: 0 8px;
 }
 
@@ -417,10 +412,6 @@
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-}
-
-.al-data-grid__table--col-groups .al-data-grid__filter-row .al-data-grid__th {
-  top: calc(var(--al-dg-header-height) * 2);
 }
 
 .al-data-grid__th--select,
@@ -474,16 +465,6 @@
 .al-data-grid__th--select {
   z-index: 6;
   background: var(--al-dg-header-bg);
-}
-
-.al-data-grid__header-row--group .al-data-grid__th--drag,
-.al-data-grid__header-row--group .al-data-grid__th--select {
-  z-index: 7;
-}
-
-.al-data-grid__filter-row .al-data-grid__th--drag,
-.al-data-grid__filter-row .al-data-grid__th--select {
-  z-index: 9;
 }
 
 .al-data-grid__th--row-edit,
@@ -589,6 +570,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Keep the last handle inside the table so it does not add a 4px horizontal scroll. */
+.al-data-grid__th:last-child > .al-data-grid__resize {
+  right: 0;
 }
 
 .al-data-grid__resize::after {
@@ -780,6 +766,17 @@
   white-space: nowrap;
 }
 
+/*
+ * Plain-text data cells (no element children besides find marks) are block
+ * containers, vertically centred via align-content, so `text-overflow: ellipsis`
+ * and `text-align` apply — neither works on a flex box's anonymous text item.
+ * Cells with editors / renderers / templates keep the flex layout.
+ */
+.al-data-grid__td[data-column-id]:not(:has(> :not(.al-data-grid__find-mark))) {
+  display: block;
+  align-content: center;
+}
+
 .al-data-grid__td--editable {
   cursor: default;
 }
@@ -835,16 +832,6 @@
 .al-data-grid__th--pinned-right {
   z-index: 5;
   background: var(--al-dg-header-bg, #f8f8f8);
-}
-
-.al-data-grid__header-row--group .al-data-grid__th--pinned-left,
-.al-data-grid__header-row--group .al-data-grid__th--pinned-right {
-  z-index: 6;
-}
-
-.al-data-grid__filter-row .al-data-grid__th--pinned-left,
-.al-data-grid__filter-row .al-data-grid__th--pinned-right {
-  z-index: 8;
 }
 
 .al-data-grid__spacer td {

@@ -169,22 +169,23 @@ describe('data-grid utils', () => {
     expect(widths['name']).toBe(100);
     expect(widths['city']).toBe(300);
 
-    const { tracks, widthsPx } = resolveColumnTracks(cols, {}, { select: true });
-    expect(tracks).toBe('40px 100px minmax(80px, 1fr)');
+    const { tracks, widthsPx } = resolveColumnTracks(cols, {}, { select: true }, 400);
+    expect(tracks).toBe('40px 100px 260px');
     expect(widthsPx['name']).toBe(100);
-    expect(widthsPx['city']).toBeNull();
+    expect(widthsPx['city']).toBe(260);
 
-    // After resize lock (all fixed), last unpinned column fills leftover space.
+    // Resized (overridden) columns stay at their px width; no fill past them.
     const locked = resolveColumnTracks(
       cols,
       { name: 120, city: 200 },
       { select: true, rowEdit: true },
+      800,
     );
-    expect(locked.tracks).toBe('40px 120px minmax(200px, 1fr) 132px');
+    expect(locked.tracks).toBe('40px 120px 200px 132px');
     expect(locked.widthsPx['city']).toBe(200);
 
-    const withoutActions = resolveColumnTracks(cols, {}, { select: true });
-    const withActions = resolveColumnTracks(cols, {}, { select: true, rowEdit: true });
+    const withoutActions = resolveColumnTracks(cols, {}, { select: true }, 400);
+    const withActions = resolveColumnTracks(cols, {}, { select: true, rowEdit: true }, 400);
     expect(withoutActions.tracks).not.toBe(withActions.tracks);
     expect(withActions.tracks.endsWith(' 132px')).toBe(true);
 

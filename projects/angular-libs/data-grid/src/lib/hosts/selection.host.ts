@@ -26,24 +26,80 @@ export class SelectionHost<T> {
     return ids;
   });
 
-  readonly allVisibleSelected: Signal<boolean> = computed(() => {
-    const ids = this.visibleDataRowIds();
-    if (!ids.length) {
-      return false;
+  /** O(1) membership for per-row / per-cell bindings. */
+  readonly selectedIdSet: Signal<ReadonlySet<string | number>> = computed(
+    () => new Set(this.s.selectedIds()),
+  );
+
+  /**
+   * Source rows indexed both ways. `rowId` receives the row's index in the
+   * bound source `data()`.
+   */
+  private readonly sourceIndex: Signal<{
+    rowById: ReadonlyMap<string | number, T>;
+    idByRow: ReadonlyMap<T, string | number>;
+  }> = computed(() => {
+    const getId = this.s.effectiveRowId();
+    const rowById = new Map<string | number, T>();
+    const idByRow = new Map<T, string | number>();
+    const data = this.s.data();
+    for (let i = 0; i < data.length; i++) {
+      const row = data[i]!;
+      const id = getId(row, i);
+      rowById.set(id, row);
+      idByRow.set(row, id);
     }
-    const selected = new Set(this.s.selectedIds());
-    return ids.every((id) => selected.has(id));
+    return { rowById, idByRow };
   });
 
-  readonly someVisibleSelected: Signal<boolean> = computed(() => {
-    const selected = new Set(this.s.selectedIds());
-    return this.visibleDataRowIds().some((id) => selected.has(id));
+  /**
+   * Selectable row ids the header checkbox / Ctrl+A act on
+   * (`createGrid({ selectAll })`: filtered rows, current page, or all rows).
+   */
+  readonly selectAllScopeIds: Signal<Array<string | number>> = computed(() => {
+    const scope = this.s.selectAllScope();
+    const { rowById, idByRow } = this.sourceIndex();
+    let ids: Array<string | number>;
+    if (scope === 'page') {
+      ids = this.visibleDataRowIds();
+    } else if (scope === 'all') {
+      ids = [...rowById.keys()];
+    } else {
+      const getId = this.s.effectiveRowId();
+      ids = this.s.processedRows().map((row, i) => idByRow.get(row) ?? getId(row, i));
+    }
+    return ids.filter((id) => {
+      const row = rowById.get(id);
+      return row === undefined || this.isRowSelectable(row, id);
+    });
+  });
+
+  /** Header checkbox state over the selectable ids in scope. */
+  readonly selectAllState: Signal<{ checked: boolean; indeterminate: boolean }> = computed(() => {
+    const ids = this.selectAllScopeIds();
+    const selected = this.selectedIdSet();
+    let count = 0;
+    for (const id of ids) {
+      if (selected.has(id)) {
+        count++;
+      }
+    }
+    return {
+      checked: ids.length > 0 && count === ids.length,
+      indeterminate: count > 0 && count < ids.length,
+    };
   });
 
   constructor(private readonly s: SelectionDeps<T>) {}
 
   isSelected(id: string | number): boolean {
-    return this.s.selectedIds().includes(id);
+    return this.selectedIdSet().has(id);
+  }
+
+  /** Selection lookup by source row object (CSV `onlySelected`). */
+  isRowSelectedByRef(row: T): boolean {
+    const id = this.sourceIndex().idByRow.get(row);
+    return id !== undefined && this.selectedIdSet().has(id);
   }
 
   /** §5d — host may exclude rows from checkbox / Space / click-select. */
@@ -71,17 +127,24 @@ export class SelectionHost<T> {
     this.commitSelection([...set]);
   }
 
+  /** Header checkbox: add / remove the scoped ids; selection outside the scope is kept. */
   toggleSelectAll(event: Event): void {
     const checked = (event.target as HTMLInputElement).checked;
+    const scope = this.selectAllScopeIds();
     if (!checked) {
-      this.commitSelection([]);
+      const remove = new Set(scope);
+      this.commitSelection(this.s.selectedIds().filter((id) => !remove.has(id)));
       return;
     }
-    const ids = this.visibleDataRowIds().filter((id) => {
-      const row = this.findDataRowById(id);
-      return !row || this.isRowSelectable(row, id);
-    });
-    this.commitSelection(ids);
+    this.selectAllInScope();
+  }
+
+  private selectAllInScope(): void {
+    const set = new Set(this.s.selectedIds());
+    for (const id of this.selectAllScopeIds()) {
+      set.add(id);
+    }
+    this.commitSelection([...set]);
   }
 
   onRowClick(row: T, rowId: string | number, rowIndex: number, event: MouseEvent): void {
@@ -118,15 +181,12 @@ export class SelectionHost<T> {
     this.toggleRowSelection(item.rowId, fake);
   }
 
+  /** Ctrl+A — same scope as the header checkbox; adds to the current selection. */
   selectAllVisible(): void {
     if (this.s.effectiveSelectionMode() !== 'multi') {
       return;
     }
-    const ids = this.visibleDataRowIds().filter((id) => {
-      const row = this.findDataRowById(id);
-      return !row || this.isRowSelectable(row, id);
-    });
-    this.setSelectedIds(ids);
+    this.selectAllInScope();
   }
 
   getSelectedIds(): Array<string | number> {
@@ -175,15 +235,7 @@ export class SelectionHost<T> {
   }
 
   findDataRowById(id: string | number): T | null {
-    const getId = this.s.effectiveRowId();
-    const data = this.s.data();
-    for (let i = 0; i < data.length; i++) {
-      const row = data[i]!;
-      if (getId(row, i) === id) {
-        return row;
-      }
-    }
-    return null;
+    return this.sourceIndex().rowById.get(id) ?? null;
   }
 
   private commitSelection(ids: Array<string | number>): void {
@@ -198,14 +250,16 @@ export class SelectionHost<T> {
 
   private resolveSelected(ids: Array<string | number>): SelectionChangeEvent<T>['selected'] {
     const getId = this.s.effectiveRowId();
+    const { rowById, idByRow } = this.sourceIndex();
     const processed = this.s.processedRows();
     const indexById = new Map<string | number, number>();
     for (let i = 0; i < processed.length; i++) {
-      indexById.set(getId(processed[i]!, i), i);
+      const row = processed[i]!;
+      indexById.set(idByRow.get(row) ?? getId(row, i), i);
     }
     const selected: SelectionChangeEvent<T>['selected'] = [];
     for (const rowId of ids) {
-      const row = this.findDataRowById(rowId);
+      const row = rowById.get(rowId) ?? null;
       if (row === null) {
         continue;
       }
