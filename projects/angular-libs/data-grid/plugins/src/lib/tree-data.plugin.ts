@@ -53,10 +53,13 @@ export function treeDataPlugin<T = unknown>(
             rows,
             rowId: ctx.rowId,
             columnsById: ctx.columnsById,
-            collapsedGroupIds: adapter.collapsedIds(),
+            collapsedGroupIds: ctx.collapsedGroupIds,
             rowGroup: null,
             treeData: treeConfig as TreeDataConfig,
           }),
+        // The held adapter is the grid's expansion store while this builder is active.
+        expansion: adapter,
+        collectGroupIds: (rows) => collectTreeGroupIds(rows, options.getDataPath),
       });
 
       context.api.bindTreeDataAdapter({

@@ -23,6 +23,9 @@ export interface RowTransactionResult<T> {
 /**
  * Apply an add/update/remove transaction immutably.
  *
+ * `rowId` must derive the id from row fields: update/remove payloads are not in
+ * `rows`, so they are resolved with `index = -1`. Index-based ids never match.
+ *
  * @example
  * ```ts
  * rows.set(applyRowTransaction(rows(), {
@@ -39,7 +42,7 @@ export function applyRowTransaction<T>(
 ): RowTransactionResult<T> {
   const removeIds = new Set<string | number>();
   for (const row of tx.remove ?? []) {
-    // Prefer id from the remove payload at index 0 of a synthetic list position.
+    // Payload rows have no source position — ids must come from fields.
     removeIds.add(rowId(row, -1));
   }
 

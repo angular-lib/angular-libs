@@ -188,8 +188,6 @@ export class DataGridApi<T = unknown> {
 
   /** Bound by `rowGroupPlugin` during setup. */
   private rowGroupAdapter: BoundRowGroupAdapter | null = null;
-  /** Bound by `treeDataPlugin` during setup. */
-  private treeDataAdapter: BoundTreeDataAdapter | null = null;
   /** Bound by `cellRangePlugin` during setup. */
   private cellRangeAdapter: BoundCellRangeAdapter | null = null;
   private pluginLifecycle: PluginLifecycle<T> | null = null;
@@ -369,36 +367,22 @@ export class DataGridApi<T = unknown> {
     this.host.notifyNearEnd?.();
   }
 
+  /**
+   * Expand every group / tree node. Routed to the grid's single expansion store
+   * (the active row-group / tree adapter, else the grid fallback) — the same
+   * dispatcher mouse and keyboard toggles use.
+   */
   expandAll(): void {
-    if (this.rowGroupAdapter) {
-      this.rowGroupAdapter.expandAll();
-      return;
-    }
-    if (this.treeDataAdapter) {
-      this.treeDataAdapter.expandAll();
-      return;
-    }
     this.host.expandAll?.();
   }
 
+  /** Collapse every group / tree node (including nested ids under collapsed parents). */
   collapseAll(): void {
-    if (this.treeDataAdapter && !this.rowGroupAdapter) {
-      const rows = this.host.getProcessedRows();
-      this.treeDataAdapter.collapseAll(this.treeDataAdapter.collectAllGroupIds(rows));
-      return;
-    }
     this.host.collapseAll?.();
   }
 
+  /** Toggle one group id / tree node id (`GroupDisplayRow.id` / `DataDisplayRow.groupId`). */
   toggleGroup(groupId: string): void {
-    if (this.rowGroupAdapter) {
-      this.rowGroupAdapter.toggleCollapsed(groupId);
-      return;
-    }
-    if (this.treeDataAdapter) {
-      this.treeDataAdapter.toggleCollapsed(groupId);
-      return;
-    }
     this.host.toggleGroup?.(groupId);
   }
 
@@ -496,7 +480,6 @@ export class DataGridApi<T = unknown> {
 
   /** @internal — bound by `treeDataPlugin` / host passthrough. */
   bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
-    this.treeDataAdapter = adapter;
     this.host.bindTreeDataAdapter?.(adapter);
   }
 

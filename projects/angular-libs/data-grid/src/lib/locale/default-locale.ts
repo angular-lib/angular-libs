@@ -82,6 +82,11 @@ export interface DataGridLocale {
   noteEdit: string;
   noteRemove: string;
   notePlaceholder: string;
+  /**
+   * BCP-47 locale for client string sorting (e.g. `'nb'` sorts Æ/Ø/Å after Z).
+   * Default: the runtime's default locale.
+   */
+  collatorLocale?: string;
 }
 
 export const defaultGridLocale: DataGridLocale = {

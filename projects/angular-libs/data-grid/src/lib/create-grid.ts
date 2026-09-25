@@ -5,7 +5,7 @@
  * Viewport / chrome / multiSort / serverSide live here — not as binder inputs.
  */
 
-import { signal, type Signal, type WritableSignal } from '@angular/core';
+import { isDevMode, signal, type Signal, type WritableSignal } from '@angular/core';
 import type {
   DataGridApi,
   BoundCellRangeAdapter,
@@ -59,6 +59,13 @@ export interface GridChromeOptions {
 
 export interface CreateGridOptions<T = unknown> {
   columns: readonly ColumnOrGroupDef<T>[];
+  /**
+   * Stable row identity (selection, edits, find, paste write-back, transactions).
+   * `index` is always the row's index in the **source** `[data]` array (never a
+   * filtered / sorted / paged position). Default: that source index — only safe
+   * for static data; pass a field-based id (`(r) => r.id`) whenever rows change.
+   * Required for {@link GridController.applyTransaction}.
+   */
   rowId?: (row: T, index: number) => string | number;
   plugins?: readonly DataGridPlugin<T>[];
   selection?: SelectionMode;
@@ -169,7 +176,8 @@ export interface GridController<T = unknown> {
   setPlugins(plugins: readonly DataGridPlugin<T>[]): void;
   bindApi(api: DataGridApi<T> | null): void;
   /**
-   * Immutable batch update on controller-owned `rows`. Throws if `rows` was not provided.
+   * Immutable batch update on controller-owned `rows`. Throws if `rows` or an
+   * explicit `rowId` was not provided (index ids cannot match update/remove payloads).
    */
   applyTransaction(tx: RowTransaction<T>): RowTransactionResult<T>;
   /** Full replace of controller-owned `rows`. Throws if `rows` was not provided. */
@@ -223,6 +231,9 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
   const api = signal<DataGridApi<T> | null>(null);
   const rowId = options.rowId ?? ((_row: T, index: number) => index);
   const ownedRows = options.rows ?? null;
+  if (ownedRows && !options.rowId) {
+    warnIndexRowIdOnce();
+  }
   const editInteraction = resolveEditInteraction(options.editInteraction);
 
   const viewport = {
@@ -292,6 +303,12 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     },
     applyTransaction(tx) {
       const rowsSig = requireOwnedRows();
+      if (!options.rowId) {
+        throw new Error(
+          'createGrid: applyTransaction requires an explicit rowId (e.g. rowId: (r) => r.id) — ' +
+            'index-based ids cannot match update/remove payloads and shift on add/remove.',
+        );
+      }
       const result = applyRowTransaction(rowsSig(), tx, rowId);
       rowsSig.set(result.rows);
       return result;
@@ -308,6 +325,21 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
       return runGridRowModel({ ...input, rowModelContext }, afterSort);
     },
   };
+}
+
+let warnedIndexRowId = false;
+
+/** Dev-only, once per app: controller-owned rows with index-based ids. */
+function warnIndexRowIdOnce(): void {
+  if (warnedIndexRowId || !isDevMode()) {
+    return;
+  }
+  warnedIndexRowId = true;
+  console.warn(
+    '[data-grid] createGrid({ rows }) without rowId: rows are identified by their index in ' +
+      '`rows`, so ids shift whenever rows are added / removed / reordered. Pass a stable ' +
+      'rowId, e.g. rowId: (r) => r.id.',
+  );
 }
 
 /**

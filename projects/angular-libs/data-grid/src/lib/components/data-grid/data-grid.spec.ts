@@ -433,8 +433,8 @@ describe('data-grid utils', () => {
     const resolved = resolveColumns(columns);
     const byId = new Map(resolved.map((c) => [c.id, c]));
     const ids = collectAllGroupIds(people, ['city', 'active'], byId);
-    expect(ids.some((id) => id.includes('city=London'))).toBe(true);
-    expect(ids.some((id) => id.includes('active=true'))).toBe(true);
+    expect(ids).toContain('g/city=s%3ALondon');
+    expect(ids).toContain('g/city=s%3ALondon/active=b%3Atrue');
   });
 
   it('cycles sort asc → desc → none (clear)', () => {
@@ -961,10 +961,8 @@ describe('row pipeline + display model', () => {
     expect(payload?.rows.map((p) => p.id)).toEqual([2, 3, 1]);
   });
 
-  it('collects tree group path ids', () => {
-    expect(collectTreeGroupIds(people, (row) => row.path ?? [])).toEqual(
-      expect.arrayContaining(['t/UK', 't/UK/London', 't/US', 't/US/New York', 't/UK/Manchester']),
-    );
+  it('collects tree group path ids (parents only — leaves are not collapsible)', () => {
+    expect(collectTreeGroupIds(people, (row) => row.path ?? [])).toEqual(['t/s%3AUK', 't/s%3AUS']);
   });
 
   it('Ctrl/Cmd+A only consumes the event when select-all is handled', () => {

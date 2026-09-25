@@ -20,8 +20,10 @@ import type { GridController } from '../create-grid';
 import { GridKernel } from '../kernel/grid-kernel';
 import { getCellValue } from '../utils/cell-value';
 import { applyCellEdit, applyRowEdit, mergeRowsById } from '../utils/apply-edit';
-import { runGridRowModel } from '../utils/grid-row-model';
-import type { DisplayRow } from '../utils/row-display';
+import { applyExternalFilter, filterRows, quickFilterRows } from '../utils/filter-rows';
+import { sortRows } from '../utils/sort-rows';
+import type { RowModelContext } from '../plugins/capabilities';
+import type { DataDisplayRow, DisplayRow } from '../utils/row-display';
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
 import { ColumnLayoutHost } from '../hosts/column-layout.host';
 import { EditSyncHost } from '../hosts/edit-sync.host';
@@ -114,10 +116,10 @@ export interface GridSession<T> {
   readonly editSync: EditSyncHost<T>;
   readonly menu: MenuHost<T>;
   readonly viewport: ViewportHost<T>;
-  readonly processedRows: Signal<T[]>;
+  readonly processedRows: Signal<readonly T[]>;
   readonly displayRows: Signal<DisplayRow<T>[]>;
   /** @deprecated Prefer pagedDisplayRows on viewport — paste/reorder helpers. */
-  readonly pageRows: Signal<T[]>;
+  readonly pageRows: Signal<readonly T[]>;
   /** Capability + cell-range overlay paint layouts. */
   readonly paintedOverlays: Signal<PaintedOverlay[]>;
   emitPaste(event: PasteEvent<T>): void;
@@ -144,7 +146,25 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   let viewport!: ViewportHost<T>;
 
   const effectiveColumns = () => ctrl().columns;
-  const effectiveRowId = (): ((row: T, index: number) => string | number) => ctrl().rowId;
+  /**
+   * Row → index in the source `[data]` array. The `index` a grid `rowId` sees is
+   * always this source index — never a filtered / sorted / page position — so
+   * index-based ids agree between display rows, selection, edits and writes.
+   */
+  const sourceIndexByRow = computed(() => {
+    const rows = opts.data();
+    const map = new Map<T, number>();
+    for (let i = 0; i < rows.length; i++) {
+      if (!map.has(rows[i]!)) {
+        map.set(rows[i]!, i);
+      }
+    }
+    return map;
+  });
+  /** Source-index-aware rowId; `index` is only a fallback for rows not in `[data]`. */
+  const resolveRowId = (row: T, index: number): string | number =>
+    ctrl().rowId(row, sourceIndexByRow().get(row) ?? index);
+  const effectiveRowId = (): ((row: T, index: number) => string | number) => resolveRowId;
   const effectiveSelectionMode = (): SelectionMode => ctrl().selection;
   const effectiveEditMode = (): EditMode => ctrl().editMode();
   const effectiveEditInteraction = (): ResolvedEditInteraction => ctrl().editInteraction;
@@ -212,42 +232,65 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     if (!c.autoApplyWrites || !c.rows) {
       return;
     }
-    c.setRows(mergeRowsById(c.rows(), event.suggestedRows, c.rowId));
+    c.setRows(mergeRowsById(c.rows(), event.suggestedRows, c.rowId, event.rowIds));
   };
 
-  const rowModelContext = () => ({
+  const rowModelContext = (): RowModelContext<T> => ({
     columnsById: columnLayout.columnsById() as Map<string, ColumnDef<T>>,
-    rowId: (row: T, index: number) => effectiveRowId()(row, index),
-    collapsedGroupIds: viewport.collapsedGroupIds(),
+    rowId: resolveRowId,
+    // Lazy: only display builders that read it depend on expansion state.
+    get collapsedGroupIds() {
+      return kernel.capabilities.collapsedGroupIds();
+    },
   });
 
-  const rowModel = computed(() =>
-    runGridRowModel({
-      data: opts.data(),
-      filters: columnLayout.filters(),
-      quickFilter: models.quickFilter(),
-      externalFilter: opts.externalFilter(),
-      sorts: columnLayout.sorts(),
-      columnsById: columnLayout.columnsById(),
-      visibleColumns: columnLayout.visibleColumns(),
-      serverSide: serverSide(),
-      capabilities: kernel.capabilities,
-      rowModelContext: rowModelContext(),
-    }),
+  // Live row model — one memoized computed per stage, so e.g. collapsing a group
+  // only rebuilds display rows, and reordering / pinning columns re-runs nothing.
+  const quickFilterColumns = computed(() => columnLayout.visibleColumns(), {
+    // Quick-filter results depend on *which* columns are visible, not order / pin.
+    equal: sameColumnIdSet,
+  });
+
+  const filteredRows = computed((): readonly T[] =>
+    serverSide()
+      ? opts.data()
+      : filterRows(opts.data(), columnLayout.filters(), columnLayout.columnsById()),
   );
 
-  const processedRows: Signal<T[]> = computed(() => rowModel().processedRows);
-
-  const displayRows: Signal<DisplayRow<T>[]> = computed(() => {
-    // Track adapter / capability signals so grouping reactively rebuilds.
-    viewport.boundRowGroupAdapter()?.columns();
-    viewport.boundRowGroupAdapter()?.collapsedIds();
-    viewport.boundTreeDataAdapter()?.collapsedIds();
-    kernel.capabilities.hasDisplayBuilder();
-    return rowModel().displayRows;
+  const quickFilteredRows = computed((): readonly T[] => {
+    const rows = filteredRows();
+    const query = models.quickFilter();
+    if (serverSide() || !query.trim()) {
+      return rows;
+    }
+    return quickFilterRows(rows, query, quickFilterColumns());
   });
 
-  const pageRows: Signal<T[]> = computed(() => {
+  const externalFilteredRows = computed((): readonly T[] =>
+    serverSide()
+      ? quickFilteredRows()
+      : applyExternalFilter(quickFilteredRows(), opts.externalFilter()),
+  );
+
+  const collatorLocale = computed(() => opts.resolvedLocale().collatorLocale);
+
+  const sortedRows = computed((): readonly T[] =>
+    serverSide()
+      ? externalFilteredRows()
+      : sortRows(externalFilteredRows(), columnLayout.sorts(), columnLayout.columnsById(), {
+          locale: collatorLocale(),
+        }),
+  );
+
+  const processedRows: Signal<readonly T[]> = computed(() =>
+    kernel.capabilities.runDataStages(sortedRows(), rowModelContext()),
+  );
+
+  const displayRows: Signal<DisplayRow<T>[]> = computed(() =>
+    kernel.capabilities.buildDisplayRows(processedRows(), rowModelContext()),
+  );
+
+  const pageRows: Signal<readonly T[]> = computed(() => {
     const rows = processedRows();
     if (!pagination() || kernel.capabilities.hasDisplayBuilder()) {
       return rows;
@@ -303,7 +346,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     visibleColumns: () => columnLayout.visibleColumns(),
     hasActiveSort: () => columnLayout.sorts().length > 0,
     hasColumnGroups: () => columnLayout.hasColumnGroups(),
-    resolveRowId: (row, index) => effectiveRowId()(row, index),
+    resolveRowId,
     rowModelContext,
     hostElement: opts.hostElement,
     kernel: () => kernel,
@@ -451,6 +494,16 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     return !!bag && typeof bag === 'object' && 'masterDetail' in bag;
   };
 
+  /** Tree parent data row focused on its toggle column (first visible column). */
+  const isTreeToggleFocus = (
+    item: DisplayRow<T> | undefined,
+  ): item is DataDisplayRow<T> & { groupId: string } =>
+    !!item &&
+    item.kind === 'data' &&
+    !!item.hasChildren &&
+    !!item.groupId &&
+    viewport.focusedCell()?.columnId === columnLayout.visibleColumns()[0]?.id;
+
   type MasterDetailBag = {
     masterDetail?: {
       toggle: (id: string | number, openByDefault?: boolean) => void;
@@ -534,12 +587,16 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
           viewport.toggleGroup(item.id);
           return;
         }
+        if (isTreeToggleFocus(item)) {
+          viewport.toggleGroup(item.groupId);
+          return;
+        }
         toggleMasterDetailAt(item);
       },
       onEnterWidget: (rowIndex) => enterMasterDetailWidget(rowIndex),
       isGroupRow: (rowIndex) => {
         const item = viewport.pagedDisplayRows()[rowIndex];
-        if (item?.kind === 'group') {
+        if (item?.kind === 'group' || isTreeToggleFocus(item)) {
           return true;
         }
         const cell = viewport.focusedCell();
@@ -602,4 +659,12 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       api.events.clear();
     },
   };
+}
+
+function sameColumnIdSet<C extends { id: string }>(a: readonly C[], b: readonly C[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const ids = new Set(a.map((c) => c.id));
+  return b.every((c) => ids.has(c.id));
 }

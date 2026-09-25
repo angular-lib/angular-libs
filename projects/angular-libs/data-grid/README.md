@@ -58,6 +58,23 @@ When `createGrid({ rows })` owns the same signal, paste / cell / row edits
 **auto-apply** onto it (`autoApplyWrites`, default true). Hosts that intercept
 `(paste)` / `(cellEdit)` to transform first should pass `autoApplyWrites: false`.
 
+### Row identity (`rowId`)
+
+`rowId(row, index)` identifies rows for selection, edits, find, paste write-back
+and transactions. `index` is **always the row's index in the source `[data]`
+array** — never its filtered / sorted / paged position — so ids from display
+rows, `api.getSelectedRows()`, `applyCellEdit` / `applyRowEdit` (called with the
+source rows) all agree. The default is that source index, which is only safe
+for static data: ids shift when rows are added, removed or reordered. Pass a
+field-based id (`rowId: (r) => r.id`) whenever rows change.
+
+- `createGrid({ rows })` without `rowId` logs a one-time dev warning.
+- `grid.applyTransaction()` **throws** without an explicit `rowId` (update/remove
+  payloads have no source index to match on).
+- `(paste)` events carry `rowIds` aligned with `suggestedRows`; write back with
+  `mergeRowsById(rows(), e.suggestedRows, idOf, e.rowIds)` (required for
+  index-based ids, harmless otherwise).
+
 Compose plugins once on `createGrid`. Toggle chrome via held adapters
 (e.g. `sideBar.setEnabled(false)`) or controller UX signals
 (`grid.viewport.pagination.set(true)`, `grid.chrome.contextMenu.set(true)`).
@@ -185,7 +202,17 @@ columns = [md.expandColumn(), { field: 'name' }];
 - **Groups** sidebar tab: check columns to group, reorder levels, **Ungroup**
 - Expand / Collapse / Ungroup live on the held adapter (`groups.expandAll()`, `groups.collapseAll()`, `groups.clear()`) and `DataGridApi` — no default toolbar buttons
 - API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
-- Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`)
+- Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`). The row
+  at a path **is** that node (e.g. `['UK']` is the parent of `['UK', 'London']`);
+  group rows are synthesized only for missing ancestors. Parent data rows show an
+  expand toggle in the first column (click, or Space / Enter with that cell
+  focused); `DataDisplayRow.groupId` / `hasChildren` / `expanded` describe it.
+- One expansion store per grid: the active row-group / tree adapter. Mouse,
+  keyboard, `api.toggleGroup` / `expandAll` / `collapseAll` and the held adapter
+  all read and write it.
+- Group ids are opaque, collision-free strings (type-tagged, percent-encoded
+  segments): `1` and `'1'`, blank and `'(blank)'`, `'a/b'` and `['a', 'b']` are
+  distinct. Use the `id` from display rows / `collectAllGroupIds` — don't build them.
 - Master/detail: nested detail grid via `detailGrid` / `detailColumns`; `expandColumn()`
 - Pagination counts **master / group slots**, not open detail panels
 - `keepDetailGrids` evicts nested controllers when a master leaves source `[data]` (filter-out still keeps state)
@@ -256,6 +283,18 @@ Feature ops prefer held plugin adapters (`groups.setColumns`, `ranges.clearRange
 
 Pass `[locale]` partials; plugins read `api.getLocale()` for status bar, sidebar
 tabs, Expand/Collapse/Ungroup, and panel titles.
+
+Client string sorting uses a cached `Intl.Collator` (numeric, accent/case-
+insensitive). Set `collatorLocale` (BCP-47, e.g. `[locale]="{ collatorLocale: 'nb' }"`)
+to sort by a specific language (Æ/Ø/Å after Z); default is the runtime locale.
+Blank values (`null` / `''` / `NaN` / invalid Date) sort first ascending.
+
+## Aggregates (`column.aggFunc`)
+
+Built-ins skip blank values (`null` / `undefined` / `''`): `count` is the number
+of non-blank values; `sum` / `avg` / `min` / `max` use finite numbers only
+(numbers or numeric strings). `valueFormatter` runs on footer values with
+`row: undefined`, `rowIndex: -1` (not for `count`).
 
 ## Features
 

@@ -318,6 +318,11 @@ export interface PasteEvent<T = unknown> {
   matrix: string[][];
   /** Suggested next rows if host applies field writes. */
   suggestedRows: T[];
+  /**
+   * Grid row ids aligned with `suggestedRows` (resolved before the writes, so
+   * index-based ids stay correct). Pass to `mergeRowsById(…, event.rowIds)`.
+   */
+  rowIds?: (string | number)[];
 }
 
 /**

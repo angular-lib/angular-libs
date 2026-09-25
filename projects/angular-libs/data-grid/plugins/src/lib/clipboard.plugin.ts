@@ -220,6 +220,7 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
     columnIds,
     matrix: matrixToApply,
     suggestedRows,
+    rowIds: processed.map((row, index) => context.api.resolveRowId(row, index)),
   };
   context.api.emitPaste(payload);
   return true;
