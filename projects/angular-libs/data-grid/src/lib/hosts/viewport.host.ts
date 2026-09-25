@@ -271,8 +271,6 @@ export class ViewportHost<T> {
       scroll.scrollTop = 0;
     }
     this.scrollTop.set(0);
-    this.s.emitState();
-    this.s.emitQueryIfServer();
   }
 
   onScroll(event: Event): void {

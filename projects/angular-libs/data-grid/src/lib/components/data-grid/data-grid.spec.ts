@@ -112,6 +112,7 @@ describe('data-grid utils', () => {
     expect(csv).toContain('Ada');
 
     const raw = serializeGridState({
+      version: 1,
       sorts: [{ columnId: 'age', direction: 'desc' }],
       filters: { name: 'Ada' },
       quickFilter: 'x',
@@ -120,7 +121,10 @@ describe('data-grid utils', () => {
       widthOverrides: { name: 120 },
       columnPins: { name: 'left' },
       pageIndex: 1,
+      pageSize: 25,
+      selectedIds: [],
       activeSidePanel: 'filters',
+      slices: {},
     });
     const parsed = parseGridState(raw);
     expect(parsed?.hiddenColumnIds).toEqual(['city']);

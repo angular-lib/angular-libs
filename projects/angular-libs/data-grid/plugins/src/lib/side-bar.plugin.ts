@@ -38,7 +38,7 @@ const PANEL_META: Record<
  * Panels register once during setup. {@link SideBarAdapter.setEnabled} only
  * toggles `sideBarConfig` — no remount / slot churn, no plugin list rebuild.
  */
-export function sideBarPlugin<T = unknown>(
+export function sideBarPlugin<T = any>(
   options: SideBarPluginOptions = true,
 ): SideBarPlugin<T> {
   const initiallyOn = options !== false;

@@ -8,7 +8,7 @@ export interface InfiniteScrollPluginOptions {
  * Owns near-end scroll detection via interaction capability.
  * Re-arms when content grows while already at the bottom (ResizeObserver).
  */
-export function infiniteScrollPlugin<T = unknown>(
+export function infiniteScrollPlugin<T = any>(
   options: InfiniteScrollPluginOptions = {},
 ): DataGridPlugin<T> {
   const threshold = options.threshold ?? 240;

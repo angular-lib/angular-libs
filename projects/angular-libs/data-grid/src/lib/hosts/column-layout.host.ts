@@ -4,6 +4,7 @@ import {
   emptyColumnLayout,
   materializeColumnLayout,
   moveColumn,
+  reconcileColumnLayout,
   resolveColumnTracks,
   setColumnPin,
   CHROME_TRACK,
@@ -23,7 +24,7 @@ import { estimateColumnWidth } from '../utils/autosize';
 import { downloadCsv, rowsToCsvExport, type CsvExportOptions } from '../utils/csv';
 import { collectSetFilterValues } from '../utils/filter-rows';
 import { nextSortDirection } from '../utils/sort-rows';
-import { createEmptyGridState } from '../utils/state';
+import { GRID_STATE_VERSION, jsonEqual, sanitizeGridState } from '../utils/state';
 import type { ColumnLayoutDeps } from './binder-surface';
 import {
   ariaSortOf,
@@ -38,6 +39,7 @@ import type {
   DataGridFilterState,
   DataGridState,
   ResolvedColumn,
+  SetGridStateOptions,
   SortState,
 } from '../components/data-grid/data-grid.types';
 
@@ -51,11 +53,27 @@ import type {
 export class ColumnLayoutHost<T> {
   readonly sorts: WritableSignal<SortState[]> = signal<SortState[]>([]);
   readonly filters: WritableSignal<DataGridFilterState> = signal<DataGridFilterState>({});
-  /** Order + explicit pins — single layout source of truth. */
-  readonly columnLayout: WritableSignal<ColumnLayout> = signal<ColumnLayout>(emptyColumnLayout());
+  /**
+   * Order + explicit pins — single layout source of truth. Reconciled with the
+   * column defs whenever they change (surviving ids keep order / pin, new ids
+   * append with their def pin) — no binder effect.
+   */
+  readonly columnLayout: WritableSignal<ColumnLayout> = linkedSignal<
+    ResolvedColumn<T>[],
+    ColumnLayout
+  >({
+    source: () => this.resolvedColumns(),
+    computation: (cols, previous) => {
+      const prev = previous?.value ?? emptyColumnLayout();
+      return cols.length ? reconcileColumnLayout(prev, cols) : prev;
+    },
+    equal: jsonEqual,
+  });
   readonly widthOverrides: WritableSignal<Record<string, number>> = signal<Record<string, number>>(
     {},
   );
+  /** True while a column resize drag is active (`stateChange` waits for the drop). */
+  readonly resizing: WritableSignal<boolean> = signal(false);
 
   private headerDragFrom: number | null = null;
 
@@ -198,8 +216,6 @@ export class ColumnLayoutHost<T> {
 
     this.sorts.set(sorts);
     this.s.publishSort({ sorts });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onSortChange', { sorts });
   }
 
@@ -214,8 +230,6 @@ export class ColumnLayoutHost<T> {
       : this.sorts().filter((entry) => entry.columnId !== column.id);
     this.sorts.set(sorts);
     this.s.publishSort({ sorts });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onSortChange', { sorts });
   }
 
@@ -226,23 +240,17 @@ export class ColumnLayoutHost<T> {
     }
     this.filters.set(next);
     this.s.publishFilter({ filters: next });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onFilterChange', { filters: next });
   }
 
   setQuickFilter(value: string): void {
     this.s.quickFilter.set(value);
-    this.s.emitState();
-    this.s.emitQueryIfServer();
   }
 
   clearFilters(): void {
     this.filters.set({});
     this.s.quickFilter.set('');
     this.s.publishFilter({ filters: {} });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onFilterChange', { filters: {} });
   }
 
@@ -253,8 +261,6 @@ export class ColumnLayoutHost<T> {
   setFilterModel(filters: DataGridFilterState): void {
     this.filters.set({ ...filters });
     this.s.publishFilter({ filters: this.filters() });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onFilterChange', { filters: this.filters() });
   }
 
@@ -265,8 +271,6 @@ export class ColumnLayoutHost<T> {
   setSortModel(sorts: SortState[]): void {
     this.sorts.set([...sorts]);
     this.s.publishSort({ sorts: this.sorts() });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
     this.s.notifyPlugins('onSortChange', { sorts: this.sorts() });
   }
 
@@ -289,12 +293,10 @@ export class ColumnLayoutHost<T> {
     }
     const next = [...set];
     this.s.hiddenColumnIds.set(next);
-    this.s.emitState();
   }
 
   showAllColumns(): void {
     this.s.hiddenColumnIds.set([]);
-    this.s.emitState();
   }
 
   onColumnVisibility(event: { columnId: string; visible: boolean }): void {
@@ -335,7 +337,6 @@ export class ColumnLayoutHost<T> {
   applyColumnLayout(layout: ColumnLayout): void {
     this.columnLayout.set(layout);
     this.s.publishColumnOrder({ columnOrder: layout.order });
-    this.s.emitState();
   }
 
   startResize(event: PointerEvent, column: ResolvedColumn<T>): void {
@@ -390,6 +391,7 @@ export class ColumnLayoutHost<T> {
     const startTotal = targets.reduce((sum, t) => sum + t.start, 0);
     const minTotal = targets.reduce((sum, t) => sum + t.min, 0);
 
+    this.resizing.set(true);
     attachColumnResize({
       startX: event.clientX,
       startWidth: startTotal,
@@ -404,7 +406,7 @@ export class ColumnLayoutHost<T> {
           return next;
         });
       },
-      onEnd: () => this.s.emitState(),
+      onEnd: () => this.resizing.set(false),
     });
   }
 
@@ -458,7 +460,6 @@ export class ColumnLayoutHost<T> {
       next[col.id] = estimateColumnWidth(col, rows);
     }
     this.widthOverrides.set(next);
-    this.s.emitState();
   }
 
   /**
@@ -480,10 +481,11 @@ export class ColumnLayoutHost<T> {
     return csv;
   }
 
+  /** Reactive snapshot (read inside `computed` — `api.state` memoizes it). */
   getState(): DataGridState {
     const layout = this.columnLayout();
-    const extras = this.s.getStateExtras();
     return {
+      version: GRID_STATE_VERSION,
       sorts: this.sorts(),
       filters: this.filters(),
       quickFilter: this.s.quickFilter(),
@@ -491,28 +493,63 @@ export class ColumnLayoutHost<T> {
       columnOrder: [...layout.order],
       widthOverrides: this.widthOverrides(),
       columnPins: { ...layout.pin },
-      pageIndex: extras.pageIndex,
-      activeSidePanel: extras.activeSidePanel,
+      ...this.s.getStateExtras(),
     };
   }
 
-  setState(state: Partial<DataGridState>): void {
-    const base = { ...createEmptyGridState(), ...this.getState(), ...state };
-    this.sorts.set(base.sorts);
-    this.filters.set(base.filters);
-    this.s.quickFilter.set(base.quickFilter);
-    this.s.hiddenColumnIds.set(base.hiddenColumnIds);
-    this.columnLayout.set({
-      order: base.columnOrder ?? [],
-      pin: base.columnPins ?? {},
-    });
-    this.widthOverrides.set(base.widthOverrides);
-    this.s.applyStateExtras({
-      pageIndex: base.pageIndex,
-      activeSidePanel: base.activeSidePanel,
-    });
-    this.s.emitState();
-    this.s.emitQueryIfServer();
+  /**
+   * Apply a partial, possibly untrusted snapshot: invalid fields, `ignore`d keys
+   * and unknown column ids are skipped. `initial` (mount-time `initialState`)
+   * is silent; otherwise sort / filter changes publish + notify plugins.
+   */
+  setState(
+    state: Partial<DataGridState>,
+    options: SetGridStateOptions = {},
+    initial = false,
+  ): void {
+    const cols = this.resolvedColumns();
+    const next = sanitizeGridState(state, cols.length ? new Set(cols.map((c) => c.id)) : null);
+    for (const key of options.ignore ?? []) {
+      delete next[key];
+    }
+    const sortsChanged = !!next.sorts && !jsonEqual(next.sorts, this.sorts());
+    const filtersChanged = !!next.filters && !jsonEqual(next.filters, this.filters());
+    if (sortsChanged) {
+      this.sorts.set(next.sorts!);
+    }
+    if (filtersChanged) {
+      this.filters.set(next.filters!);
+    }
+    if (next.quickFilter !== undefined) {
+      this.s.quickFilter.set(next.quickFilter);
+    }
+    if (next.hiddenColumnIds) {
+      this.s.hiddenColumnIds.set(next.hiddenColumnIds);
+    }
+    if (next.columnOrder || next.columnPins) {
+      const layout = this.columnLayout();
+      const requested = {
+        order: next.columnOrder ?? layout.order,
+        pin: next.columnPins ?? layout.pin,
+      };
+      this.columnLayout.set(cols.length ? reconcileColumnLayout(requested, cols) : requested);
+    }
+    if (next.widthOverrides) {
+      this.widthOverrides.set(next.widthOverrides);
+    }
+    // After filters: a filter change resets the page, the restored index wins.
+    this.s.applyStateExtras(next, initial);
+    if (initial) {
+      return;
+    }
+    if (sortsChanged) {
+      this.s.publishSort({ sorts: this.sorts() });
+      this.s.notifyPlugins('onSortChange', { sorts: this.sorts() });
+    }
+    if (filtersChanged) {
+      this.s.publishFilter({ filters: this.filters() });
+      this.s.notifyPlugins('onFilterChange', { filters: this.filters() });
+    }
   }
 
   getColumnsById(): Map<string, ColumnDef<any>> {

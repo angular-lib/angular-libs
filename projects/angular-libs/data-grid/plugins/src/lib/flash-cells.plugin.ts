@@ -57,7 +57,7 @@ export type FlashCellsPlugin<T = unknown> = DataGridPlugin<T> & FlashCellsAdapte
  * });
  * ```
  */
-export function flashCellsPlugin<T = unknown>(
+export function flashCellsPlugin<T = any>(
   options: FlashCellsPluginOptions = {},
 ): FlashCellsPlugin<T> {
   const defaultColor = options.color ?? DEFAULT_COLOR;

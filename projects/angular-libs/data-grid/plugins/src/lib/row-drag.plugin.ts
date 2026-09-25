@@ -17,7 +17,7 @@ export type RowDragPlugin<T = unknown> = DataGridPlugin<T> & RowDragAdapter;
  * {@link RowDragAdapter.setEnabled} toggles `enableRowDrag` — no remount / plugin list rebuild.
  * Pass `false` or `{ enabled: false }` to start disabled.
  */
-export function rowDragPlugin<T = unknown>(
+export function rowDragPlugin<T = any>(
   options: RowDragPluginOptions = true,
 ): RowDragPlugin<T> {
   const initiallyOn = typeof options === 'boolean' ? options : (options.enabled ?? true);

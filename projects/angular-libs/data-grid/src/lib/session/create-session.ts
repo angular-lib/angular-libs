@@ -8,6 +8,7 @@
 import {
   computed,
   effect,
+  signal,
   untracked,
   type EnvironmentInjector,
   type Injector,
@@ -26,6 +27,8 @@ import { getCellValue } from '../utils/cell-value';
 import { applyCellEdit, applyRowEdit, mergeRowsById } from '../utils/apply-edit';
 import { applyExternalFilter, filterRows, quickFilterRows } from '../utils/filter-rows';
 import { sortRows } from '../utils/sort-rows';
+import { reconcileHiddenColumnIds } from '../utils/column-layout';
+import { gridQueryEqual, gridStateEqual } from '../utils/state';
 import type { RowModelContext } from '../plugins/capabilities';
 import type { DataDisplayRow, DisplayRow } from '../utils/row-display';
 import type { ColumnDef } from '../components/data-grid/data-grid.types';
@@ -128,8 +131,10 @@ export interface GridSession<T> {
   readonly paintedOverlays: Signal<PaintedOverlay[]>;
   emitPaste(event: PasteEvent<T>): void;
   getQuery(): DataGridQuery;
-  emitState(): void;
-  emitQueryIfServer(): void;
+  /** Live state (`api.state`) — `(stateChange)` is derived from it. */
+  readonly state: Signal<DataGridState>;
+  /** Live query (`api.query`) — `(queryChange)` is derived from it in server mode. */
+  readonly query: Signal<DataGridQuery>;
   destroy(): void;
 }
 
@@ -149,7 +154,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   let menu!: MenuHost<T>;
   let viewport!: ViewportHost<T>;
 
-  const effectiveColumns = () => ctrl().columns;
+  const effectiveColumns = () => ctrl().columns();
   /**
    * Row → index in the source `[data]` array. The `index` a grid `rowId` sees is
    * always this source index — never a filtered / sorted / page position — so
@@ -169,10 +174,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   const resolveRowId = (row: T, index: number): string | number =>
     ctrl().rowId(row, sourceIndexByRow().get(row) ?? index);
   const effectiveRowId = (): ((row: T, index: number) => string | number) => resolveRowId;
-  const effectiveSelectionMode = (): SelectionMode => ctrl().selection;
+  const effectiveSelectionMode = (): SelectionMode => ctrl().selection();
   const effectiveEditMode = (): EditMode => ctrl().editMode();
-  const effectiveEditInteraction = (): ResolvedEditInteraction => ctrl().editInteraction;
-  const effectiveRowClickSelects = (): boolean => ctrl().rowClickSelects;
+  const effectiveEditInteraction = (): ResolvedEditInteraction => ctrl().editInteraction();
+  const effectiveRowClickSelects = (): boolean => ctrl().rowClickSelects();
   const effectivePlugins = (): readonly DataGridPlugin<T>[] => ctrl().plugins();
   const effectiveRowEditSchema = () => opts.rowEditSchema() ?? ctrl().rowEditSchema;
   const effectiveCreateRowForm = () => opts.createRowForm() ?? ctrl().createRowForm;
@@ -201,19 +206,6 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     pageIndex: viewport.pageIndex(),
     pageSize: pageSize(),
   });
-
-  const emitState = (): void => {
-    const state = columnLayout.getState();
-    opts.publish('stateChange', out.stateChange, state);
-    notify('onStateChange', state);
-  };
-
-  const emitQueryIfServer = (): void => {
-    if (!serverSide()) {
-      return;
-    }
-    opts.publish('queryChange', out.queryChange, getQuery());
-  };
 
   const applyOwnedCellEdit = (event: DataGridEventMap<T>['cellEdit']): void => {
     const c = ctrl();
@@ -324,15 +316,34 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       opts.publish('columnOrderChange', out.columnOrderChange, event),
     getStateExtras: () => ({
       pageIndex: viewport.pageIndex(),
+      pageSize: pageSize(),
+      selectedIds: models.selectedIds(),
       activeSidePanel: viewport.activeSidePanel(),
+      slices: kernel.capabilities.collectStateSlices(),
     }),
-    applyStateExtras: (extras) => {
-      viewport.pageIndex.set(extras.pageIndex);
-      viewport.activeSidePanel.set(extras.activeSidePanel);
+    applyStateExtras: (extras, initial) => {
+      if (extras.pageSize !== undefined) {
+        ctrl().viewport.pageSize.set(extras.pageSize);
+      }
+      // After page size (a size change resets the page).
+      if (extras.pageIndex !== undefined) {
+        viewport.pageIndex.set(extras.pageIndex);
+      }
+      if (extras.selectedIds) {
+        if (initial) {
+          models.selectedIds.set(extras.selectedIds);
+        } else {
+          selection.setSelectedIds(extras.selectedIds);
+        }
+      }
+      if (extras.activeSidePanel !== undefined) {
+        viewport.activeSidePanel.set(extras.activeSidePanel);
+      }
+      if (extras.slices) {
+        kernel.capabilities.applyStateSlices(extras.slices);
+      }
     },
     notifyPlugins: notify,
-    emitState,
-    emitQueryIfServer,
   });
 
   viewport = new ViewportHost<T>({
@@ -360,8 +371,6 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     injector: opts.injector,
     sideBarConfig: () => kernel.sideBarConfig(),
     sidebarSlotItems: () => kernel.sidebarSlotItems(),
-    emitState,
-    emitQueryIfServer,
     publishNearEnd: () => opts.publish('nearEnd', out.nearEnd, undefined),
     publishFindMatches: (matches) =>
       opts.publish('findMatchesChange', out.findMatchesChange, {
@@ -377,8 +386,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     rowClick: out.rowClick,
     effectiveSelectionMode,
     effectiveRowClickSelects,
-    selectAllScope: () => ctrl().selectAll,
-    isRowSelectableFn: () => ctrl().isRowSelectable,
+    selectAllScope: () => ctrl().selectAll(),
+    isRowSelectableFn: () => ctrl().isRowSelectable(),
     data: () => opts.data(),
     effectiveRowId,
     processedRows: () => processedRows(),
@@ -645,6 +654,88 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
 
   api.attachPluginLifecycle(kernel);
 
+  // Column defs → hidden ids (`hide` defaults for newly seen columns, unknown ids
+  // dropped), then once, before the first render, `initialState`. Stays an effect
+  // only because it writes the two-way `hiddenColumnIds` model (order / pin
+  // reconcile in `ColumnLayoutHost.columnLayout`, a linkedSignal).
+  let knownColumnIds: ReadonlySet<string> = new Set();
+  const initialized = signal(false);
+  effect(
+    () => {
+      const cols = columnLayout.resolvedColumns();
+      untracked(() => {
+        if (cols.length) {
+          const ids = cols.map((c) => c.id);
+          const newlyHidden = cols
+            .filter((c) => c.hide && !knownColumnIds.has(c.id))
+            .map((c) => c.id);
+          const hidden = models.hiddenColumnIds();
+          const nextHidden = reconcileHiddenColumnIds(hidden, ids, newlyHidden);
+          if (nextHidden.join('\0') !== hidden.join('\0')) {
+            models.hiddenColumnIds.set(nextHidden);
+          }
+          knownColumnIds = new Set(ids);
+        }
+        if (!initialized()) {
+          const initial = ctrl().initialState;
+          if (initial) {
+            columnLayout.setState(initial, {}, true);
+          }
+          initialized.set(true);
+        }
+      });
+    },
+    { injector: opts.injector() },
+  );
+
+  // S1: `(stateChange)` + plugin `onStateChange` derive from `api.state` (one place,
+  // structural equality). Mount-time settling (initialState, plugin slices, default
+  // tool panel) is the baseline: emits start once plugins are active + api bound.
+  let lastState: DataGridState | null = null;
+  let stateReady = false;
+  effect(
+    () => {
+      const state = api.state();
+      const ready = initialized() && ctrl().api() === api;
+      const resizing = columnLayout.resizing();
+      untracked(() => {
+        if (!ready || !stateReady) {
+          lastState = state;
+          stateReady = ready;
+          return;
+        }
+        if (resizing || (lastState && gridStateEqual(lastState, state))) {
+          return;
+        }
+        lastState = state;
+        opts.publish('stateChange', out.stateChange, state);
+        notify('onStateChange', state);
+      });
+    },
+    { injector: opts.injector() },
+  );
+
+  // `(queryChange)` in server mode: the initial query on mount, then every change
+  // (sort / filter / quick filter / page / page size — from UI, API or models).
+  let lastQuery: DataGridQuery | null = null;
+  effect(
+    () => {
+      if (!initialized() || !serverSide()) {
+        lastQuery = null;
+        return;
+      }
+      const query = api.query();
+      untracked(() => {
+        if (lastQuery && gridQueryEqual(lastQuery, query)) {
+          return;
+        }
+        lastQuery = query;
+        opts.publish('queryChange', out.queryChange, query);
+      });
+    },
+    { injector: opts.injector() },
+  );
+
   // K4: focus follows its row identity (sort / filter / page / column hide).
   // Tracks only the row model + visible columns; reconcile writes only on change.
   effect(
@@ -687,8 +778,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       opts.publish('paste', out.paste, event);
     },
     getQuery,
-    emitState,
-    emitQueryIfServer,
+    state: api.state,
+    query: api.query,
     destroy: () => {
       viewport.destroyRowDrag();
       editSync.destroyRowEditSession();

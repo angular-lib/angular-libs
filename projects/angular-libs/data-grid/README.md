@@ -54,6 +54,16 @@ groups.clear();
 />
 ```
 
+**Typing:** `T` is inferred from `rows` or typed `columns` (`ColumnDef<Person>[]`),
+so `rowId: (r) => r.id` is typed without annotating plugin factories — row-agnostic
+factories (`defaultGridPlugins()`, `sideBarPlugin()`, held `rowGroupPlugin()`) fit
+any row type. Inline column literals without `rows` need `createGrid<Person>(…)`;
+so do inline row-typed plugins (`treeDataPlugin({ getDataPath: (r) => … })`).
+
+**Runtime schema:** `grid.columns.set(next)` (order / pin / width / hidden kept for
+surviving ids), `grid.selection.set('single')`, `grid.rowClickSelects`,
+`grid.isRowSelectable`, `grid.selectAll`, `grid.setEditInteraction('excel')`.
+
 When `createGrid({ rows })` owns the same signal, paste / cell / row edits
 **auto-apply** onto it (`autoApplyWrites`, default true). Hosts that intercept
 `(paste)` / `(cellEdit)` to transform first should pass `autoApplyWrites: false`.
@@ -249,6 +259,11 @@ async load(q: DataGridQuery) {
 }
 ```
 
+`queryChange` is derived from the live query (`grid.query()` / `api.query()`): it
+fires once on mount (including `initialState`) and on every real change of sort,
+filter, quick filter (UI, API or the `[(quickFilter)]` model), page or page size
+(`grid.viewport.pageSize.set`) — never twice for the same query.
+
 With `serverRowCount` set the grid skips client slicing, pages by the total, emits
 `queryChange` on page change, and offsets `aria-rowindex` / `aria-rowcount` by it.
 Grouping, aggregates, find, CSV export and select-all only cover the **current page**.
@@ -330,6 +345,37 @@ Options: `columnKeys`, `onlySelected`, `columnSeparator`, `locale`, `useFormatte
 `processCell`, `includeHeaders`, `escapeFormulas`, `bom`. Columns with
 `suppressExport: true` (e.g. the master-detail expand column) are skipped unless
 listed in `columnKeys`.
+
+## Grid state (persist / restore)
+
+`DataGridState` (schema `version: 1`): sorts, filters, quick filter, column order /
+pins / widths / hidden, page index / size, selected ids, open tool panel, and
+plugin `slices` (e.g. `rowGroup: { columns, collapsedIds }`).
+
+```ts
+const grid = createGrid({
+  columns,
+  rowId: (r) => r.id,
+  // Applied before the first render and the first queryChange — no flash / refetch.
+  initialState: parseGridState(localStorage.getItem('grid') ?? ''),
+});
+```
+
+```html
+<!-- save(s) { localStorage.setItem('grid', serializeGridState(s)); } -->
+<al-data-grid [controller]="grid" [data]="rows()" (stateChange)="save($event)" />
+```
+
+- `grid.state()` / `api.state()` — live, structurally memoized signal; `(stateChange)`
+  and plugin `onStateChange` derive from it (once per real change, not on mount,
+  column resize reports on drop).
+- `api.setState(partial, { ignore: ['selectedIds'] })` — absent / invalid fields and
+  ignored keys stay as they are; fires `sortChange` / `filterChange` /
+  `selectionChange` for what changed.
+- `parseGridState(raw)` / `migrateGridState(obj)` validate untrusted input (bad
+  sort directions, non-model filter values, … are dropped) and upgrade unversioned
+  snapshots; ids of columns the grid does not have are dropped on apply.
+- Plugins contribute slices with `capabilities.registerStateSlice` (see PLUGINS.md).
 
 ## Locale
 

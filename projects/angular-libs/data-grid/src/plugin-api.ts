@@ -41,6 +41,7 @@ export type {
   CellDecoratorContribution as ɵCellDecoratorContribution,
   ContextMenuContribution as ɵContextMenuContribution,
   DisplayViewContribution as ɵDisplayViewContribution,
+  GridStateSlice as ɵGridStateSlice,
   InteractionContribution as ɵInteractionContribution,
   OverlayContribution as ɵOverlayContribution,
   OverlayLayout as ɵOverlayLayout,

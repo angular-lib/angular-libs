@@ -9,7 +9,7 @@ import { EventLogPanel } from './event-log-panel';
 import { DEMO_EVENT_LOG, EventLogStore } from './event-log.store';
 
 /** Registers the Events sidebar panel and mirrors all grid events into a log. */
-export function eventLogPlugin<T = unknown>(): DataGridPlugin<T> {
+export function eventLogPlugin<T = any>(): DataGridPlugin<T> {
   const store = new EventLogStore();
 
   return {

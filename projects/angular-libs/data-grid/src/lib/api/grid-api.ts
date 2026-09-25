@@ -4,8 +4,11 @@ import type {
   DataGridQuery,
   DataGridState,
   PasteEvent,
+  SetGridStateOptions,
   SortState,
 } from '../components/data-grid/data-grid.types';
+import { computed, type Signal } from '@angular/core';
+import { gridQueryEqual, gridStateEqual } from '../utils/state';
 import type { CsvExportOptions } from '../utils/csv';
 import type { FindMatch } from '../utils/find';
 import type { DisplayRow } from '../utils/row-display';
@@ -78,7 +81,7 @@ export interface DataGridColumnsHost {
   autoSizeColumns(columnIds?: string[]): void;
   clearFilters(): void;
   getState(): DataGridState;
-  setState(state: Partial<DataGridState>): void;
+  setState(state: Partial<DataGridState>, options?: SetGridStateOptions): void;
   getFilterModel(): DataGridFilterState;
   setFilterModel(filters: DataGridFilterState): void;
   getSortModel(): SortState[];
@@ -194,6 +197,19 @@ export class DataGridApi<T = unknown> {
   private cellRangeAdapter: BoundCellRangeAdapter | null = null;
   private pluginLifecycle: PluginLifecycle<T> | null = null;
 
+  /**
+   * Live grid state (structurally memoized — a new value only on real change).
+   * `(stateChange)` / plugin `onStateChange` are derived from this signal.
+   */
+  readonly state: Signal<DataGridState> = computed(() => this.host.getState(), {
+    equal: gridStateEqual,
+  });
+
+  /** Live sort / filter / quick-filter / page query; `(queryChange)` derives from it (server mode). */
+  readonly query: Signal<DataGridQuery> = computed(() => this.host.getQuery(), {
+    equal: gridQueryEqual,
+  });
+
   constructor(private readonly host: DataGridApiHost<T>) {}
 
   /** Wired by DataGrid to the kernel — keeps recomposition off the host surface. */
@@ -227,8 +243,13 @@ export class DataGridApi<T = unknown> {
     return this.host.getState();
   }
 
-  setState(state: Partial<DataGridState>): void {
-    this.host.setState(state);
+  /**
+   * Apply a (partial, possibly untrusted) snapshot: absent / invalid fields and
+   * `ignore`d keys are left as they are; unknown column ids are dropped. Fires
+   * `sortChange` / `filterChange` / `selectionChange` for what actually changed.
+   */
+  setState(state: Partial<DataGridState>, options?: SetGridStateOptions): void {
+    this.host.setState(state, options);
   }
 
   getFilterModel(): DataGridFilterState {

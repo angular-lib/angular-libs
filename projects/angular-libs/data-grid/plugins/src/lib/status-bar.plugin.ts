@@ -14,7 +14,7 @@ export interface StatusBarPluginOptions {
  * Row count uses processed (filtered/sorted) data rows — not display rows —
  * so master-detail panels and group headers are not counted as extra rows.
  */
-export function statusBarPlugin<T = unknown>(
+export function statusBarPlugin<T = any>(
   options: StatusBarPluginOptions = {},
 ): DataGridPlugin<T> {
   const showSelected = options.showSelected !== false;

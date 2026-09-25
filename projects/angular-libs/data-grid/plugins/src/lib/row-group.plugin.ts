@@ -30,7 +30,7 @@ export type RowGroupPlugin<T = unknown> = DataGridPlugin<T> & RowGroupAdapter;
  * groups.clear();
  * ```
  */
-export function rowGroupPlugin<T = unknown>(
+export function rowGroupPlugin<T = any>(
   options: RowGroupPluginOptions = {},
 ): RowGroupPlugin<T> {
   const adapter = createRowGroupAdapter(options.columns ?? []);
@@ -74,7 +74,15 @@ export function rowGroupPlugin<T = unknown>(
 
       context.api.bindRowGroupAdapter(adapter);
 
+      // `state.slices.rowGroup` — persisted / restored with grid state.
+      const cleanState = context.capabilities.registerStateSlice({
+        key: 'rowGroup',
+        get: () => ({ columns: [...adapter.columns()], collapsedIds: [...adapter.collapsedIds()] }),
+        apply: (value) => applyRowGroupState(adapter, value),
+      });
+
       return () => {
+        cleanState();
         context.api.bindRowGroupAdapter(null);
         cleanSidebar();
         cleanDisplay();
@@ -83,4 +91,22 @@ export function rowGroupPlugin<T = unknown>(
   };
 
   return plugin;
+}
+
+/** Validate + apply a persisted `rowGroup` slice (`{ columns, collapsedIds }`). */
+function applyRowGroupState(adapter: RowGroupAdapter, value: unknown): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  const { columns, collapsedIds } = value as { columns?: unknown; collapsedIds?: unknown };
+  const strings = (list: unknown): string[] | null =>
+    Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string') : null;
+  const nextColumns = strings(columns);
+  if (nextColumns) {
+    adapter.setColumns(nextColumns);
+  }
+  const collapsed = strings(collapsedIds);
+  if (collapsed) {
+    adapter.collapseAll(collapsed);
+  }
 }

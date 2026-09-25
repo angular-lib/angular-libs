@@ -9,7 +9,7 @@ import { aggregateColumn } from '@angular-libs/data-grid/plugin';
  * Registers an aggregate footer contribution (capability).
  * Columns with `aggFunc` are included.
  */
-export function aggregateRowPlugin<T = unknown>(): DataGridPlugin<T> {
+export function aggregateRowPlugin<T = any>(): DataGridPlugin<T> {
   return {
     id: 'aggregateRow',
     setup(context: DataGridPluginContext<T>): () => void {

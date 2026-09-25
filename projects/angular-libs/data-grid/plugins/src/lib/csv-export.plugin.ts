@@ -22,7 +22,7 @@ export interface CsvExportPluginOptions<T = unknown> extends CsvExportOptions<T>
  * plugins: [...defaultGridPlugins(), csvExportPlugin({ filename: 'people.csv' })]
  * ```
  */
-export function csvExportPlugin<T = unknown>(
+export function csvExportPlugin<T = any>(
   options: CsvExportPluginOptions<T> = {},
 ): DataGridPlugin<T> {
   const { order = 90, icon = 'CSV', color, ...exportOptions } = options;

@@ -330,17 +330,17 @@ export class DataGridDemoComponent {
   });
 
   /** Held plugins — adapters stay stable; toggle chrome via adapter APIs. */
-  readonly groups = rowGroupPlugin<Employee>({ columns: [] });
-  readonly sideBar = sideBarPlugin<Employee>({
+  readonly groups = rowGroupPlugin({ columns: [] });
+  readonly sideBar = sideBarPlugin({
     panels: ['columns', 'filters'],
     position: 'right',
     // Events is registered by eventLogPlugin.
     defaultPanel: 'events',
   });
-  readonly drag = rowDragPlugin<Employee>(false);
-  private readonly aggregate = aggregateRowPlugin<Employee>();
-  private readonly sample = sampleStatusPlugin<Employee>();
-  private readonly events = eventLogPlugin<Employee>();
+  readonly drag = rowDragPlugin(false);
+  private readonly aggregate = aggregateRowPlugin();
+  private readonly sample = sampleStatusPlugin();
+  private readonly events = eventLogPlugin();
   /** Host-owned notes bag (simulates async API load). */
   private readonly notesBackend = new Map<string, Note>([
     [noteKey(2, 'name'), { text: 'Check salary band before review.' }],
@@ -351,7 +351,7 @@ export class DataGridDemoComponent {
       return Object.fromEntries(this.notesBackend);
     },
   });
-  readonly notes = notesPlugin<Employee>({
+  readonly notes = notesPlugin({
     notes: this.notesResource.value,
     save: async ({ rowId, columnId, note }) => {
       await new Promise((r) => setTimeout(r, 80));
@@ -366,8 +366,8 @@ export class DataGridDemoComponent {
       this.notesResource.reload();
     },
   });
-  readonly flash = flashCellsPlugin<Employee>();
-  readonly cellRange = cellRangePlugin<Employee>();
+  readonly flash = flashCellsPlugin();
+  readonly cellRange = cellRangePlugin();
 
   readonly columns: ColumnOrGroupDef<Employee>[] = [
     {
@@ -430,10 +430,12 @@ export class DataGridDemoComponent {
   ];
 
   /** Compose plugins once — toggle sidebar / row drag with adapters, not `setPlugins`. */
-  readonly grid = createGrid<Employee>({
+  readonly grid = createGrid({
     columns: this.columns,
     rowId: (row) => row.id,
     rows: this.rows,
+    // Restored before the first render (no flash of default layout).
+    initialState: loadSavedGridState(),
     selection: 'multi',
     editMode: 'fullRow',
     editInteraction: 'default',
@@ -448,7 +450,7 @@ export class DataGridDemoComponent {
       contextMenu: true,
     },
     plugins: [
-      ...defaultGridPlugins<Employee>({ sideBar: false }),
+      ...defaultGridPlugins({ sideBar: false }),
       this.drag,
       this.aggregate,
       this.groups,
@@ -660,4 +662,13 @@ export class DataGridDemoComponent {
     this.grid.cellRange?.clearRange();
     this.lastAction.set('cleared cell range (grid.cellRange)');
   }
+}
+
+/** Last `Save state` snapshot (validated by `parseGridState`), if any. */
+function loadSavedGridState() {
+  if (typeof localStorage === 'undefined') {
+    return null;
+  }
+  const raw = localStorage.getItem(STATE_KEY);
+  return raw ? parseGridState(raw) : null;
 }

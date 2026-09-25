@@ -3,7 +3,7 @@
  * instead of flipping host feature flags.
  */
 
-import { computed, signal, type Signal, type WritableSignal } from '@angular/core';
+import { computed, signal, untracked, type Signal, type WritableSignal } from '@angular/core';
 import type {
   ColumnDef,
   DataGridContextMenuContext,
@@ -134,6 +134,17 @@ export interface OverlayContribution {
 }
 
 /**
+ * Plugin-owned piece of {@link DataGridState} (under `state.slices[key]`), e.g.
+ * row-group columns + collapsed groups. `get` is read reactively (read signals);
+ * `apply` receives untrusted persisted input — validate it.
+ */
+export interface GridStateSlice<V = unknown> {
+  key: string;
+  get: () => V;
+  apply: (value: unknown) => void;
+}
+
+/**
  * Registry of plugin capabilities for one grid instance.
  */
 export class GridCapabilities<T = unknown> {
@@ -146,6 +157,9 @@ export class GridCapabilities<T = unknown> {
   private readonly contextMenuContributions: WritableSignal<ContextMenuContribution<T>[]> =
     signal([]);
   private readonly overlayContributions: WritableSignal<OverlayContribution[]> = signal([]);
+  private readonly stateSlices: WritableSignal<GridStateSlice[]> = signal([]);
+  /** Slice values from `setState` / `initialState` whose plugin has not registered yet. */
+  private readonly pendingSliceState: WritableSignal<Record<string, unknown>> = signal({});
   /** Bumped when overlay layouts should be re-read (range/scroll/resize). */
   private readonly overlayPaintEpochSignal: WritableSignal<number> = signal(0);
   /** Grid-owned expansion state for display builders without their own store. */
@@ -251,6 +265,53 @@ export class GridCapabilities<T = unknown> {
       this.overlayContributions.update((list) => list.filter((o) => o.id !== contribution.id));
       this.invalidateOverlays();
     };
+  }
+
+  /**
+   * Contribute a slice to grid state (`getState` / `setState` / `stateChange`).
+   * A value restored before registration (e.g. `initialState`) is applied now.
+   */
+  registerStateSlice<V>(slice: GridStateSlice<V>): () => void {
+    this.stateSlices.update((list) => [...list.filter((s) => s.key !== slice.key), slice]);
+    const pending = untracked(this.pendingSliceState);
+    if (Object.prototype.hasOwnProperty.call(pending, slice.key)) {
+      const { [slice.key]: value, ...rest } = pending;
+      this.pendingSliceState.set(rest);
+      untracked(() => slice.apply(value));
+    }
+    return () => this.stateSlices.update((list) => list.filter((s) => s !== slice));
+  }
+
+  /** Reactive snapshot of every slice (pending values included until their plugin registers). */
+  collectStateSlices(): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...this.pendingSliceState() };
+    for (const slice of this.stateSlices()) {
+      try {
+        out[slice.key] = slice.get();
+      } catch (err) {
+        console.error(`[data-grid] state slice get failed (${slice.key})`, err);
+      }
+    }
+    return out;
+  }
+
+  /** Apply persisted slices; values for unregistered keys wait for {@link registerStateSlice}. */
+  applyStateSlices(values: Record<string, unknown>): void {
+    const registered = new Map(untracked(this.stateSlices).map((s) => [s.key, s]));
+    const pending: Record<string, unknown> = { ...untracked(this.pendingSliceState) };
+    for (const [key, value] of Object.entries(values)) {
+      const slice = registered.get(key);
+      if (!slice) {
+        pending[key] = value;
+        continue;
+      }
+      try {
+        untracked(() => slice.apply(value));
+      } catch (err) {
+        console.error(`[data-grid] state slice apply failed (${key})`, err);
+      }
+    }
+    this.pendingSliceState.set(pending);
   }
 
   /** Ask the binder to re-read overlay `layout()` callbacks (range/scroll/resize). */
@@ -381,6 +442,7 @@ export class GridCapabilities<T = unknown> {
     this.cellDecorators.set([]);
     this.contextMenuContributions.set([]);
     this.overlayContributions.set([]);
+    this.stateSlices.set([]);
     this.overlayPaintEpochSignal.set(0);
     this.fallbackCollapsed.set(new Set());
   }

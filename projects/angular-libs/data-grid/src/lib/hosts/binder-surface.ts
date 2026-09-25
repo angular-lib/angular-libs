@@ -54,8 +54,6 @@ export interface BinderPublishSurface<T> {
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
     payload: unknown,
   ): void;
-  emitState(): void;
-  emitQueryIfServer(): void;
   pluginContext(): DataGridPluginContext<T>;
   effectivePlugins(): readonly DataGridPlugin<T>[];
 }
@@ -82,15 +80,26 @@ export interface ColumnLayoutDeps<T> {
   publishSort(event: SortChangeEvent): void;
   publishFilter(event: FilterChangeEvent): void;
   publishColumnOrder(event: ColumnOrderChangeEvent): void;
-  getStateExtras(): Pick<DataGridState, 'pageIndex' | 'activeSidePanel'>;
-  applyStateExtras(state: Pick<DataGridState, 'pageIndex' | 'activeSidePanel'>): void;
+  /** State owned outside the column host (viewport / selection / controller / plugins). */
+  getStateExtras(): Pick<DataGridState, GridStateExtraKey>;
+  /**
+   * Apply validated extras. `initial` = mount-time `initialState` (silent: no
+   * `selectionChange`); otherwise an API `setState`.
+   */
+  applyStateExtras(state: Partial<Pick<DataGridState, GridStateExtraKey>>, initial: boolean): void;
   notifyPlugins(
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
     payload: unknown,
   ): void;
-  emitState(): void;
-  emitQueryIfServer(): void;
 }
+
+/** {@link DataGridState} keys not owned by {@link ColumnLayoutDeps} consumers. */
+export type GridStateExtraKey =
+  | 'pageIndex'
+  | 'pageSize'
+  | 'selectedIds'
+  | 'activeSidePanel'
+  | 'slices';
 
 /** @deprecated Use ColumnLayoutDeps — host owns column state as of F1. */
 export type ColumnLayoutSurface<T> = ColumnLayoutDeps<T>;
@@ -228,8 +237,6 @@ export interface ViewportDeps<T> {
   injector(): Injector;
   sideBarConfig(): boolean | SideBarConfig | null;
   sidebarSlotItems(): readonly { id: string }[];
-  emitState(): void;
-  emitQueryIfServer(): void;
   publishNearEnd(): void;
   publishFindMatches(matches: FindMatch[]): void;
   publishRowReorder(payload: RowReorderEvent<T>): void;

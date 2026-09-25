@@ -397,9 +397,14 @@ describe('ViewportHost server pagination (V5)', () => {
     const host = fixture.componentInstance;
     const vp = gridOf<Item>(fixture).viewportHost;
     expect(vp.totalPages()).toBe(10);
+    // S1: the initial query is emitted on mount (server mode).
+    expect(host.queries).toHaveLength(1);
+    expect(host.queries[0]).toMatchObject({ pageIndex: 0, pageSize: 10 });
 
     vp.goToPage(4);
     expect(vp.pageIndex()).toBe(4);
+    await fixture.whenStable();
+    expect(host.queries).toHaveLength(2);
     expect(host.queries.at(-1)).toMatchObject({ pageIndex: 4, pageSize: 10 });
 
     host.rows.set(items(50).slice(40, 50));

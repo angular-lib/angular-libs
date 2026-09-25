@@ -389,9 +389,17 @@ export interface DataGridFilterState {
   [columnId: string]: string;
 }
 
-/** Snapshot for persist / restore (localStorage, URL, etc.). */
+/**
+ * Snapshot for persist / restore (localStorage, URL, etc.) — schema version 1.
+ * Read it with `api.state()` / `grid.state()` (reactive) or `api.getState()`;
+ * restore with `createGrid({ initialState })` (before first render) or
+ * `api.setState(state, { ignore })`. Parse untrusted input with `parseGridState`.
+ */
 export interface DataGridState {
+  /** Schema version — `parseGridState` / `migrateGridState` upgrade older snapshots. */
+  version: 1;
   sorts: SortState[];
+  /** Column filter model — opaque per-column values (validated by `isValidFilterValue`). */
   filters: DataGridFilterState;
   quickFilter: string;
   hiddenColumnIds: string[];
@@ -403,7 +411,21 @@ export interface DataGridState {
    */
   columnPins: Record<string, ColumnPin | null>;
   pageIndex: number;
+  pageSize: number;
+  /** Same ids as `[(selectedIds)]`. */
+  selectedIds: Array<string | number>;
   activeSidePanel: string | null;
+  /**
+   * Plugin-contributed state keyed by slice id (`capabilities.registerStateSlice`),
+   * e.g. `rowGroup: { columns, collapsedIds }`. JSON-serializable values.
+   */
+  slices: Record<string, unknown>;
+}
+
+/** Options for `api.setState`. */
+export interface SetGridStateOptions {
+  /** Top-level keys to leave untouched (e.g. `['selectedIds', 'pageIndex']`). */
+  ignore?: readonly (keyof DataGridState)[];
 }
 
 /** Emitted in server-side mode so the host can fetch. */

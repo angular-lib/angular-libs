@@ -21,7 +21,7 @@ export interface ClipboardPluginOptions {
 /**
  * Owns clipboard listeners and paste matrix logic (capability interaction).
  */
-export function clipboardPlugin<T = unknown>(
+export function clipboardPlugin<T = any>(
   options: ClipboardPluginOptions = {},
 ): DataGridPlugin<T> {
   const paste = options.paste !== false;

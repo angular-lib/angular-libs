@@ -198,7 +198,7 @@ export class DataGridMasterDetailDemoComponent {
       },
     ],
     rowId: (row) => row.id,
-    plugins: [...defaultGridPlugins<Account>({ sideBar: false }), this.masterDetail],
+    plugins: [...defaultGridPlugins({ sideBar: false }), this.masterDetail],
     selection: 'single',
     viewport: { rowHeight: 40, virtual: false, pagination: true, pageSize: 2 },
   });

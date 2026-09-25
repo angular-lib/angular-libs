@@ -54,10 +54,6 @@ import {
   isSelectEditor,
   resolveSelectValues,
 } from '../../utils/editors';
-import {
-  reconcileColumnLayout,
-  reconcileHiddenColumnIds,
-} from '../../utils/column-layout';
 import { type DisplayRow } from '../../utils/row-display';
 import {
   formatCellValue,
@@ -238,7 +234,6 @@ export class DataGrid<T = unknown> {
   readonly emptyOverlay = contentChild(DataGridEmptyDirective);
   private readonly contextMenuOverlay = contentChild(DataGridContextMenuDirective);
 
-  private knownColumnIds = new Set<string>();
   private pluginsMounted = false;
   private lastPluginKey = '';
   private readonly host = inject(ElementRef<HTMLElement>);
@@ -254,7 +249,7 @@ export class DataGrid<T = unknown> {
 
   /** Schema from `[controller]` only — no binder overrides. */
   readonly effectiveColumns = computed(
-    (): readonly ColumnOrGroupDef<T>[] => this.controller().columns,
+    (): readonly ColumnOrGroupDef<T>[] => this.controller().columns(),
   );
 
   readonly effectiveRowId = computed((): ((row: T, index: number) => string | number) => {
@@ -262,7 +257,7 @@ export class DataGrid<T = unknown> {
   });
 
   readonly effectiveSelectionMode = computed(
-    (): SelectionMode => this.controller().selection,
+    (): SelectionMode => this.controller().selection(),
   );
 
   readonly effectiveEditMode = computed(
@@ -270,11 +265,11 @@ export class DataGrid<T = unknown> {
   );
 
   readonly effectiveEditInteraction = computed((): ResolvedEditInteraction => {
-    return this.controller().editInteraction;
+    return this.controller().editInteraction();
   });
 
   readonly effectiveRowClickSelects = computed(
-    (): boolean => this.controller().rowClickSelects,
+    (): boolean => this.controller().rowClickSelects(),
   );
 
   readonly effectiveRowEditSchema = computed(
@@ -448,31 +443,6 @@ export class DataGrid<T = unknown> {
     this.selectionHost = this.session.selection;
     this.editSyncHost = this.session.editSync;
     this.menuHost = this.session.menu;
-
-    effect(() => {
-      const cols = this.columnLayoutHost.resolvedColumns();
-      if (!cols.length) {
-        return;
-      }
-      const ids = cols.map((c) => c.id);
-      const layout = this.columnLayoutHost.columnLayout();
-      const nextLayout = reconcileColumnLayout(layout, cols);
-      if (
-        nextLayout.order.join('\0') !== layout.order.join('\0') ||
-        JSON.stringify(nextLayout.pin) !== JSON.stringify(layout.pin)
-      ) {
-        this.columnLayoutHost.columnLayout.set(nextLayout);
-      }
-      const newlyHidden = cols
-        .filter((c) => c.hide && !this.knownColumnIds.has(c.id))
-        .map((c) => c.id);
-      const hidden = this.hiddenColumnIds();
-      const nextHidden = reconcileHiddenColumnIds(hidden, ids, newlyHidden);
-      if (nextHidden.join('\0') !== hidden.join('\0')) {
-        this.hiddenColumnIds.set(nextHidden);
-      }
-      this.knownColumnIds = new Set(ids);
-    });
 
     effect(() => {
       const max = this.viewportHost.totalPages() - 1;

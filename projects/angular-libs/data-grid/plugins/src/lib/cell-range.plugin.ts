@@ -65,7 +65,7 @@ export interface CellRangePluginOptions {
  * Overlay paint is binder-owned (from `api.getCellRange()`); this plugin owns
  * range state, drag-select, fill, and cell decorator only.
  */
-export function cellRangePlugin<T = unknown>(
+export function cellRangePlugin<T = any>(
   options: CellRangePluginOptions = {},
 ): CellRangePlugin<T> {
   const dragSelect = options.dragSelect !== false;

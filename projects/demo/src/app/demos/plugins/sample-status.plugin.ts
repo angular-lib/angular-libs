@@ -8,7 +8,7 @@ import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-g
 /**
  * Adds a status-bar line and an Alt+S shortcut to focus the find input.
  */
-export function sampleStatusPlugin<T = unknown>(): DataGridPlugin<T> {
+export function sampleStatusPlugin<T = any>(): DataGridPlugin<T> {
   return {
     id: 'demo-sample-status',
     setup(context: DataGridPluginContext<T>): () => void {

@@ -105,6 +105,7 @@ export type {
   DataGridFilterState,
   DataGridQuery,
   DataGridState,
+  SetGridStateOptions,
   EditMode,
   FilterChangeEvent,
   CellRange,
@@ -139,7 +140,15 @@ export {
   downloadCsv,
 } from './lib/utils/csv';
 export type { CsvExportOptions, CsvProcessCellParams, RowsToCsvOptions } from './lib/utils/csv';
-export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
+export {
+  serializeGridState,
+  parseGridState,
+  migrateGridState,
+  sanitizeGridState,
+  createEmptyGridState,
+  isValidFilterValue,
+  GRID_STATE_VERSION,
+} from './lib/utils/state';
 export { collectFindMatches, splitFindHighlight } from './lib/utils/find';
 export type { FindMatch, FindMatchesChangeEvent, FindTextPart } from './lib/utils/find';
 export { cloneRowDraft, formFieldForColumn } from './lib/utils/row-edit';

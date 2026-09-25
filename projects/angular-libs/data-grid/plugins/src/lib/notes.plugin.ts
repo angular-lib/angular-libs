@@ -66,7 +66,7 @@ export type NotesPlugin<T = unknown> = DataGridPlugin<T> & NotesAdapter;
  * });
  * ```
  */
-export function notesPlugin<T = unknown>(options: NotesPluginOptions): NotesPlugin<T> {
+export function notesPlugin<T = any>(options: NotesPluginOptions): NotesPlugin<T> {
   const notesSignal = options.notes;
   const save = options.save;
   const reload = options.reload;

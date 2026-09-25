@@ -114,10 +114,10 @@ describe('Wave 3 policies', () => {
         editInteraction: 'excel',
       });
 
-      expect(grid.editInteraction.pointerStart).toBe('click');
-      expect(grid.editInteraction.tabEditing).toBe('commitAndMove');
-      expect(grid.editInteraction.typeToEdit).toBe('replace');
-      expect(grid.editInteraction.arrowEditing).toBe('moveHorizontal');
+      expect(grid.editInteraction().pointerStart).toBe('click');
+      expect(grid.editInteraction().tabEditing).toBe('commitAndMove');
+      expect(grid.editInteraction().typeToEdit).toBe('replace');
+      expect(grid.editInteraction().arrowEditing).toBe('moveHorizontal');
       expect(grid.rows?.()).toEqual(rows());
 
       const added = grid.applyTransaction({

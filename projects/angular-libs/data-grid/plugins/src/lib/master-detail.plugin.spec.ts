@@ -429,7 +429,7 @@ describe('MasterDetailDefaultView nested controller', () => {
       .componentInstance as MasterDetailDefaultView<Customer, Order>;
     const first = view.detailController();
     expect(first).toBeTruthy();
-    expect(first!.columns).toEqual([{ field: 'sku' }]);
+    expect(first!.columns()).toEqual([{ field: 'sku' }]);
 
     detailGrid.columns = [{ field: 'qty' }];
     item.set({
@@ -449,7 +449,7 @@ describe('MasterDetailDefaultView nested controller', () => {
     const second = view.detailController();
     expect(second).toBeTruthy();
     expect(second).not.toBe(first);
-    expect(second!.columns).toEqual([{ field: 'qty' }]);
+    expect(second!.columns()).toEqual([{ field: 'qty' }]);
   });
 });
 

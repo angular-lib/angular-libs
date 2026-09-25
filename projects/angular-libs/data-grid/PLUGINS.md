@@ -92,6 +92,12 @@ export function myPlugin<T>(): DataGridPlugin<T> {
 | `element` | Host root (prefer `registerInteraction` over raw listeners) |
 | `injector` | Create DI-backed UI |
 
+**Typing.** A row-agnostic factory (no row-shaped options) should default its row
+type to `any` — `export function myPlugin<T = any>(): DataGridPlugin<T>` — so a
+held / spread `myPlugin()` fits every `createGrid<T>`. Factories whose options
+read rows (`getDataPath: (row: T) => …`) keep `T` unconstrained so they are
+checked against the grid's row type.
+
 ## Capability API
 
 ### Display builder
@@ -151,6 +157,24 @@ context.capabilities.registerAggregate({
   values: (rows, columns) => new Map([['salary', 0]]),
 });
 ```
+
+### State slice
+
+Contribute plugin state to `DataGridState.slices[key]` (persisted by
+`getState` / `stateChange`, restored by `setState` / `initialState`). `get` is
+read reactively; `apply` receives untrusted input. A value restored before the
+plugin registers (e.g. `initialState`) is applied on registration.
+
+```ts
+context.capabilities.registerStateSlice({
+  key: 'rowGroup',
+  get: () => ({ columns: [...adapter.columns()] }),
+  apply: (value) => applyIfValid(adapter, value),
+});
+```
+
+`onStateChange(context, state)` is fed from the same derived state signal as
+`(stateChange)` (one call per real change, none on mount).
 
 ### Display-kind view
 
@@ -430,7 +454,7 @@ panel is registered by `rowGroupPlugin()`. The filters panel is card-based
 | Factory | Capabilities |
 | --- | --- |
 | `clipboardPlugin` | `registerInteraction` paste/copy + owns paste matrix → `api.emitPaste` |
-| `rowGroupPlugin` | `registerDisplayBuilder` + `RowGroupAdapter` |
+| `rowGroupPlugin` | `registerDisplayBuilder` + `RowGroupAdapter` + `registerStateSlice('rowGroup')` |
 | `treeDataPlugin` | `registerDisplayBuilder` + `TreeDataAdapter` |
 | `masterDetailPlugin` | `registerDisplayBuilder` + detail display view + expand column |
 | `aggregateRowPlugin` | `registerAggregate` |
