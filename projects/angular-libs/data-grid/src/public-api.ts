@@ -109,6 +109,7 @@ export type {
   CellRange,
   FillEvent,
   PasteEvent,
+  PasteInvalidCell,
   ResolvedColumn,
   RowClassFn,
   RowClickEvent,
@@ -127,6 +128,8 @@ export type {
   SortDirection,
   SortState,
   ValueSetterParams,
+  ValueParserParams,
+  ValueParserResult,
 } from './lib/components/data-grid/data-grid.types';
 export { rowsToCsv, downloadCsv } from './lib/utils/csv';
 export { serializeGridState, parseGridState, createEmptyGridState } from './lib/utils/state';
@@ -145,7 +148,15 @@ export {
   toDateKey,
   formatLocalDateKey,
 } from './lib/utils/filter-rows';
-export { parseClipboardMatrix, applyPasteMatrix, tileMatrix } from './lib/utils/clipboard-paste';
+export {
+  parseClipboardMatrix,
+  applyPasteMatrix,
+  tileMatrix,
+  collectPasteTargetRows,
+  escapeClipboardCell,
+  serializeClipboardMatrix,
+} from './lib/utils/clipboard-paste';
+export type { ParseClipboardOptions, PasteTargetRow } from './lib/utils/clipboard-paste';
 export {
   formatCellValue,
   getCellValue,
@@ -153,6 +164,17 @@ export {
   isBooleanColumn,
   isDateColumn,
 } from './lib/utils/cell-value';
-export { coerceCellEditValue, isBlankCellInput } from './lib/utils/coerce-cell-value';
+export {
+  coerceCellEditValue,
+  isBlankCellInput,
+  parseCellInput,
+  parseLocaleNumber,
+  parseDateKey,
+  formatNumberForEdit,
+  isCellWritable,
+  writeCellFromText,
+  cellParseContextFromLocale,
+} from './lib/utils/coerce-cell-value';
+export type { CellParseResult, CellParseContext } from './lib/utils/coerce-cell-value';
 export { defaultGridLocale, mergeGridLocale, toolbarLabelsFromLocale } from './lib/locale/default-locale';
 export type { DataGridLocale } from './lib/locale/default-locale';

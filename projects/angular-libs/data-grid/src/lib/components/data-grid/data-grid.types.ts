@@ -104,6 +104,14 @@ export interface ColumnDef<T = unknown> {
    * Return the next row object (do not mutate `row`).
    */
   valueSetter?: (params: ValueSetterParams<T>) => T | undefined;
+  /**
+   * Parse editor / paste text into the stored value. Return `{ value }` or
+   * `{ error }` — invalid input is never written (cell editor stays open with
+   * `aria-invalid`; paste / fill report it in `PasteEvent.invalidCells`).
+   * Default: strict built-ins by column type (locale-aware numbers, ISO / locale
+   * dates that keep the previous value's shape, booleans, select values).
+   */
+  valueParser?: (input: string, params: ValueParserParams<T>) => ValueParserResult;
   /** Static or dynamic cell class names. */
   cellClass?: string | ((value: unknown, row: T, rowIndex: number) => string | string[] | null | undefined);
   /** Custom sort comparator. */
@@ -146,6 +154,19 @@ export interface ValueSetterParams<T = unknown> {
   previousValue: unknown;
   value: unknown;
 }
+
+export interface ValueParserParams<T = unknown> {
+  /** Row being edited / pasted into (`null` when unknown). */
+  row: T | null;
+  column: ColumnDef<T>;
+  columnId: string;
+  previousValue: unknown;
+  /** Grid `locale.numberLocale` (BCP 47), when set. */
+  numberLocale?: string;
+  source: 'edit' | 'paste' | 'fill';
+}
+
+export type ValueParserResult = { value: unknown } | { error: string };
 
 /** Row-level class — set on `DataGrid` via `[rowClass]`. */
 export type RowClassFn<T = unknown> =
@@ -311,13 +332,34 @@ export interface RowReorderEvent<T = unknown> {
   rows: T[];
 }
 
+/** A pasted / filled cell whose text failed to parse — not written. */
+export interface PasteInvalidCell {
+  rowId: string | number;
+  columnId: string;
+  text: string;
+  error: string;
+}
+
 /** Emitted when paste is handled (`clipboardPlugin`). */
 export interface PasteEvent<T = unknown> {
+  /** Processed-row index of the first written row (prefer `targetRowIds`). */
   startRowIndex: number;
   columnIds: string[];
   matrix: string[][];
-  /** Suggested next rows if host applies field writes. */
+  /**
+   * Ids of the rows `matrix` rows were written into (same index), walked in
+   * display order — skips group / detail rows and collapsed children.
+   */
+  targetRowIds: Array<string | number>;
+  /**
+   * Suggested next rows (processed order) if host applies field writes.
+   * Non-editable cells are skipped; merge by id (`rowIds`, `mergeRowsById`).
+   */
   suggestedRows: T[];
+  /** Row ids aligned with `suggestedRows` (same index). */
+  rowIds: Array<string | number>;
+  /** Cells that failed to parse (`valueParser` / built-in strict parsing). */
+  invalidCells: PasteInvalidCell[];
 }
 
 /**

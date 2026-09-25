@@ -421,7 +421,11 @@ describe('data-grid utils', () => {
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '  ')).toBeNull();
     expect(coerceCellEditValue({ field: 'age', type: 'number' }, '42')).toBe(42);
     expect(coerceCellEditValue({ field: 'salary', type: 'number' }, '$70,000')).toBe(70000);
-    expect(coerceCellEditValue({ field: 'salary', type: 'number' }, '1.234,56')).toBe(1234.56);
+    expect(
+      coerceCellEditValue({ field: 'salary', type: 'number' }, '1.234,56', undefined, {
+        numberLocale: 'de-DE',
+      }),
+    ).toBe(1234.56);
 
     const prev = new Date(2024, 4, 1);
     const next = coerceCellEditValue({ field: 'born', type: 'date' }, '2024-05-02', prev);

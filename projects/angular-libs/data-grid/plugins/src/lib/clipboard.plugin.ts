@@ -1,11 +1,12 @@
 import {
   applyPasteMatrix,
-  coerceCellEditValue,
-  getCellValue,
+  cellParseContextFromLocale,
+  collectPasteTargetRows,
   parseClipboardMatrix,
   tileMatrix,
-  writeCellValue,
+  writeCellFromText,
   type PasteEvent,
+  type PasteInvalidCell,
 } from '@angular-libs/data-grid';
 import type {
   DataGridPlugin,
@@ -130,7 +131,9 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
   const visible = context.api.getVisibleColumnIds();
   const cellRange = context.api.getCellRange?.() ?? null;
 
-  let startRowIndex = 0;
+  /** Display index the paste starts at; rows are walked forward in display order. */
+  let startDisplayIndex = 0;
+  let rowCount = matrix.length;
   let columnIds = [...visible];
   let matrixToApply = matrix;
 
@@ -143,13 +146,10 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
     const colEnd = Math.max(aCol, bCol);
     if (aCol >= 0 && bCol >= 0) {
       columnIds = visible.slice(colStart, colEnd + 1);
+      startDisplayIndex = rowStart;
       let dataRowCount = 0;
       for (let i = rowStart; i <= rowEnd; i++) {
-        const item = displayRows[i];
-        if (item?.kind === 'data') {
-          if (!dataRowCount) {
-            startRowIndex = item.dataIndex;
-          }
+        if (displayRows[i]?.kind === 'data') {
           dataRowCount++;
         }
       }
@@ -157,31 +157,16 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
       if (srcCols > columnIds.length) {
         columnIds = visible.slice(colStart, colStart + srcCols);
       }
-      const outRows = Math.max(matrix.length, dataRowCount);
-      const outCols = Math.max(srcCols, columnIds.length);
-      if (outCols > columnIds.length) {
-        columnIds = visible.slice(colStart, colStart + outCols);
-      }
-      matrixToApply = tileMatrix(matrix, outRows, columnIds.length);
+      rowCount = Math.max(matrix.length, dataRowCount);
+      matrixToApply = tileMatrix(matrix, rowCount, columnIds.length);
     }
   } else if (focus) {
-    const at = displayRows[focus.rowIndex];
-    if (at?.kind === 'data') {
-      startRowIndex = at.dataIndex;
-    } else if (at?.kind === 'plugin') {
+    startDisplayIndex = focus.rowIndex;
+    if (displayRows[focus.rowIndex]?.kind === 'plugin') {
       // Detail shell — paste into the master immediately above.
       for (let i = focus.rowIndex - 1; i >= 0; i--) {
-        const item = displayRows[i];
-        if (item?.kind === 'data') {
-          startRowIndex = item.dataIndex;
-          break;
-        }
-      }
-    } else {
-      for (let i = focus.rowIndex; i < displayRows.length; i++) {
-        const item = displayRows[i];
-        if (item?.kind === 'data') {
-          startRowIndex = item.dataIndex;
+        if (displayRows[i]?.kind === 'data') {
+          startDisplayIndex = i;
           break;
         }
       }
@@ -194,32 +179,47 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
     }
   }
 
+  const targets = collectPasteTargetRows(displayRows, startDisplayIndex, rowCount);
+  const targetRowIds = targets.map((t) => t.rowId);
+  matrixToApply = matrixToApply.slice(0, targets.length);
+
   const columnsById = context.api.getColumnsById();
+  const parseCtx = {
+    ...cellParseContextFromLocale(context.api.getLocale?.()),
+    source: 'paste' as const,
+  };
+  const invalidCells: PasteInvalidCell[] = [];
   const processed = context.api.getProcessedRows() as T[];
-  const { rows: suggestedRows } = applyPasteMatrix(
+  const { rows: suggestedRows, rowIds } = applyPasteMatrix(
     processed,
     matrixToApply,
-    startRowIndex,
+    targetRowIds,
     columnIds,
     {
       rowId: (row, index) => context.api.resolveRowId(row, index),
-      write: (row, columnId, value, rowIndex) => {
-        const col = columnsById.get(columnId);
-        if (!col) {
+      write: (row, columnId, value, rowIndex, rowId) => {
+        // Read-only / computed columns are skipped, never overwritten.
+        const out = writeCellFromText(row, columnsById.get(columnId), columnId, value, rowIndex, parseCtx);
+        if (!out) {
           return row;
         }
-        const previous = getCellValue(row, col, rowIndex);
-        const nextValue = coerceCellEditValue(col, value, previous);
-        return writeCellValue(row, col, columnId, previous, nextValue);
+        if ('error' in out) {
+          invalidCells.push({ rowId, columnId, text: value, error: out.error });
+          return row;
+        }
+        return out.row;
       },
     },
   );
 
   const payload: PasteEvent<T> = {
-    startRowIndex,
+    startRowIndex: targets[0]?.dataIndex ?? 0,
     columnIds,
     matrix: matrixToApply,
+    targetRowIds,
     suggestedRows,
+    rowIds,
+    invalidCells,
   };
   context.api.emitPaste(payload);
   return true;

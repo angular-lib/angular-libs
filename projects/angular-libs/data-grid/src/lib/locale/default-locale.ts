@@ -82,6 +82,15 @@ export interface DataGridLocale {
   noteEdit: string;
   noteRemove: string;
   notePlaceholder: string;
+  /**
+   * BCP 47 tag for parsing / editing numbers and numeric dates
+   * (`'nb-NO'` → `1 234,5`, `25.09.2026`). Default: runtime locale.
+   */
+  numberLocale?: string;
+  invalidNumber: string;
+  invalidDate: string;
+  invalidBoolean: string;
+  invalidOption: string;
 }
 
 export const defaultGridLocale: DataGridLocale = {
@@ -163,6 +172,10 @@ export const defaultGridLocale: DataGridLocale = {
   noteEdit: 'Edit note',
   noteRemove: 'Remove note',
   notePlaceholder: 'Write a note…',
+  invalidNumber: 'Not a valid number',
+  invalidDate: 'Not a valid date',
+  invalidBoolean: 'Not a valid yes/no value',
+  invalidOption: 'Not an allowed value',
 };
 
 export function mergeGridLocale(partial?: Partial<DataGridLocale> | null): DataGridLocale {
