@@ -35,13 +35,14 @@ import { MenuHost } from '../hosts/menu.host';
 import { SelectionHost } from '../hosts/selection.host';
 import { ViewportHost } from '../hosts/viewport.host';
 import type { HostWritable } from '../hosts/binder-surface';
-import { notifyPlugins, type DataGridPlugin } from '../plugins/types';
+import type { DataGridPlugin } from '../plugins/types';
 import type { DataGridLocale } from '../locale/default-locale';
 import {
   createPaintedOverlays,
   type PaintedOverlay,
 } from './painted-overlays';
 import type {
+  CellRange,
   CreateRowFormFn,
   DataGridContextMenuContext,
   DataGridContextMenuItems,
@@ -126,6 +127,9 @@ export interface GridSession<T> {
   readonly pageRows: Signal<readonly T[]>;
   /** Capability + cell-range overlay paint layouts. */
   readonly paintedOverlays: Signal<PaintedOverlay[]>;
+  /** Active cell range from the registered range source (`registerRangeSelection`). */
+  getCellRange(): CellRange | null;
+  clearCellRange(): void;
   emitPaste(event: PasteEvent<T>): void;
   getQuery(): DataGridQuery;
   emitState(): void;
@@ -173,7 +177,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   const effectiveEditMode = (): EditMode => ctrl().editMode();
   const effectiveEditInteraction = (): ResolvedEditInteraction => ctrl().editInteraction;
   const effectiveRowClickSelects = (): boolean => ctrl().rowClickSelects;
-  const effectivePlugins = (): readonly DataGridPlugin<T>[] => ctrl().plugins();
+  /** Plugins the kernel has set up (the kernel owns the active list). */
+  const effectivePlugins = (): readonly DataGridPlugin<T>[] => kernel.activePlugins();
   const effectiveRowEditSchema = () => opts.rowEditSchema() ?? ctrl().rowEditSchema;
   const effectiveCreateRowForm = () => opts.createRowForm() ?? ctrl().createRowForm;
 
@@ -191,7 +196,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     hook: 'onSelectionChange' | 'onSortChange' | 'onFilterChange' | 'onStateChange',
     payload: unknown,
   ): void => {
-    notifyPlugins(effectivePlugins(), kernel.pluginContext(opts.hostElement()), hook, payload);
+    kernel.notifyPlugins(hook, payload);
   };
 
   const getQuery = (): DataGridQuery => ({
@@ -482,7 +487,10 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       find: viewport,
       rowGroup: viewport,
       clipboard: {
-        getSelectionClipboardText: () => selection.getSelectionClipboardText(),
+        // §5d — an active cell range wins copy.
+        getSelectionClipboardText: () =>
+          kernel.capabilities.rangeSelection()?.clipboardText?.() ??
+          selection.getSelectionClipboardText(),
         emitPaste: (event) => {
           applyOwnedPaste(event);
           opts.publish('paste', out.paste, event);
@@ -493,16 +501,9 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
         openToolPanel: (panelId) => viewport.activeSidePanel.set(panelId),
         getOpenedToolPanel: () => viewport.activeSidePanel(),
       },
+      adapters: { getAdapter: (key) => kernel.adapters.get(key) },
     }),
   );
-
-  const isMasterDetailExpandFocus = (columnId: string | undefined): boolean => {
-    if (!columnId) {
-      return false;
-    }
-    const bag = columnLayout.columnsById().get(columnId)?.cellRendererParams;
-    return !!bag && typeof bag === 'object' && 'masterDetail' in bag;
-  };
 
   /** Tree parent data row focused on its toggle column (first visible column). */
   const isTreeToggleFocus = (
@@ -514,60 +515,14 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     !!item.groupId &&
     viewport.focusedCell()?.columnId === columnLayout.visibleColumns()[0]?.id;
 
-  type MasterDetailBag = {
-    masterDetail?: {
-      toggle: (id: string | number, openByDefault?: boolean) => void;
-      isExpanded?: (id: string | number, openByDefault?: boolean) => boolean;
-      enterDetail?: (id: string | number) => boolean;
-    };
-    openByDefault?: (row: T) => boolean;
-    isRowMaster?: (row: T) => boolean;
-  };
-
-  const masterDetailBag = (columnId: string | undefined): MasterDetailBag | undefined => {
-    if (!columnId) {
-      return undefined;
-    }
-    return columnLayout.columnsById().get(columnId)?.cellRendererParams as
-      | MasterDetailBag
-      | undefined;
-  };
-
-  const toggleMasterDetailAt = (item: DisplayRow<T> | undefined): void => {
+  /** Plugin cell widget (`registerCellWidget`) on the focused cell of a data row. */
+  const focusedCellWidget = (item: DisplayRow<T> | undefined) => {
     const cell = viewport.focusedCell();
     if (!item || item.kind !== 'data' || !cell) {
-      return;
+      return null;
     }
-    const bag = masterDetailBag(cell.columnId);
-    const md = bag?.masterDetail;
-    if (!md) {
-      return;
-    }
-    if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
-      return;
-    }
-    md.toggle(item.rowId, bag.openByDefault?.(item.row) ?? false);
-  };
-
-  const enterMasterDetailWidget = (rowIndex: number): boolean => {
-    const item = viewport.pagedDisplayRows()[rowIndex];
-    const cell = viewport.focusedCell();
-    if (!item || item.kind !== 'data' || !cell) {
-      return false;
-    }
-    const bag = masterDetailBag(cell.columnId);
-    const md = bag?.masterDetail;
-    if (!bag || !md?.enterDetail || !md.isExpanded) {
-      return false;
-    }
-    if (bag.isRowMaster && !bag.isRowMaster(item.row)) {
-      return false;
-    }
-    const openByDefault = bag.openByDefault?.(item.row) ?? false;
-    if (!md.isExpanded(item.rowId, openByDefault)) {
-      return false;
-    }
-    return md.enterDetail(item.rowId);
+    const widget = kernel.capabilities.resolveCellWidget(cell.columnId, item.row, item.rowId);
+    return widget ? { widget, row: item.row, rowId: item.rowId } : null;
   };
 
   kernel = new GridKernel<T>(
@@ -615,16 +570,16 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
           viewport.toggleGroup(item.groupId);
           return;
         }
-        toggleMasterDetailAt(item);
+        const hit = focusedCellWidget(item);
+        hit?.widget.toggle(hit.row, hit.rowId);
       },
-      onEnterWidget: (rowIndex) => enterMasterDetailWidget(rowIndex),
+      onEnterWidget: (rowIndex) => {
+        const hit = focusedCellWidget(viewport.pagedDisplayRows()[rowIndex]);
+        return hit?.widget.enter?.(hit.row, hit.rowId) ?? false;
+      },
       isGroupRow: (rowIndex) => {
         const item = viewport.pagedDisplayRows()[rowIndex];
-        if (item?.kind === 'group' || isTreeToggleFocus(item)) {
-          return true;
-        }
-        const cell = viewport.focusedCell();
-        return !!item && item.kind === 'data' && isMasterDetailExpandFocus(cell?.columnId);
+        return item?.kind === 'group' || isTreeToggleFocus(item) || !!focusedCellWidget(item);
       },
       isSkipRow: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.kind === 'plugin',
       getPageRowCount: () => viewport.pageRowCount(),
@@ -633,8 +588,9 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       hasFloatingFilters: () => ctrl().chrome.floatingFilters() && columnLayout.hasFilters(),
       hasColumnGroups: () => columnLayout.hasColumnGroups(),
       onFloatingFilterEnter: (columnId) => editSync.activateFloatingFilter(columnId),
-      onExtendRange: (dRow, dCol) => api.extendCellRange(dRow, dCol),
-      onClearRange: () => api.clearCellRange(),
+      onExtendRange: (dRow, dCol) =>
+        kernel.capabilities.rangeSelection()?.extend?.(dRow, dCol) ?? false,
+      onClearRange: () => kernel.capabilities.rangeSelection()?.clear(),
       getFindMatchCount: (): number => viewport.findMatches().length,
       getFindActiveIndex: (): number => viewport.findActiveIndex(),
       setFindActiveIndex: (index) => viewport.findActiveIndex.set(index),
@@ -643,7 +599,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     opts.injector(),
   );
 
-  api.attachPluginLifecycle(kernel);
+  const getCellRange = (): CellRange | null => kernel.capabilities.rangeSelection()?.range() ?? null;
 
   // K4: focus follows its row identity (sort / filter / page / column hide).
   // Tracks only the row model + visible columns; reconcile writes only on change.
@@ -661,13 +617,13 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
 
   const paintedOverlays = createPaintedOverlays({
     kernel: () => kernel,
-    getCellRange: () => api.getCellRange(),
+    getCellRange,
     visibleColumns: () => columnLayout.visibleColumns(),
     displayRows: () => viewport.pagedDisplayRows(),
     getCellElement: (rowId, columnId) => viewport.getCellElement(rowId, columnId),
     getScrollRoot: () => viewport.getScrollRoot(),
     hostElement: opts.hostElement,
-    showFillHandle: () => api.isFillHandleEnabled(),
+    showFillHandle: () => kernel.capabilities.rangeSelection()?.fillHandle !== false,
   });
 
   return {
@@ -682,6 +638,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     displayRows,
     pageRows,
     paintedOverlays,
+    getCellRange,
+    clearCellRange: () => kernel.capabilities.rangeSelection()?.clear(),
     emitPaste: (event) => {
       applyOwnedPaste(event);
       opts.publish('paste', out.paste, event);

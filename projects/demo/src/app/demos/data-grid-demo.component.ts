@@ -28,6 +28,7 @@ import {
   noteKey,
   type Note,
   type NotesMap,
+  CELL_RANGE_ADAPTER,
 } from '@angular-libs/data-grid/plugins';
 import { eventLogPlugin } from './plugins/event-log.plugin';
 import { sampleStatusPlugin } from './plugins/sample-status.plugin';
@@ -148,7 +149,7 @@ const STATE_KEY = 'al-data-grid-demo-state';
         <p class="demo__foundation-hint">
           Keys: arrows · Shift+arrows range · Home/End · Enter/F2 edit · Space select · ↑ header ·
           Enter sort · Alt+↓ column menu · Esc clears range/menu ·
-          <code>grid.cellRange</code> / <code>getAdapter</code>
+          <code>grid.getAdapter(CELL_RANGE_ADAPTER)</code>
         </p>
       </aside>
 
@@ -636,13 +637,13 @@ export class DataGridDemoComponent {
     }
   }
 
-  /** Discovery: held `grid.cellRange` adapter (same as `getAdapter('cellRange', …)`). */
+  /** Discovery: the grid's range adapter via its typed key (or hold `cellRangePlugin()`). */
   hasCellRange(): boolean {
-    return !!this.grid.cellRange?.getRange();
+    return !!this.grid.getAdapter(CELL_RANGE_ADAPTER)?.getRange();
   }
 
   rangeLabel(): string {
-    const range = this.grid.cellRange?.getRange();
+    const range = this.grid.getAdapter(CELL_RANGE_ADAPTER)?.getRange();
     if (!range) {
       return 'none';
     }
@@ -657,7 +658,7 @@ export class DataGridDemoComponent {
   }
 
   clearCellRange(): void {
-    this.grid.cellRange?.clearRange();
-    this.lastAction.set('cleared cell range (grid.cellRange)');
+    this.grid.getAdapter(CELL_RANGE_ADAPTER)?.clearRange();
+    this.lastAction.set('cleared cell range (getAdapter(CELL_RANGE_ADAPTER))');
   }
 }

@@ -69,7 +69,7 @@ separate headless product tier, `withX()` DSL.
 | ID | Item | Status |
 | --- | --- | --- |
 | A1 | Split `DataGridApiHost` into focused hosts | ✅ |
-| A2 | Typed plugin adapters on `createGrid` | ✅ `pickAdapter` |
+| A2 | Typed plugin adapters on `createGrid` | ✅ `adapterKey` registry (`grid.getAdapter(KEY)`) |
 
 ### Phase 4 — Chrome leaves the binder
 

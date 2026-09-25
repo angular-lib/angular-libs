@@ -201,7 +201,8 @@ columns = [md.expandColumn(), { field: 'name' }];
 
 - **Groups** sidebar tab: check columns to group, reorder levels, **Ungroup**
 - Expand / Collapse / Ungroup live on the held adapter (`groups.expandAll()`, `groups.collapseAll()`, `groups.clear()`) and `DataGridApi` — no default toolbar buttons
-- API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
+- API: `api.toggleGroup(id)`; group columns via the held adapter or
+  `grid.getAdapter(ROW_GROUP_ADAPTER)?.setColumns(['role'])`
 - Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`). The row
   at a path **is** that node (e.g. `['UK']` is the parent of `['UK', 'London']`);
   group rows are synthesized only for missing ancestors. Parent data rows show an

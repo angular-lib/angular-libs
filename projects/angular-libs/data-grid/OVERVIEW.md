@@ -715,7 +715,7 @@ instance; `context` stays host-only. See [PLUGINS.md](./PLUGINS.md).
 CSV / autosize · filter/sort/quick models · state get/set · selection · find ·
 focus (`focusCell` / `focusRow`) · `getDisplayedRowCount` (data rows) /
 `getDisplayRowCount` (data+group+plugin) · row edit start/stop · row group /
-tree bind + expand · clipboard text · locale · `recomposePlugins`
+tree bind + expand · clipboard text · locale · `setPlugins` recomposition
 
 Feature-heavy ops prefer **held adapters** (`rowGroupPlugin().setColumns`).
 

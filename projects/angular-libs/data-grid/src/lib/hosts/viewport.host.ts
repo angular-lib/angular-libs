@@ -27,10 +27,6 @@ import {
   resolveRowDropDataIndex,
 } from '../utils/row-interactions';
 import type { ViewportDeps } from './binder-surface';
-import type {
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-} from '../api/grid-api';
 import { focusRealmOf, leafHeaderRowIndex, type FocusCell } from '../controllers/focus';
 import type { ResolvedColumn, SideBarConfig } from '../components/data-grid/data-grid.types';
 import {
@@ -63,8 +59,6 @@ export class ViewportHost<T> {
   readonly collapsedGroupIds: Signal<ReadonlySet<string>> = computed(() =>
     this.s.kernel().capabilities.collapsedGroupIds(),
   );
-  readonly boundRowGroupAdapter: WritableSignal<BoundRowGroupAdapter | null> = signal(null);
-  readonly boundTreeDataAdapter: WritableSignal<BoundTreeDataAdapter | null> = signal(null);
   readonly rowDragFromIndex: WritableSignal<number | null> = signal<number | null>(null);
   readonly rowDragOverIndex: WritableSignal<number | null> = signal<number | null>(null);
 
@@ -183,10 +177,6 @@ export class ViewportHost<T> {
         Object.values(this.s.filters()).some((v) => !!v?.trim()),
       displayIsFlat: !this.s.displayRows().some((row) => row.kind !== 'data'),
     }),
-  );
-
-  readonly rowGroupColumnIds: Signal<readonly string[]> = computed(
-    () => this.boundRowGroupAdapter()?.columns() ?? [],
   );
 
   /** Server pagination: `[data]` is the current page, `serverRowCount` the total (V5). */
@@ -468,31 +458,11 @@ export class ViewportHost<T> {
     this.s.kernel().capabilities.expandAllGroups();
   }
 
-  setRowGroupColumns(columns: readonly string[]): void {
-    this.boundRowGroupAdapter()?.setColumns(columns);
-  }
-
-  getRowGroupColumns(): string[] {
-    return [...(this.boundRowGroupAdapter()?.columns() ?? [])];
-  }
-
-  clearRowGroup(): void {
-    this.boundRowGroupAdapter()?.clear();
-  }
-
   collapseAll(): void {
     this.s.kernel().capabilities.collapseAllGroups(
       this.s.processedRows(),
       this.s.rowModelContext(),
     );
-  }
-
-  bindRowGroupAdapter(adapter: BoundRowGroupAdapter | null): void {
-    this.boundRowGroupAdapter.set(adapter);
-  }
-
-  bindTreeDataAdapter(adapter: BoundTreeDataAdapter | null): void {
-    this.boundTreeDataAdapter.set(adapter);
   }
 
   measureViewport(): void {

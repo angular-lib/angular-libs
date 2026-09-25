@@ -55,6 +55,7 @@ describe('clipboardPlugin copy', () => {
       injector: null as never,
       slots: { enableCopy: () => () => undefined } as never,
       capabilities: caps,
+      adapters: null as never,
     });
 
     const copy = caps.getInteractions().find((item) => item.id === 'clipboard-copy');
@@ -88,6 +89,7 @@ describe('clipboardPlugin copy', () => {
       injector: null as never,
       slots: { enableCopy: () => () => undefined } as never,
       capabilities: caps,
+      adapters: null as never,
     });
 
     const copy = caps.getInteractions().find((item) => item.id === 'clipboard-copy');
@@ -144,7 +146,6 @@ describe('clipboardPlugin paste', () => {
         getFocusedCell: () => ({ ...focus, realm: 'body' }),
         getPagedDisplayRows: () => display,
         getVisibleColumnIds: () => columns.map((c) => c.id),
-        getCellRange: () => null,
         getColumnsById: () => new Map(columns.map((c) => [c.id, c])),
         getProcessedRows: () => processed,
         resolveRowId: (row: Emp) => row.id,
@@ -155,6 +156,7 @@ describe('clipboardPlugin paste', () => {
       injector: null as never,
       slots: { enablePaste: () => () => undefined } as never,
       capabilities: caps,
+      adapters: null as never,
     });
     const detach = caps.getInteractions().find((i) => i.id === 'clipboard-paste')!.setup(host);
     const event = new Event('paste', { bubbles: true, cancelable: true });

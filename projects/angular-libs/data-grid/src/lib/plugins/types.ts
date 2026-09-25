@@ -14,6 +14,7 @@ import type {
 } from '../components/data-grid/data-grid.types';
 import type { DataGridApi } from '../api/grid-api';
 import type { GridCapabilities } from './capabilities';
+import type { GridAdapterRegistry } from './adapter-registry';
 import type { GridController } from '../create-grid';
 
 /** Named UI contribution points plugins can fill. */
@@ -58,6 +59,8 @@ export interface DataGridStatusBarSlotItem {
   id: string;
   order?: number;
   text: () => string;
+  /** This item shows the row count — the pagination footer then hides its own. */
+  rowCount?: boolean;
 }
 
 export interface DataGridSidebarSlotItem {
@@ -83,8 +86,14 @@ export interface InfiniteScrollFeatureConfig {
 }
 
 /**
- * Context provided to plugin lifecycle hooks.
+ * Context provided to plugin lifecycle hooks — one per plugin **per grid**
+ * (a plugin instance shared by two grids gets two contexts; keep per-grid
+ * state keyed by context, not in the factory closure).
  * Prefer `api` + `capabilities` over reaching into the component.
+ *
+ * `slots` / `capabilities` / `adapters` are scoped to the plugin: every
+ * `register*` / `enable*` made through them is undone when the plugin is torn
+ * down, or when its `setup` throws.
  */
 export interface DataGridPluginContext<T = unknown> {
   api: DataGridApi<T>;
@@ -93,6 +102,8 @@ export interface DataGridPluginContext<T = unknown> {
   slots: DataGridSlotRegistry;
   /** Register row-model / interaction / aggregate contributions. */
   capabilities: GridCapabilities<T>;
+  /** Publish held adapters for discovery (`api.getAdapter(key)`). */
+  adapters: GridAdapterRegistry;
 }
 
 /**
@@ -225,53 +236,172 @@ export function dedupePlugins<T>(plugins: readonly DataGridPlugin<T>[]): DataGri
   return [...map.values(), ...anonymous];
 }
 
-export function activatePlugins<T>(
-  plugins: readonly DataGridPlugin<T>[],
-  context: DataGridPluginContext<T>,
-): () => void {
-  const cleanups: Array<() => void> = [];
-  for (const plugin of dedupePlugins(plugins)) {
-    try {
-      const cleanup = plugin.setup?.(context);
-      if (typeof cleanup === 'function') {
-        cleanups.push(cleanup);
-      }
-    } catch (err) {
-      console.error(`[data-grid] plugin setup failed${plugin.id ? ` (${plugin.id})` : ''}`, err);
-    }
+/** Reports a plugin failure (`phase` = `setup` / `cleanup` / hook name). */
+export type PluginErrorReporter = (error: unknown, phase: string, pluginId?: string) => void;
+
+const consoleReporter: PluginErrorReporter = (error, phase, pluginId) =>
+  console.error(`[data-grid] plugin ${phase} failed${pluginId ? ` (${pluginId})` : ''}`, error);
+
+/** One set-up plugin: its scoped context and a teardown that undoes everything. */
+export interface ActivePlugin<T = unknown> {
+  readonly plugin: DataGridPlugin<T>;
+  readonly context: DataGridPluginContext<T>;
+  /** Plugin cleanup, then every registration it made (each error reported, never thrown). */
+  dispose(): void;
+}
+
+const REGISTRATION_METHOD = /^(register|enable)([A-Z]|$)/;
+
+/**
+ * View of a registry whose `register*` / `enable*` methods record the returned
+ * cleanup via `record` (prototype methods only; own fields such as signals pass through).
+ */
+function scopeRegistrations<R extends object>(
+  target: R,
+  record: (cleanup: () => void) => () => void,
+): R {
+  if (!target || typeof target !== 'object') {
+    return target;
   }
-  return () => {
-    for (const cleanup of cleanups.splice(0).reverse()) {
+  return new Proxy(target, {
+    get(t, key) {
+      const value = Reflect.get(t, key, t) as unknown;
+      if (
+        typeof key !== 'string' ||
+        typeof value !== 'function' ||
+        Object.prototype.hasOwnProperty.call(t, key)
+      ) {
+        return value;
+      }
+      const method = value as (...args: unknown[]) => unknown;
+      if (!REGISTRATION_METHOD.test(key)) {
+        return method.bind(t);
+      }
+      return (...args: unknown[]) => {
+        const out = method.apply(t, args);
+        return typeof out === 'function' ? record(out as () => void) : out;
+      };
+    },
+  });
+}
+
+/**
+ * Run one plugin's `setup` against a scoped view of `base`. When `setup` throws,
+ * its partial registrations are rolled back, the error is reported and `null`
+ * is returned — other plugins are unaffected.
+ */
+export function setupPlugin<T>(
+  plugin: DataGridPlugin<T>,
+  base: DataGridPluginContext<T>,
+  report: PluginErrorReporter = consoleReporter,
+): ActivePlugin<T> | null {
+  const registrations: Array<() => void> = [];
+  const record = (cleanup: () => void): (() => void) => {
+    let done = false;
+    const once = (): void => {
+      if (!done) {
+        done = true;
+        cleanup();
+      }
+    };
+    registrations.push(once);
+    return once;
+  };
+  const rollback = (): void => {
+    for (const cleanup of registrations.splice(0).reverse()) {
       try {
         cleanup();
       } catch (err) {
-        console.error('[data-grid] plugin cleanup failed', err);
+        report(err, 'cleanup', plugin.id);
       }
+    }
+  };
+  const context: DataGridPluginContext<T> = {
+    ...base,
+    slots: scopeRegistrations(base.slots, record),
+    capabilities: scopeRegistrations(base.capabilities, record),
+    adapters: scopeRegistrations(base.adapters, record),
+  };
+  let cleanup: (() => void) | null = null;
+  try {
+    const out = plugin.setup?.(context);
+    cleanup = typeof out === 'function' ? out : null;
+  } catch (err) {
+    report(err, 'setup', plugin.id);
+    rollback();
+    return null;
+  }
+  return {
+    plugin,
+    context,
+    dispose: () => {
+      try {
+        cleanup?.();
+      } catch (err) {
+        report(err, 'cleanup', plugin.id);
+      }
+      cleanup = null;
+      rollback();
+    },
+  };
+}
+
+/**
+ * Set up a plugin list (deduped) with per-plugin isolation — see {@link setupPlugin}.
+ * Returns a teardown for all of them (reverse order).
+ */
+export function activatePlugins<T>(
+  plugins: readonly DataGridPlugin<T>[],
+  context: DataGridPluginContext<T>,
+  report: PluginErrorReporter = consoleReporter,
+): () => void {
+  const active: ActivePlugin<T>[] = [];
+  for (const plugin of dedupePlugins(plugins)) {
+    const entry = setupPlugin(plugin, context, report);
+    if (entry) {
+      active.push(entry);
+    }
+  }
+  return () => {
+    for (const entry of active.splice(0).reverse()) {
+      entry.dispose();
     }
   };
 }
 
+export type PluginHook = keyof Pick<
+  DataGridPlugin,
+  'onStateChange' | 'onSelectionChange' | 'onSortChange' | 'onFilterChange'
+>;
+
+/** Call `hook` on every plugin; a throwing hook is reported and skipped. */
 export function notifyPlugins<T>(
   plugins: readonly DataGridPlugin<T>[],
   context: DataGridPluginContext<T>,
-  hook: keyof Pick<
-    DataGridPlugin<T>,
-    'onStateChange' | 'onSelectionChange' | 'onSortChange' | 'onFilterChange'
-  >,
+  hook: PluginHook,
   payload: unknown,
+  report: PluginErrorReporter = consoleReporter,
 ): void {
   for (const plugin of dedupePlugins(plugins)) {
-    try {
-      const fn = plugin[hook] as
-        | ((ctx: DataGridPluginContext<T>, payload: unknown) => void)
-        | undefined;
-      fn?.(context, payload);
-    } catch (err) {
-      console.error(
-        `[data-grid] plugin ${hook} failed${plugin.id ? ` (${plugin.id})` : ''}`,
-        err,
-      );
-    }
+    notifyPlugin(plugin, context, hook, payload, report);
+  }
+}
+
+/** @internal Single-plugin notify used by the kernel (per-plugin context). */
+export function notifyPlugin<T>(
+  plugin: DataGridPlugin<T>,
+  context: DataGridPluginContext<T>,
+  hook: PluginHook,
+  payload: unknown,
+  report: PluginErrorReporter = consoleReporter,
+): void {
+  try {
+    const fn = plugin[hook] as
+      | ((ctx: DataGridPluginContext<T>, payload: unknown) => void)
+      | undefined;
+    fn?.call(plugin, context, payload);
+  } catch (err) {
+    report(err, hook, plugin.id);
   }
 }
 

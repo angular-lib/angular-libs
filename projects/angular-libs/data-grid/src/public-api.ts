@@ -8,24 +8,15 @@
 
 export { DataGrid } from './lib/components/data-grid/data-grid';
 export { DataGridApi } from './lib/api/grid-api';
-export type {
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-  BoundCellRangeAdapter,
-} from './lib/api/grid-api';
+export { adapterKey } from './lib/plugins/adapter-registry';
+export type { AdapterKey } from './lib/plugins/adapter-registry';
 export { GridEventBus } from './lib/api/grid-events';
 export type {
   DataGridEventMap,
   DataGridEventName,
   GridEventUnsubscribe,
 } from './lib/api/grid-events';
-export {
-  createGrid,
-  pickAdapter,
-  isRowGroupAdapter,
-  isTreeDataAdapter,
-  isCellRangeAdapter,
-} from './lib/create-grid';
+export { createGrid } from './lib/create-grid';
 export type {
   CreateGridOptions,
   GridChromeOptions,

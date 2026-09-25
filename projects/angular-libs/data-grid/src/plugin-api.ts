@@ -14,8 +14,12 @@ export {
   activatePlugins as ɵactivatePlugins,
   dedupePlugins as ɵdedupePlugins,
   notifyPlugins as ɵnotifyPlugins,
+  setupPlugin as ɵsetupPlugin,
 } from './lib/plugins/types';
 export type {
+  ActivePlugin as ɵActivePlugin,
+  PluginErrorReporter as ɵPluginErrorReporter,
+  PluginHook as ɵPluginHook,
   DataGridPlugin as ɵDataGridPlugin,
   DataGridPluginContext as ɵDataGridPluginContext,
   DataGridSlotId as ɵDataGridSlotId,
@@ -30,13 +34,13 @@ export type {
 export { GridKernel as ɵGridKernel } from './lib/kernel/grid-kernel';
 export type { GridKernelOptions as ɵGridKernelOptions } from './lib/kernel/grid-kernel';
 
-export {
-  GridCapabilities as ɵGridCapabilities,
-  ROW_GROUP_ADAPTER as ɵROW_GROUP_ADAPTER,
-  TREE_DATA_ADAPTER as ɵTREE_DATA_ADAPTER,
-} from './lib/plugins/capabilities';
+export { GridCapabilities as ɵGridCapabilities } from './lib/plugins/capabilities';
+export { GridAdapterRegistry as ɵGridAdapterRegistry } from './lib/plugins/adapter-registry';
 export type {
   AggregateContribution as ɵAggregateContribution,
+  CellWidgetContribution as ɵCellWidgetContribution,
+  RangeSelectionContribution as ɵRangeSelectionContribution,
+  RowAriaContribution as ɵRowAriaContribution,
   CellDecoratorContext as ɵCellDecoratorContext,
   CellDecoratorContribution as ɵCellDecoratorContribution,
   ContextMenuContribution as ɵContextMenuContribution,
@@ -66,6 +70,7 @@ export type {
 } from './lib/api/compose-host';
 
 export type {
+  DataGridAdaptersHost as ɵDataGridAdaptersHost,
   DataGridApiHost as ɵDataGridApiHost,
   DataGridClipboardHost as ɵDataGridClipboardHost,
   DataGridColumnsHost as ɵDataGridColumnsHost,
@@ -76,7 +81,6 @@ export type {
   DataGridSelectionHost as ɵDataGridSelectionHost,
   DataGridSideBarApiHost as ɵDataGridSideBarApiHost,
   DataGridViewportHost as ɵDataGridViewportHost,
-  PluginLifecycle as ɵPluginLifecycle,
 } from './lib/api/grid-api';
 
 export {

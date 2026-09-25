@@ -15,7 +15,8 @@ export type RowDragPlugin<T = unknown> = DataGridPlugin<T> & RowDragAdapter;
  * Adds a row-drag handle column and emits `rowReorder` when rows are dropped.
  *
  * {@link RowDragAdapter.setEnabled} toggles `enableRowDrag` — no remount / plugin list rebuild.
- * Pass `false` or `{ enabled: false }` to start disabled.
+ * Pass `false` or `{ enabled: false }` to start disabled. One instance may serve
+ * several grids: state is per grid and `setEnabled` applies to all of them.
  */
 export function rowDragPlugin<T = unknown>(
   options: RowDragPluginOptions = true,
@@ -23,17 +24,15 @@ export function rowDragPlugin<T = unknown>(
   const initiallyOn = typeof options === 'boolean' ? options : (options.enabled ?? true);
   const enabled = signal(initiallyOn);
 
-  let context: DataGridPluginContext<T> | null = null;
-  let clearDrag: (() => void) | null = null;
+  /** Per attached grid: its context + the `enableRowDrag` cleanup while on. */
+  const grids = new Map<DataGridPluginContext<T>, { clearDrag: (() => void) | null }>();
 
-  const apply = (): void => {
-    clearDrag?.();
-    clearDrag = null;
-    const ctx = context;
-    if (!ctx || !enabled()) {
-      return;
-    }
-    clearDrag = ctx.slots.enableRowDrag();
+  const apply = (
+    ctx: DataGridPluginContext<T>,
+    state: { clearDrag: (() => void) | null },
+  ): void => {
+    state.clearDrag?.();
+    state.clearDrag = enabled() ? ctx.slots.enableRowDrag() : null;
   };
 
   return {
@@ -44,15 +43,18 @@ export function rowDragPlugin<T = unknown>(
         return;
       }
       enabled.set(next);
-      apply();
+      for (const [ctx, state] of grids) {
+        apply(ctx, state);
+      }
     },
     setup(ctx: DataGridPluginContext<T>): () => void {
-      context = ctx;
-      apply();
+      const state = { clearDrag: null as (() => void) | null };
+      grids.set(ctx, state);
+      apply(ctx, state);
       return () => {
-        clearDrag?.();
-        clearDrag = null;
-        context = null;
+        state.clearDrag?.();
+        state.clearDrag = null;
+        grids.delete(ctx);
       };
     },
   };

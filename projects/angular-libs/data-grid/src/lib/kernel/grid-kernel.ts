@@ -3,15 +3,27 @@
  * The DataGrid component binds inputs/outputs and owns Angular template state.
  */
 
-import { Injector, signal, untracked, type WritableSignal } from '@angular/core';
+import {
+  ErrorHandler,
+  Injector,
+  signal,
+  untracked,
+  type Signal,
+  type WritableSignal,
+} from '@angular/core';
 import { FocusController, type FocusCell, type FocusChangeReason } from '../controllers/focus';
 import { FindController } from '../controllers/find';
 import { DataGridApi } from '../api/grid-api';
-import { GridCapabilities } from '../plugins/capabilities';
+import { GridCapabilities, type InteractionContribution } from '../plugins/capabilities';
+import { GridAdapterRegistry } from '../plugins/adapter-registry';
 import {
-  activatePlugins,
   DataGridSlotRegistry,
+  dedupePlugins,
+  notifyPlugin,
+  setupPlugin,
+  type ActivePlugin,
   type DataGridPlugin,
+  type PluginHook,
   type DataGridPluginContext,
   type DataGridSidebarSlotItem,
   type DataGridStatusBarSlotItem,
@@ -34,7 +46,7 @@ export interface GridKernelOptions<T> {
   onToggleSelect?: (rowIndex: number) => void;
   onSelectAll?: () => boolean | void;
   onToggleGroup?: (rowIndex: number) => void;
-  /** Enter on an already-open master-detail expand cell — enter the nested widget. */
+  /** Enter on a focused cell widget — enter its nested widget (see `registerCellWidget`). */
   onEnterWidget?: (rowIndex: number) => boolean;
   isGroupRow?: (rowIndex: number) => boolean;
   isSkipRow?: (rowIndex: number) => boolean;
@@ -57,6 +69,8 @@ export interface GridKernelOptions<T> {
  */
 export class GridKernel<T = unknown> {
   readonly capabilities = new GridCapabilities<T>();
+  /** Held adapters published by this grid's plugins (`api.getAdapter`). */
+  readonly adapters = new GridAdapterRegistry();
 
   readonly toolbarSlotItems: WritableSignal<DataGridToolbarSlotItem[]> = signal([]);
   readonly statusBarSlotItems: WritableSignal<DataGridStatusBarSlotItem[]> = signal([]);
@@ -81,8 +95,13 @@ export class GridKernel<T = unknown> {
   readonly focus: FocusController;
   readonly find: FindController;
 
-  private pluginCleanup: (() => void) | null = null;
-  private interactionCleanups: Array<() => void> = [];
+  /** Set-up plugins in list order, keyed by instance identity. */
+  private active = new Map<DataGridPlugin<T>, ActivePlugin<T>>();
+  private readonly activeList: WritableSignal<readonly DataGridPlugin<T>[]> = signal([]);
+  /** Last deduped input list — recomposition no-ops when it is unchanged. */
+  private lastInput: readonly DataGridPlugin<T>[] = [];
+  /** Attached interaction contributions → their cleanup. */
+  private readonly attached = new Map<InteractionContribution, (() => void) | null>();
   /** Host element once the binder has mounted — required for recomposition. */
   private hostElement: HTMLElement | null = null;
   private rowDragDisplayWarn = false;
@@ -127,6 +146,10 @@ export class GridKernel<T = unknown> {
     });
   }
 
+  /** Plugins currently set up (deduped; excludes plugins whose `setup` threw). */
+  readonly activePlugins: Signal<readonly DataGridPlugin<T>[]> = this.activeList.asReadonly();
+
+  /** Unscoped base context — plugins receive a per-plugin scoped view of it. */
   pluginContext(element: HTMLElement): DataGridPluginContext<T> {
     return {
       api: this.options.api,
@@ -134,36 +157,119 @@ export class GridKernel<T = unknown> {
       injector: this.injector,
       slots: this.slots,
       capabilities: this.capabilities,
+      adapters: this.adapters,
     };
   }
 
   /**
    * Imperative plugin lifecycle — never call from an `effect` that should track
    * slot/capability reads. Registry mutation runs inside `untracked` so a
-   * mistaken reactive caller cannot freeze the app.
+   * mistaken reactive caller cannot freeze the app. Each plugin's setup /
+   * cleanup / interactions are isolated: failures go to Angular's `ErrorHandler`.
    */
   activatePlugins(plugins: readonly DataGridPlugin<T>[], element: HTMLElement): void {
     this.hostElement = element;
-    untracked(() => {
-      this.teardownPlugins();
-      const ctx = this.pluginContext(element);
-      this.pluginCleanup = activatePlugins(plugins, ctx);
-      this.attachInteractions(element);
-      this.warnRowDragWithDisplayBuilder();
-    });
+    this.syncPlugins(plugins, element);
   }
 
   /**
-   * Re-run setup with a new list after mount (e.g. `createGrid().setPlugins`).
-   * No-ops until the binder has activated once. Prefer held-adapter toggles for chrome.
+   * Reconcile to a new list after mount (the binder calls this when the
+   * controller's plugin signal changes). Keyed by instance identity: removed
+   * instances are torn down, added ones set up, unchanged ones untouched.
+   * No-ops until the binder has activated once, or when the list is unchanged.
    */
   recomposePlugins(plugins: readonly DataGridPlugin<T>[]): void {
     const element = this.hostElement;
     if (!element) {
       return;
     }
-    this.activatePlugins(plugins, element);
+    this.syncPlugins(plugins, element);
   }
+
+  /** Run a lifecycle hook on every active plugin with its own context. */
+  notifyPlugins(hook: PluginHook, payload: unknown): void {
+    for (const entry of this.active.values()) {
+      notifyPlugin(entry.plugin, entry.context, hook, payload, this.reportPluginError);
+    }
+  }
+
+  private syncPlugins(plugins: readonly DataGridPlugin<T>[], element: HTMLElement): void {
+    untracked(() => {
+      const next = dedupePlugins(plugins);
+      const current = this.lastInput;
+      if (next.length === current.length && next.every((p, i) => p === current[i])) {
+        return;
+      }
+      this.lastInput = next;
+      const keep = new Set(next);
+      for (const [plugin, entry] of [...this.active].reverse()) {
+        if (!keep.has(plugin)) {
+          this.active.delete(plugin);
+          entry.dispose();
+        }
+      }
+      this.syncInteractions(element);
+      const base = this.pluginContext(element);
+      const ordered = new Map<DataGridPlugin<T>, ActivePlugin<T>>();
+      for (const plugin of next) {
+        const entry = this.active.get(plugin) ?? setupPlugin(plugin, base, this.reportPluginError);
+        if (entry) {
+          ordered.set(plugin, entry);
+        }
+      }
+      this.active = ordered;
+      this.activeList.set([...ordered.keys()]);
+      this.syncInteractions(element);
+      this.warnRowDragWithDisplayBuilder();
+    });
+  }
+
+  /** Detach interactions no longer registered, attach new ones — each isolated. */
+  private syncInteractions(element: HTMLElement): void {
+    const registered = new Set(this.capabilities.getInteractions());
+    for (const [interaction, cleanup] of [...this.attached].reverse()) {
+      if (!registered.has(interaction)) {
+        this.attached.delete(interaction);
+        this.runInteractionCleanup(interaction, cleanup);
+      }
+    }
+    for (const interaction of registered) {
+      if (this.attached.has(interaction)) {
+        continue;
+      }
+      try {
+        const cleanup = interaction.setup(element);
+        this.attached.set(interaction, typeof cleanup === 'function' ? cleanup : null);
+      } catch (err) {
+        this.attached.set(interaction, null);
+        this.reportPluginError(err, 'interaction setup', interaction.id);
+      }
+    }
+  }
+
+  private runInteractionCleanup(
+    interaction: InteractionContribution,
+    cleanup: (() => void) | null,
+  ): void {
+    try {
+      cleanup?.();
+    } catch (err) {
+      this.reportPluginError(err, 'interaction cleanup', interaction.id);
+    }
+  }
+
+  /** Route plugin failures to Angular's `ErrorHandler` (console fallback). */
+  private readonly reportPluginError = (error: unknown, phase: string, id?: string): void => {
+    const wrapped = new Error(`[data-grid] plugin ${phase} failed${id ? ` (${id})` : ''}`, {
+      cause: error,
+    });
+    const handler = this.injector.get(ErrorHandler, null);
+    if (handler) {
+      handler.handleError(wrapped);
+    } else {
+      console.error(wrapped);
+    }
+  };
 
   private warnRowDragWithDisplayBuilder(): void {
     if (this.rowDragDisplayWarn) {
@@ -177,23 +283,22 @@ export class GridKernel<T = unknown> {
     }
   }
 
-  private attachInteractions(element: HTMLElement): void {
-    for (const interaction of this.capabilities.getInteractions()) {
-      const cleanup = interaction.setup(element);
-      if (typeof cleanup === 'function') {
-        this.interactionCleanups.push(cleanup);
-      }
-    }
-  }
-
   teardownPlugins(): void {
-    for (const cleanup of this.interactionCleanups.splice(0).reverse()) {
-      cleanup();
-    }
-    this.pluginCleanup?.();
-    this.pluginCleanup = null;
-    this.slots.clearAll();
-    this.capabilities.clearAll();
+    untracked(() => {
+      for (const [interaction, cleanup] of [...this.attached].reverse()) {
+        this.runInteractionCleanup(interaction, cleanup);
+      }
+      this.attached.clear();
+      for (const entry of [...this.active.values()].reverse()) {
+        entry.dispose();
+      }
+      this.active = new Map();
+      this.activeList.set([]);
+      this.lastInput = [];
+      this.slots.clearAll();
+      this.capabilities.clearAll();
+      this.adapters.clearAll();
+    });
   }
 
   /** Binder destroy — clears host so late `recomposePlugins` is a no-op. */

@@ -5,11 +5,12 @@
 
 import { computed, signal, type Signal, type WritableSignal } from '@angular/core';
 import type {
+  CellRange,
   ColumnDef,
   DataGridContextMenuContext,
   DataGridContextMenuItem,
 } from '../components/data-grid/data-grid.types';
-import type { DisplayRow } from '../utils/row-display';
+import type { CustomDisplayRow, DisplayRow } from '../utils/row-display';
 import { wrapDataRows } from '../utils/row-display';
 
 export interface RowModelContext<T = unknown> {
@@ -86,6 +87,54 @@ export interface AggregateContribution<T = unknown> {
 export interface DisplayViewContribution {
   kind: string;
   component: import('@angular/core').Type<unknown>;
+  /**
+   * The view hosts its own focus realm (e.g. a nested grid): the row shell is
+   * not a focus stop and gets no focused chrome. Default false.
+   */
+  nestedWidget?: boolean;
+  /** DOM id for the row shell (target of a master row's `aria-details`). */
+  regionId?: (item: CustomDisplayRow) => string | null;
+}
+
+/**
+ * Interactive cell widget (e.g. a master-detail expand toggle). On a focused
+ * body cell the widget owns Enter / Space instead of edit / select.
+ */
+export interface CellWidgetContribution<T = unknown> {
+  id: string;
+  /** Column hosting the widget — an id, or a predicate over column ids. */
+  columnId: string | ((columnId: string) => boolean);
+  /** Whether this row shows the widget. Default: every data row. */
+  isActive?: (row: T, rowId: string | number) => boolean;
+  /** Enter / Space — e.g. expand / collapse. */
+  toggle: (row: T, rowId: string | number) => void;
+  /**
+   * Enter, tried before {@link toggle}: move into a nested widget (e.g. an
+   * open detail grid). Return `true` when handled.
+   */
+  enter?: (row: T, rowId: string | number) => boolean;
+}
+
+/** Extra ARIA on body data rows (e.g. `aria-details` → an open detail region). */
+export interface RowAriaContribution<T = unknown> {
+  id: string;
+  ariaDetails?: (row: T, rowId: string | number) => string | null;
+}
+
+/**
+ * Cell-range selection source. The grid reads it for range paint, ARIA
+ * selection, Escape, Shift+arrow and copy. One active source (last wins).
+ */
+export interface RangeSelectionContribution {
+  id: string;
+  range: () => CellRange | null;
+  clear: () => void;
+  /** Shift+arrow extend of the active corner. Return `true` when handled. */
+  extend?: (dRow: number, dCol: number) => boolean;
+  /** TSV for copy — when non-null it wins over row selection. */
+  clipboardText?: () => string | null;
+  /** Paint a fill handle on the range ring. Default true. */
+  fillHandle?: boolean;
 }
 
 /** Context for plugin cell class decorations. */
@@ -146,6 +195,9 @@ export class GridCapabilities<T = unknown> {
   private readonly contextMenuContributions: WritableSignal<ContextMenuContribution<T>[]> =
     signal([]);
   private readonly overlayContributions: WritableSignal<OverlayContribution[]> = signal([]);
+  private readonly cellWidgets: WritableSignal<CellWidgetContribution<T>[]> = signal([]);
+  private readonly rowAria: WritableSignal<RowAriaContribution<T>[]> = signal([]);
+  private readonly rangeSelections: WritableSignal<RangeSelectionContribution[]> = signal([]);
   /** Bumped when overlay layouts should be re-read (range/scroll/resize). */
   private readonly overlayPaintEpochSignal: WritableSignal<number> = signal(0);
   /** Grid-owned expansion state for display builders without their own store. */
@@ -251,6 +303,63 @@ export class GridCapabilities<T = unknown> {
       this.overlayContributions.update((list) => list.filter((o) => o.id !== contribution.id));
       this.invalidateOverlays();
     };
+  }
+
+  registerCellWidget(widget: CellWidgetContribution<T>): () => void {
+    this.cellWidgets.update((list) => [...list.filter((w) => w.id !== widget.id), widget]);
+    return () => this.cellWidgets.update((list) => list.filter((w) => w !== widget));
+  }
+
+  registerRowAria(contribution: RowAriaContribution<T>): () => void {
+    this.rowAria.update((list) => [...list.filter((a) => a.id !== contribution.id), contribution]);
+    return () => this.rowAria.update((list) => list.filter((a) => a !== contribution));
+  }
+
+  registerRangeSelection(contribution: RangeSelectionContribution): () => void {
+    this.rangeSelections.update((list) => [
+      ...list.filter((r) => r.id !== contribution.id),
+      contribution,
+    ]);
+    this.invalidateOverlays();
+    return () => {
+      this.rangeSelections.update((list) => list.filter((r) => r !== contribution));
+      this.invalidateOverlays();
+    };
+  }
+
+  /** Active range source (last registered), or `null`. */
+  rangeSelection(): RangeSelectionContribution | null {
+    const list = this.rangeSelections();
+    return list[list.length - 1] ?? null;
+  }
+
+  /** Widget owning `columnId` on this row, or `null`. */
+  resolveCellWidget(
+    columnId: string,
+    row: T,
+    rowId: string | number,
+  ): CellWidgetContribution<T> | null {
+    for (const widget of this.cellWidgets()) {
+      const onColumn =
+        typeof widget.columnId === 'function'
+          ? widget.columnId(columnId)
+          : widget.columnId === columnId;
+      if (onColumn && (widget.isActive?.(row, rowId) ?? true)) {
+        return widget;
+      }
+    }
+    return null;
+  }
+
+  /** First non-null `aria-details` from row ARIA contributions. */
+  resolveRowAriaDetails(row: T, rowId: string | number): string | null {
+    for (const contribution of this.rowAria()) {
+      const id = contribution.ariaDetails?.(row, rowId);
+      if (id) {
+        return id;
+      }
+    }
+    return null;
   }
 
   /** Ask the binder to re-read overlay `layout()` callbacks (range/scroll/resize). */
@@ -381,6 +490,9 @@ export class GridCapabilities<T = unknown> {
     this.cellDecorators.set([]);
     this.contextMenuContributions.set([]);
     this.overlayContributions.set([]);
+    this.cellWidgets.set([]);
+    this.rowAria.set([]);
+    this.rangeSelections.set([]);
     this.overlayPaintEpochSignal.set(0);
     this.fallbackCollapsed.set(new Set());
   }
@@ -399,7 +511,3 @@ function toggleInSet(prev: ReadonlySet<string>, id: string): ReadonlySet<string>
 function sortByOrder<T extends { id: string; order?: number }>(items: T[]): T[] {
   return [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id));
 }
-
-/** DI token string key for optional adapters provided by plugins. */
-export const ROW_GROUP_ADAPTER = 'al.data-grid.RowGroupAdapter' as const;
-export const TREE_DATA_ADAPTER = 'al.data-grid.TreeDataAdapter' as const;

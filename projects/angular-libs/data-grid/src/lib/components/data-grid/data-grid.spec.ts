@@ -19,12 +19,7 @@ import {
   reconcileHiddenColumnIds,
 } from '../../utils/column-layout';
 import { FocusController } from '../../controllers/focus';
-import {
-  masterDetailAriaDetailsOf,
-  masterDetailRegionId,
-  pluginMasterRowId,
-  selectRowAriaLabelOf,
-} from '../../hosts/binder-template.helpers';
+import { selectRowAriaLabelOf } from '../../hosts/binder-template.helpers';
 import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
 import { parseGridState, serializeGridState } from '../../utils/state';
@@ -34,6 +29,8 @@ import { parseClipboardMatrix, tileMatrix } from '../../utils/clipboard-paste';
 import {
   findPlugin,
   masterDetailPlugin,
+  masterDetailRegionId,
+  ROW_GROUP_ADAPTER,
   MasterDetailDefaultView,
   rowGroupPlugin,
   sideBarPlugin,
@@ -210,16 +207,6 @@ describe('data-grid utils', () => {
     expect(selectRowAriaLabelOf('Select row', 4, '  ')).toBe('Select row 5');
     expect(selectRowAriaLabelOf('Select row', 2)).toBe('Select row 3');
     expect(masterDetailRegionId(1)).toBe('al-dg-detail-1');
-    expect(
-      masterDetailAriaDetailsOf(
-        [
-          { kind: 'data', id: 'd:1', rowId: 1, row: { id: 1 }, dataIndex: 0, level: 0 },
-          { kind: 'plugin', pluginKind: 'masterDetail', id: 'md:1' },
-        ],
-        1,
-      ),
-    ).toBe('al-dg-detail-1');
-    expect(pluginMasterRowId({ id: 'md:9', payload: { masterRowId: 9 } })).toBe('9');
   });
 
   it('normalizes dates and navigates focus', () => {
@@ -309,6 +296,7 @@ describe('data-grid utils', () => {
       injector: null as never,
       slots: null as never,
       capabilities: null as never,
+      adapters: null as never,
     };
     expect(() => activatePlugins([badSetup, good], ctx)).not.toThrow();
     expect(() =>
@@ -1447,7 +1435,7 @@ describe('DataGrid master-detail + pagination', () => {
 
 describe('DataGrid master-detail + cell range', () => {
   it('Shift+arrow range skips the open detail panel', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -1479,8 +1467,8 @@ describe('DataGrid master-detail + cell range', () => {
     fixture.detectChanges();
     const api = fixture.componentInstance.grid.api()!;
     api.focusCell(0, 'name');
-    expect(api.extendCellRange(1, 0)).toBe(true);
-    expect(api.getCellRange()).toEqual({
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)!.extendRange(1, 0)).toBe(true);
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toEqual({
       anchor: { rowIndex: 0, columnId: 'name' },
       active: { rowIndex: 2, columnId: 'name' },
     });
@@ -1528,7 +1516,7 @@ describe('DataGrid server-side + master-detail', () => {
 });
 
 describe('createGrid + controller binding', () => {
-  it('exposes rowGroup adapter from held plugin', () => {
+  it('getAdapter is null until a grid binds the controller', () => {
     const groups = rowGroupPlugin<Person>({ columns: ['city'] });
     const grid = createGrid({
       columns,
@@ -1536,10 +1524,7 @@ describe('createGrid + controller binding', () => {
       selection: 'multi',
       plugins: [groups],
     });
-    expect(grid.rowGroup).toBe(groups);
-    expect(grid.rowGroup?.columns()).toEqual(['city']);
-    groups.setColumns(['name']);
-    expect(grid.rowGroup?.columns()).toEqual(['name']);
+    expect(grid.getAdapter(ROW_GROUP_ADAPTER)).toBeNull();
   });
 
   it('updates plugins via setPlugins', () => {
@@ -1552,7 +1537,6 @@ describe('createGrid + controller binding', () => {
     expect(grid.plugins()).toHaveLength(1);
     grid.setPlugins([groups, statusBarPlugin()]);
     expect(grid.plugins()).toHaveLength(2);
-    expect(grid.rowGroup).toBe(groups);
   });
 
   it('renders from [controller] without columns/plugins inputs', async () => {
@@ -1676,6 +1660,9 @@ describe('createGrid + controller binding', () => {
 
     const host = fixture.componentInstance;
     expect(fixture.nativeElement.querySelector('[data-testid="al-dg-status-bar"]')).toBeFalsy();
+    expect(host.grid.getAdapter(ROW_GROUP_ADAPTER)?.columns()).toEqual(['city']);
+    host.groups.setColumns(['name']);
+    expect(host.grid.getAdapter(ROW_GROUP_ADAPTER)?.columns()).toEqual(['name']);
 
     host.grid.setPlugins([host.groups, statusBarPlugin()]);
     fixture.detectChanges();
@@ -2001,7 +1988,7 @@ describe('createGrid + controller binding', () => {
   });
 
   it('cellRangePlugin Shift+arrow extends range and prefers range for copy', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2035,8 +2022,8 @@ describe('createGrid + controller binding', () => {
     expect(api).toBeTruthy();
 
     api!.focusCell(0, 'name');
-    expect(api!.extendCellRange(0, 1)).toBe(true);
-    expect(api!.getCellRange()).toEqual({
+    expect(api!.getAdapter(CELL_RANGE_ADAPTER)!.extendRange(0, 1)).toBe(true);
+    expect(api!.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toEqual({
       anchor: { rowIndex: 0, columnId: 'name' },
       active: { rowIndex: 0, columnId: 'age' },
     });
@@ -2045,12 +2032,12 @@ describe('createGrid + controller binding', () => {
     expect(text).toContain('Ada');
     expect(text).toContain('36');
 
-    api!.clearCellRange();
-    expect(api!.getCellRange()).toBeNull();
+    api!.getAdapter(CELL_RANGE_ADAPTER)?.clearRange();
+    expect(api!.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
   });
 
   it('does not start a cell range from set-filter label clicks', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2109,12 +2096,12 @@ describe('createGrid + controller binding', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
+    expect(fixture.componentInstance.grid.api()?.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
     expect(gridEl.querySelector('[data-testid="al-dg-range-ring"]')).toBeNull();
   });
 
   it('opens cell context menu on right-click even with cellRangePlugin', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2169,7 +2156,7 @@ describe('createGrid + controller binding', () => {
 
     expect(el.querySelector('[data-testid="al-dg-context-menu"]')).toBeTruthy();
     // Right-click must not start a range selection.
-    expect(fixture.componentInstance.grid.api()?.getCellRange()).toBeNull();
+    expect(fixture.componentInstance.grid.api()?.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
   });
 });
 
@@ -2256,7 +2243,7 @@ describe('DataGrid editing API + auto-apply', () => {
   });
 
   it('Escape from an editor cancels edit without clearing the cell range', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
 
     @Component({
       imports: [DataGrid],
@@ -2283,8 +2270,8 @@ describe('DataGrid editing API + auto-apply', () => {
     const host = fixture.componentInstance;
     const api = host.grid.api()!;
     api.focusCell(0, 'name');
-    expect(api.extendCellRange(0, 1)).toBe(true);
-    expect(api.getCellRange()).toBeTruthy();
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)!.extendRange(0, 1)).toBe(true);
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeTruthy();
 
     const grid = fixture.debugElement.query(By.directive(DataGrid)).componentInstance as DataGrid<Person>;
     grid.api.startEditingCell(1, 'age');
@@ -2300,10 +2287,10 @@ describe('DataGrid editing API + auto-apply', () => {
     fixture.detectChanges();
 
     expect(grid.editSyncHost.editingCell()).toBeNull();
-    expect(api.getCellRange()).toBeTruthy();
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeTruthy();
 
     grid.onEscapeKey(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(api.getCellRange()).toBeNull();
+    expect(api.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null).toBeNull();
   });
 
   it('Space on a focused boolean cell toggles the value', async () => {

@@ -323,7 +323,7 @@
                       class="al-data-grid__row"
                       role="row"
                       [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
-                      [attr.aria-details]="masterAriaDetails(id)"
+                      [attr.aria-details]="rowAriaDetails(row, id)"
                       [attr.aria-expanded]="item.hasChildren ? !!item.expanded : null"
                       [attr.data-testid]="'al-dg-row-' + id"
                       [class]="rowClasses(row, rowIndex)"
@@ -637,13 +637,13 @@
                       @case ('plugin') {
                         @let pluginFocused = viewportHost.isBodyRowFocused(displayIndex);
                         @let pluginHeight = item.height ?? rowHeight();
-                        @let detailWidget = isNestedDetailRow(item);
                         @if (session.kernel.capabilities.getDisplayView(item.pluginKind); as view) {
+                          @let detailWidget = !!view.nestedWidget;
                           <div
                             class="al-data-grid__row"
                             [class.al-data-grid__row--detail]="detailWidget"
                             role="row"
-                            [attr.id]="detailRegionId(item)"
+                            [attr.id]="pluginRowRegionId(view, item)"
                             [attr.aria-rowindex]="ariaBodyRowIndex(displayIndex)"
                             [attr.data-testid]="'al-dg-plugin-row-' + item.id"
                             [class.al-data-grid__row--focused]="pluginFocused && !detailWidget"
@@ -779,7 +779,6 @@
         [hiddenColumnIds]="hiddenColumnIds()"
         [filters]="columnLayoutHost.filters()"
         [quickFilter]="quickFilter()"
-        [groupColumnIds]="viewportHost.rowGroupColumnIds()"
         [locale]="resolvedLocale()"
         [setFilterOptionsById]="columnLayoutHost.setFilterOptionsById()"
         (openPanelChange)="viewportHost.activeSidePanel.set($event)"
@@ -790,7 +789,6 @@
         (filterChange)="columnLayoutHost.setFilter($event.columnId, $event.value)"
         (quickFilterChange)="columnLayoutHost.setQuickFilter($event)"
         (clearAll)="columnLayoutHost.clearFilters()"
-        (groupColumnsChange)="viewportHost.setRowGroupColumns($event)"
       />
     </ng-template>
 

@@ -1,5 +1,6 @@
-import { signal } from '@angular/core';
+import { isDevMode, signal } from '@angular/core';
 import {
+  adapterKey,
   applyPasteMatrix,
   cellParseContextFromLocale,
   escapeClipboardCell,
@@ -47,6 +48,9 @@ export interface CellRangeAdapter {
 
 export type CellRangePlugin<T = unknown> = DataGridPlugin<T> & CellRangeAdapter;
 
+/** Discovery key for the per-grid range adapter — `api.getAdapter(CELL_RANGE_ADAPTER)`. */
+export const CELL_RANGE_ADAPTER = adapterKey<CellRangeAdapter>('cellRange');
+
 export interface CellRangePluginOptions {
   /** Enable pointer drag-select (default true). */
   dragSelect?: boolean;
@@ -62,8 +66,12 @@ export interface CellRangePluginOptions {
  *
  * Not included in `defaultGridPlugins()` — add explicitly.
  *
- * Overlay paint is binder-owned (from `api.getCellRange()`); this plugin owns
- * range state, drag-select, fill, and cell decorator only.
+ * Overlay paint is binder-owned (from the registered range source); this plugin
+ * owns range state, drag-select, fill, and cell decorator only.
+ *
+ * Range state is per grid. The held adapter methods drive the **first** grid the
+ * instance is attached to (dev warning on a second); for other grids use
+ * `api.getAdapter(CELL_RANGE_ADAPTER)`.
  */
 export function cellRangePlugin<T = unknown>(
   options: CellRangePluginOptions = {},
@@ -71,129 +79,148 @@ export function cellRangePlugin<T = unknown>(
   const dragSelect = options.dragSelect !== false;
   const fillHandleEnabled = options.fillHandle !== false;
 
-  const range = signal<CellRange | null>(null);
-  let liveContext: DataGridPluginContext<T> | null = null;
-
-  const getVisibleColumnIds = (): string[] =>
-    liveContext?.api.getVisibleColumnIds() ?? [];
-
-  const getDisplayRows = (): readonly DisplayRow<T>[] =>
-    liveContext?.api.getPagedDisplayRows() ?? [];
-
-  const displayIndexForRowId = (rowId: string | number): number => {
-    const rows = getDisplayRows();
-    return rows.findIndex((r) => isDataDisplayRow(r) && r.rowId === rowId);
-  };
-
-  /** `data-row-id` is a string — match by string form (ids like `"12"` / `"000123"` stay strings). */
-  const displayIndexForRowAttr = (attr: string): number => {
-    const rows = getDisplayRows();
-    return rows.findIndex((r) => isDataDisplayRow(r) && String(r.rowId) === attr);
-  };
-
-  const buildClipboardText = (current: CellRange): string | null => {
-    const cols = getVisibleColumnIds();
-    const norm = normalizeCellRange(current, cols);
-    if (!norm) {
-      return null;
-    }
-    const displayRows = getDisplayRows();
-    const columnsById = liveContext?.api.getColumnsById() ?? new Map();
-    const lines: string[] = [];
-    for (let ri = norm.rowStart; ri <= norm.rowEnd; ri++) {
-      const item = displayRows[ri];
-      if (!item || !isDataDisplayRow(item)) {
-        continue;
-      }
-      const cells: string[] = [];
-      for (const columnId of norm.columnIds) {
-        const col = columnsById.get(columnId);
-        if (!col) {
-          cells.push('');
-          continue;
-        }
-        const value = getCellValue(item.row, col, item.dataIndex);
-        const text = formatCellValue(value, item.row, col, item.dataIndex);
-        cells.push(escapeClipboardCell(text));
-      }
-      lines.push(cells.join('\t'));
-    }
-    return lines.length ? lines.join('\n') : null;
-  };
-
-  const invalidatePaint = (): void => {
-    liveContext?.capabilities.invalidateOverlays();
-  };
-
-  const setRangeInternal = (next: CellRange | null): void => {
-    range.set(next);
-    queueMicrotask(() => invalidatePaint());
-  };
-
-  const adapter: CellRangeAdapter = {
-    fillHandleEnabled,
-    getRange: () => range(),
-    setRange: (next) => setRangeInternal(next),
-    clearRange: () => setRangeInternal(null),
-    getClipboardText: () => {
-      const current = range();
-      return current ? buildClipboardText(current) : null;
-    },
-    extendRange: (dRow, dCol) => {
-      if (!liveContext) {
-        return false;
-      }
-      const focus = liveContext.api.getFocusedCell();
-      if (!focus || (focus.realm ?? 'body') !== 'body') {
-        return false;
-      }
-      const cols = getVisibleColumnIds();
-      const rowCount = getDisplayRows().length;
-      let current = range();
-      if (!current) {
-        current = singleCellRange(focus);
-      }
-      const nextActive = moveFocusWithinGrid(
-        { ...current.active, realm: 'body' },
-        dRow,
-        dCol,
-        cols,
-        rowCount,
-      );
-      if (!nextActive) {
-        return false;
-      }
-      const displayRows = getDisplayRows();
-      const skippedRow = stepDisplayIndexSkippingPlugins(
-        displayRows,
-        current.active.rowIndex,
-        nextActive.rowIndex - current.active.rowIndex,
-      );
-      if (displayRows[skippedRow]?.kind === 'plugin') {
-        return false;
-      }
-      nextActive.rowIndex = skippedRow;
-      setRangeInternal({
-        anchor: current.anchor,
-        active: { rowIndex: nextActive.rowIndex, columnId: nextActive.columnId },
-      });
-      liveContext.api.focusCell(nextActive.rowIndex, nextActive.columnId);
-      return true;
-    },
-  };
+  /** Per attached grid (range state is per grid). The held adapter drives the first one. */
+  const grids = new Map<DataGridPluginContext<T>, CellRangeAdapter>();
+  const primary = (): CellRangeAdapter | null => grids.values().next().value ?? null;
 
   const plugin: CellRangePlugin<T> = {
     id: 'cellRange',
-    getRange: () => adapter.getRange(),
-    setRange: (next) => adapter.setRange(next),
-    clearRange: () => adapter.clearRange(),
-    getClipboardText: () => adapter.getClipboardText(),
-    extendRange: (dRow, dCol) => adapter.extendRange(dRow, dCol),
+    getRange: () => primary()?.getRange() ?? null,
+    setRange: (next) => primary()?.setRange(next),
+    clearRange: () => primary()?.clearRange(),
+    getClipboardText: () => primary()?.getClipboardText() ?? null,
+    extendRange: (dRow, dCol) => primary()?.extendRange(dRow, dCol) ?? false,
     fillHandleEnabled,
 
     setup(context: DataGridPluginContext<T>): () => void {
-      liveContext = context;
-      context.api.bindCellRangeAdapter(adapter);
+      if (grids.size > 0 && isDevMode()) {
+        console.warn(
+          '[data-grid] cellRangePlugin instance attached to a second grid — each grid keeps its own range, ' +
+            'but the held adapter (getRange / clearRange / …) only drives the first. ' +
+            'Use one cellRangePlugin() per grid, or api.getAdapter(CELL_RANGE_ADAPTER).',
+        );
+      }
+      const range = signal<CellRange | null>(null);
+      const liveContext = context;
+
+      const getVisibleColumnIds = (): string[] =>
+        liveContext?.api.getVisibleColumnIds() ?? [];
+
+      const getDisplayRows = (): readonly DisplayRow<T>[] =>
+        liveContext?.api.getPagedDisplayRows() ?? [];
+
+      const displayIndexForRowId = (rowId: string | number): number => {
+        const rows = getDisplayRows();
+        return rows.findIndex((r) => isDataDisplayRow(r) && r.rowId === rowId);
+      };
+
+      /** `data-row-id` is a string — match by string form (ids like `"12"` / `"000123"` stay strings). */
+      const displayIndexForRowAttr = (attr: string): number => {
+        const rows = getDisplayRows();
+        return rows.findIndex((r) => isDataDisplayRow(r) && String(r.rowId) === attr);
+      };
+
+      const buildClipboardText = (current: CellRange): string | null => {
+        const cols = getVisibleColumnIds();
+        const norm = normalizeCellRange(current, cols);
+        if (!norm) {
+          return null;
+        }
+        const displayRows = getDisplayRows();
+        const columnsById = liveContext?.api.getColumnsById() ?? new Map();
+        const lines: string[] = [];
+        for (let ri = norm.rowStart; ri <= norm.rowEnd; ri++) {
+          const item = displayRows[ri];
+          if (!item || !isDataDisplayRow(item)) {
+            continue;
+          }
+          const cells: string[] = [];
+          for (const columnId of norm.columnIds) {
+            const col = columnsById.get(columnId);
+            if (!col) {
+              cells.push('');
+              continue;
+            }
+            const value = getCellValue(item.row, col, item.dataIndex);
+            const text = formatCellValue(value, item.row, col, item.dataIndex);
+            cells.push(escapeClipboardCell(text));
+          }
+          lines.push(cells.join('\t'));
+        }
+        return lines.length ? lines.join('\n') : null;
+      };
+
+      const invalidatePaint = (): void => {
+        liveContext?.capabilities.invalidateOverlays();
+      };
+
+      const setRangeInternal = (next: CellRange | null): void => {
+        range.set(next);
+        queueMicrotask(() => invalidatePaint());
+      };
+
+      const adapter: CellRangeAdapter = {
+        fillHandleEnabled,
+        getRange: () => range(),
+        setRange: (next) => setRangeInternal(next),
+        clearRange: () => setRangeInternal(null),
+        getClipboardText: () => {
+          const current = range();
+          return current ? buildClipboardText(current) : null;
+        },
+        extendRange: (dRow, dCol) => {
+          if (!liveContext) {
+            return false;
+          }
+          const focus = liveContext.api.getFocusedCell();
+          if (!focus || (focus.realm ?? 'body') !== 'body') {
+            return false;
+          }
+          const cols = getVisibleColumnIds();
+          const rowCount = getDisplayRows().length;
+          let current = range();
+          if (!current) {
+            current = singleCellRange(focus);
+          }
+          const nextActive = moveFocusWithinGrid(
+            { ...current.active, realm: 'body' },
+            dRow,
+            dCol,
+            cols,
+            rowCount,
+          );
+          if (!nextActive) {
+            return false;
+          }
+          const displayRows = getDisplayRows();
+          const skippedRow = stepDisplayIndexSkippingPlugins(
+            displayRows,
+            current.active.rowIndex,
+            nextActive.rowIndex - current.active.rowIndex,
+          );
+          if (displayRows[skippedRow]?.kind === 'plugin') {
+            return false;
+          }
+          nextActive.rowIndex = skippedRow;
+          setRangeInternal({
+            anchor: current.anchor,
+            active: { rowIndex: nextActive.rowIndex, columnId: nextActive.columnId },
+          });
+          liveContext.api.focusCell(nextActive.rowIndex, nextActive.columnId);
+          return true;
+        },
+      };
+
+      grids.set(context, adapter);
+      const cleanAdapter = context.adapters.register(CELL_RANGE_ADAPTER, adapter);
+      const cleanRangeSource = context.capabilities.registerRangeSelection({
+        id: 'cellRange',
+        range: () => range(),
+        clear: () => adapter.clearRange(),
+        extend: (dRow, dCol) => adapter.extendRange(dRow, dCol),
+        clipboardText: () => adapter.getClipboardText(),
+        fillHandle: fillHandleEnabled,
+      });
 
       const cleanDecorator = context.capabilities.registerCellDecorator({
         id: 'cell-range',
@@ -216,7 +243,7 @@ export function cellRangePlugin<T = unknown>(
         },
       });
 
-      const cleanups: Array<() => void> = [cleanDecorator];
+      const cleanups: Array<() => void> = [cleanAdapter, cleanRangeSource, cleanDecorator];
 
       if (dragSelect || fillHandleEnabled) {
         cleanups.push(
@@ -393,9 +420,8 @@ export function cellRangePlugin<T = unknown>(
         for (const cleanup of [...cleanups].reverse()) {
           cleanup();
         }
-        context.api.bindCellRangeAdapter(null);
         range.set(null);
-        liveContext = null;
+        grids.delete(context);
       };
     },
   };

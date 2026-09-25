@@ -129,7 +129,7 @@ function runPaste<T>(context: DataGridPluginContext<T>, text: string): boolean {
   const focus = context.api.getFocusedCell() ?? null;
   const displayRows = context.api.getPagedDisplayRows();
   const visible = context.api.getVisibleColumnIds();
-  const cellRange = context.api.getCellRange?.() ?? null;
+  const cellRange = context.capabilities.rangeSelection()?.range() ?? null;
 
   /** Display index the paste starts at; rows are walked forward in display order. */
   let startDisplayIndex = 0;

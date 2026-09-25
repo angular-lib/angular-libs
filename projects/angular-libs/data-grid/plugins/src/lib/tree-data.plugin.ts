@@ -4,10 +4,14 @@ import {
   collectTreeGroupIds,
   type TreeDataConfig,
 } from '@angular-libs/data-grid/plugin';
-import { createTreeDataAdapter, type TreeDataAdapter } from './tree-data.adapter';
+import {
+  createTreeDataAdapter,
+  TREE_DATA_ADAPTER,
+  type TreeDataAdapter,
+} from './tree-data.adapter';
 
 export type { TreeDataAdapter } from './tree-data.adapter';
-export { createTreeDataAdapter } from './tree-data.adapter';
+export { createTreeDataAdapter, TREE_DATA_ADAPTER } from './tree-data.adapter';
 
 export interface TreeDataPluginOptions<T = unknown> {
   getDataPath: (row: T) => readonly string[];
@@ -62,17 +66,10 @@ export function treeDataPlugin<T = unknown>(
         collectGroupIds: (rows) => collectTreeGroupIds(rows, options.getDataPath),
       });
 
-      context.api.bindTreeDataAdapter({
-        active: () => adapter.active(),
-        toggleCollapsed: (id) => adapter.toggleCollapsed(id),
-        expandAll: () => adapter.expandAll(),
-        collapseAll: (ids) => adapter.collapseAll(ids),
-        collapsedIds: () => adapter.collapsedIds(),
-        collectAllGroupIds: (rows) => collectTreeGroupIds(rows as T[], options.getDataPath),
-      });
+      const cleanAdapter = context.adapters.register(TREE_DATA_ADAPTER, adapter);
 
       return () => {
-        context.api.bindTreeDataAdapter(null);
+        cleanAdapter();
         cleanDisplay();
       };
     },

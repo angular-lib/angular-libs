@@ -142,7 +142,6 @@ export class DataGridSidebar {
   readonly hiddenColumnIds = input<readonly string[]>([]);
   readonly filters = input<Record<string, string>>({});
   readonly quickFilter = input('');
-  readonly groupColumnIds = input<readonly string[]>([]);
   readonly locale = input.required<import('../../locale/default-locale').DataGridLocale>();
   /** Precomputed set-filter option lists keyed by column id. */
   readonly setFilterOptionsById = input<ReadonlyMap<string, readonly string[]>>(
@@ -157,7 +156,6 @@ export class DataGridSidebar {
   readonly filterChange = output<{ columnId: string; value: string }>();
   readonly quickFilterChange = output<string>();
   readonly clearAll = output<void>();
-  readonly groupColumnsChange = output<string[]>();
 
   /** Filter cards open in the filters tool panel (survives panel tab switches). */
   private readonly openFilterIds = signal<string[]>([]);
@@ -237,7 +235,6 @@ export class DataGridSidebar {
       hiddenColumnIds: computed(() => this.hiddenColumnIds()),
       filters: computed(() => this.filters()),
       quickFilter: computed(() => this.quickFilter()),
-      groupColumnIds: computed(() => this.groupColumnIds()),
       openFilterColumnIds: this.openFilterIds.asReadonly(),
       expandedFilterColumnIds: this.expandedFilterIds.asReadonly(),
       locale: computed(() => this.locale()),
@@ -249,7 +246,6 @@ export class DataGridSidebar {
       setFilter: (columnId, value) => this.filterChange.emit({ columnId, value }),
       setQuickFilter: (value) => this.quickFilterChange.emit(value),
       clearFilters: () => this.clearAll.emit(),
-      setGroupColumns: (columnIds) => this.groupColumnsChange.emit([...columnIds]),
       getSetFilterOptions: (columnId) => this.setFilterOptionsById().get(columnId) ?? [],
       addFilterColumn: (columnId) => this.addFilterColumn(columnId),
       removeFilterColumn: (columnId) => this.removeFilterColumn(columnId),

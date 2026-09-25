@@ -22,7 +22,6 @@ export interface DataGridSidebarHost {
   readonly hiddenColumnIds: Signal<readonly string[]>;
   readonly filters: Signal<Record<string, string>>;
   readonly quickFilter: Signal<string>;
-  readonly groupColumnIds: Signal<readonly string[]>;
   /** Ordered column ids shown as filter cards in the filters tool panel. */
   readonly openFilterColumnIds: Signal<readonly string[]>;
   /** Expanded filter card ids in the filters tool panel. */
@@ -37,7 +36,6 @@ export interface DataGridSidebarHost {
   setFilter(columnId: string, value: string): void;
   setQuickFilter(value: string): void;
   clearFilters(): void;
-  setGroupColumns(columnIds: readonly string[]): void;
   /** Unique values for a set-filter column (empty when not a set filter). */
   getSetFilterOptions(columnId: string): readonly string[];
   /** Add a filter card (and expand it). No-op if already open or not filterable. */
