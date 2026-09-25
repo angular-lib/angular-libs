@@ -1,5 +1,5 @@
 import type { DataGridPlugin, DataGridPluginContext } from '@angular-libs/data-grid/plugin';
-import { collectAllGroupIds } from '@angular-libs/data-grid/internals';
+import { collectAllGroupIds } from '@angular-libs/data-grid/plugin';
 import {
   buildGroupedRowsFromAdapter,
   createRowGroupAdapter,
