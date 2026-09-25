@@ -78,6 +78,8 @@ import type {
   ViewportHost,
 } from '../../hosts';
 import { handleGridEscape } from '../../a11y/grid-escape';
+import { handleGridKeydown } from '../../a11y/grid-keydown';
+import { isFocusCellRendered } from '../../a11y/tab-stop';
 import { DATA_GRID_NESTED_REALM } from '../../a11y/nested-realm';
 import {
   ariaBodyRowIndexOf,
@@ -126,8 +128,6 @@ import type {
     '[attr.data-al-dg-nested]': 'nestedRealm ? "" : null',
     '(keydown)': 'onGridKeydown($event)',
     '(focusin)': 'onGridFocusIn($event)',
-    '(document:pointerdown)': 'onDocumentPointerDown($event)',
-    '(document:keydown.escape)': 'onEscapeKey($event)',
   },
   templateUrl: './data-grid.html',
   styleUrl: './data-grid.css',
@@ -356,6 +356,19 @@ export class DataGrid<T = unknown> {
   /** Avoid duplicating "N rows" when statusBarPlugin already registers it. */
   readonly showPaginationRowCount = computed(
     () => this.pagination() && !this.session.kernel.statusBarSlotItems().some((item) => item.id === 'rows'),
+  );
+
+  /** Frame is the tab stop whenever the focused cell is not rendered (K5). */
+  readonly frameTabIndex = computed((): number =>
+    isFocusCellRendered({
+      focus: this.viewportHost.focusedCell(),
+      visibleColumnIds: this.columnLayoutHost.visibleColumns().map((c) => c.id),
+      hasColumnGroups: this.columnLayoutHost.hasColumnGroups(),
+      floatingFiltersShown: this.floatingFilters() && this.columnLayoutHost.hasFilters(),
+      bodyRendered: !this.loading() && this.viewportHost.pagedDisplayRows().length > 0,
+      renderedStart: this.viewportHost.renderedStart(),
+      renderedCount: this.viewportHost.renderedRows().length,
+    }) ? -1 : 0,
   );
 
   readonly toolbarLabels = computed(() => toolbarLabelsFromLocale(this.resolvedLocale()));
@@ -785,46 +798,17 @@ export class DataGrid<T = unknown> {
   }
 
   onGridKeydown(event: KeyboardEvent): void {
-    const target = event.target as HTMLElement | null;
-    const inField =
-      !!target &&
-      (target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.tagName === 'SELECT' ||
-        target.isContentEditable);
-
-    // Escape must cancel edit even while focus is inside an editor field.
-    if (event.key === 'Escape') {
-      this.onEscapeKey(event);
-      return;
-    }
-
-    if ((event.key === ' ' || event.key === 'Spacebar') && !inField) {
-      if (this.editSyncHost.tryToggleFocusedBoolean()) {
-        event.preventDefault();
-        return;
-      }
-    }
-
-    const interaction = this.effectiveEditInteraction();
-    const fullRowEditing =
-      this.effectiveEditMode() === 'fullRow' && this.editSyncHost.rowEditMgr.editingId() != null;
-    const passHorizontal =
-      fullRowEditing &&
-      interaction.arrowEditing === 'moveHorizontal' &&
-      (event.key === 'ArrowLeft' || event.key === 'ArrowRight');
-    if (inField && !passHorizontal) {
-      return;
-    }
-
-    if (!inField && this.editSyncHost.tryTypeToEdit(event)) {
-      event.preventDefault();
-      return;
-    }
-
-    if (this.session.kernel.focus.handleKeydown(event)) {
-      event.preventDefault();
-    }
+    handleGridKeydown(event, {
+      host: this.host.nativeElement,
+      onEscape: (e) => this.onEscapeKey(e),
+      tryToggleFocusedBoolean: () => this.editSyncHost.tryToggleFocusedBoolean(),
+      passHorizontalWhileEditing: () =>
+        this.effectiveEditMode() === 'fullRow' &&
+        this.editSyncHost.rowEditMgr.editingId() != null &&
+        this.effectiveEditInteraction().arrowEditing === 'moveHorizontal',
+      tryTypeToEdit: (e) => this.editSyncHost.tryTypeToEdit(e),
+      handleFocusKeydown: (e) => this.session.kernel.focus.handleKeydown(e),
+    });
   }
 
   onEscapeKey(event?: Event): void {
@@ -861,7 +845,20 @@ export class DataGrid<T = unknown> {
     this.editSyncHost.syncDomFocus(cell, opts);
   }
 
-  onGridFocusIn(event: FocusEvent): void { this.viewportHost.onGridFocusIn(event); }
+  onGridFocusIn(event: FocusEvent): void {
+    this.viewportHost.onGridFocusIn(event);
+    const target = event.target as HTMLElement | null;
+    if (!target?.classList.contains('al-data-grid__frame') || target.closest('al-data-grid') !== this.host.nativeElement) {
+      return;
+    }
+    // Tab re-entry via the frame tab stop (K5): once the restored cell renders, move DOM focus onto it.
+    const refocus = () => {
+      if (document.activeElement === target) {
+        this.syncDomFocus(this.session.kernel.focus.getFocus(), { force: true });
+      }
+    };
+    afterNextRender({ write: refocus }, { injector: this.injector });
+  }
 
   onCellContextMenu(
     row: T,
@@ -878,8 +875,6 @@ export class DataGrid<T = unknown> {
   onHeaderContextMenu(column: ResolvedColumn<T>, event: MouseEvent): void {
     this.menuHost.onHeaderContextMenu(column, event);
   }
-
-  onDocumentPointerDown(event: Event): void { this.menuHost.onDocumentPointerDown(event); }
 
   private pluginListKey(plugins: readonly DataGridPlugin<T>[]): string { return plugins.map((p) => p.id ?? '').join('\0'); }
 

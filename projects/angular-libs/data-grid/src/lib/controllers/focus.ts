@@ -12,6 +12,9 @@ export interface FocusCell {
   realm?: FocusRealm;
 }
 
+/** Why focus changed — `'reconcile'` = re-anchored after rows/columns changed (no DOM steal). */
+export type FocusChangeReason = 'user' | 'reconcile';
+
 export function focusRealmOf(cell: FocusCell | null | undefined): FocusRealm {
   return cell?.realm ?? 'body';
 }
@@ -26,7 +29,11 @@ export interface FocusControllerOptions {
   getColumnIds: () => string[];
   /** Map absolute row index → ensure visible (virtual scroll / page). */
   ensureRowVisible?: (rowIndex: number) => void;
-  onFocusChange?: (cell: FocusCell | null) => void;
+  onFocusChange?: (cell: FocusCell | null, reason?: FocusChangeReason) => void;
+  /** Stable identity of the body row at `rowIndex` (K4 focus follows row). */
+  getRowKey?: (rowIndex: number) => string | undefined;
+  /** Current index of the body row with `rowKey`, or `-1`. */
+  findRowIndex?: (rowKey: string) => number;
   /**
    * Enter / F2 — start editing focused cell (data rows).
    * `reason` lets §5b `enterIdle: 'moveDown'` apply only to Enter (F2 always edits).
@@ -83,6 +90,14 @@ export class FocusController {
   private focused: FocusCell | null = null;
   /** Last body/header focus for Tab re-entry (K4). */
   private lastFocus: FocusCell | null = null;
+  /**
+   * Stable body-row identity (`DisplayRow.id`) of `focused` / `lastFocus` so
+   * {@link reconcile} can follow the row across sort / filter (K4).
+   */
+  private focusedKey: string | undefined;
+  private lastKey: string | undefined;
+  /** Visible column index at last focus — reconcile falls back here when the column goes away. */
+  private columnHint = 0;
 
   constructor(private readonly options: FocusControllerOptions) {}
 
@@ -95,16 +110,89 @@ export class FocusController {
   }
 
   setFocus(cell: FocusCell | null): void {
-    this.focused = cell
-      ? { ...cell, realm: focusRealmOf(cell) }
-      : null;
+    this.focused = cell ? this.stamp(cell) : null;
+    this.focusedKey = this.focused ? this.rowKeyOf(this.focused) : undefined;
     if (this.focused) {
       this.lastFocus = this.focused;
+      this.lastKey = this.focusedKey;
       if (focusRealmOf(this.focused) === 'body') {
         this.options.ensureRowVisible?.(this.focused.rowIndex);
       }
     }
     this.options.onFocusChange?.(this.focused);
+  }
+
+  /**
+   * Re-anchor focus after the row model or visible columns changed (K4).
+   * Body focus follows its row identity; a vanished row / column clamps to the
+   * nearest valid cell. Notifies `onFocusChange(cell, 'reconcile')` only when
+   * the focus actually changed. Never scrolls — the caller decides.
+   */
+  reconcile(): boolean {
+    if (!this.focused) {
+      const last = this.lastFocus && this.reanchor(this.lastFocus, this.lastKey);
+      if (last) {
+        this.lastFocus = last;
+        this.lastKey = this.rowKeyOf(last);
+      }
+      return false;
+    }
+    const next = this.reanchor(this.focused, this.focusedKey);
+    const nextKey = next ? this.rowKeyOf(next) : undefined;
+    if (!next || (sameFocus(next, this.focused) && nextKey === this.focusedKey)) {
+      return false;
+    }
+    this.focused = next;
+    this.focusedKey = nextKey;
+    this.lastFocus = next;
+    this.lastKey = nextKey;
+    this.options.onFocusChange?.(next, 'reconcile');
+    return true;
+  }
+
+  private stamp(cell: FocusCell): FocusCell {
+    const colIndex = this.options.getColumnIds().indexOf(cell.columnId);
+    if (colIndex >= 0) {
+      this.columnHint = colIndex;
+    }
+    return { ...cell, realm: focusRealmOf(cell) };
+  }
+
+  private rowKeyOf(cell: FocusCell): string | undefined {
+    return focusRealmOf(cell) === 'body' ? this.options.getRowKey?.(cell.rowIndex) : undefined;
+  }
+
+  private reanchor(cell: FocusCell, rowKey: string | undefined): FocusCell | null {
+    const cols = this.options.getColumnIds();
+    if (!cols.length) {
+      return null;
+    }
+    const columnId = cols.includes(cell.columnId)
+      ? cell.columnId
+      : cols[clamp(this.columnHint, 0, cols.length - 1)]!;
+    let realm = focusRealmOf(cell);
+    let rowIndex = cell.rowIndex;
+    if (realm === 'floatingFilter' && !this.options.hasFloatingFilters?.()) {
+      realm = 'header';
+      rowIndex = this.leafHeaderRow();
+    } else if (realm === 'header') {
+      rowIndex = Math.min(rowIndex, this.leafHeaderRow());
+    } else if (realm === 'body') {
+      const count = this.options.getRowCount();
+      if (count <= 0) {
+        realm = 'header';
+        rowIndex = this.leafHeaderRow();
+      } else {
+        const byKey = rowKey != null ? (this.options.findRowIndex?.(rowKey) ?? -1) : -1;
+        const max = count - 1;
+        rowIndex = byKey >= 0 ? byKey : clamp(rowIndex, 0, max);
+        if (this.options.isSkipRow?.(rowIndex)) {
+          const up = edgeNonSkipRow(this.options.isSkipRow, rowIndex, -1, max);
+          rowIndex = up !== rowIndex ? up : edgeNonSkipRow(this.options.isSkipRow, rowIndex, 1, max);
+        }
+      }
+    }
+    return this.stamp({ rowIndex, columnId, realm });
   }
 
   /** Restore last focus or first body/header cell (Tab into grid). */
@@ -186,7 +274,8 @@ export class FocusController {
     return this.focused;
   }
 
-  private leafHeaderRow(): number {
+  /** Leaf header rowIndex for this grid (1 when column groups exist). */
+  leafHeaderRow(): number {
     return leafHeaderRowIndex(this.options.hasColumnGroups?.() ?? false);
   }
 
@@ -310,6 +399,12 @@ export class FocusController {
         return false;
       }
       return this.options.onSelectAll() !== false;
+    }
+
+    if (!this.focused && NAV_KEYS.has(event.key)) {
+      // No focus yet (e.g. synthetic key on the frame) — land on the default / last cell.
+      this.restoreOrFocusDefault();
+      return true;
     }
 
     const pageRows = Math.max(1, this.options.getPageRowCount?.() ?? 10);
@@ -521,6 +616,25 @@ export class FocusController {
       this.focused.columnId === columnId
     );
   }
+}
+
+const NAV_KEYS = new Set([
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
+
+function sameFocus(a: FocusCell, b: FocusCell): boolean {
+  return (
+    a.rowIndex === b.rowIndex &&
+    a.columnId === b.columnId &&
+    focusRealmOf(a) === focusRealmOf(b)
+  );
 }
 
 function clamp(n: number, min: number, max: number): number {

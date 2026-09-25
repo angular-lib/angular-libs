@@ -7,7 +7,8 @@ import {
 import { buildLeanColumnMenuItems } from '../utils/column-menu';
 import { rowsToCsv } from '../utils/csv';
 import { formatCellValue } from '../utils/cell-value';
-import { signal, type WritableSignal } from '@angular/core';
+import { afterNextRender, DestroyRef, signal, type WritableSignal } from '@angular/core';
+import type { FocusCell } from '../controllers/focus';
 import type { MenuDeps } from './binder-surface';
 import type {
   DataGridContextMenuContext,
@@ -15,18 +16,27 @@ import type {
   ResolvedColumn,
 } from '../components/data-grid/data-grid.types';
 
+type MenuState<T> = {
+  left: number;
+  top: number;
+  ctx: DataGridContextMenuContext<T> | null;
+  source: 'cell' | 'header';
+  items: DataGridContextMenuItem<T>[];
+};
+
 /** Owns context menus and lean column menus (menu state signals). */
 export class MenuHost<T> {
-  readonly contextMenuState: WritableSignal<{
-    left: number;
-    top: number;
-    ctx: DataGridContextMenuContext<T> | null;
-    source: 'cell' | 'header';
-    items: DataGridContextMenuItem<T>[];
-  } | null> = signal(null);
+  readonly contextMenuState: WritableSignal<MenuState<T> | null> = signal(null);
   readonly columnMenuColumnId: WritableSignal<string | null> = signal(null);
 
-  constructor(private readonly s: MenuDeps<T>) {}
+  /** Grid focus at open time — restored on close (K3). */
+  private invoker: FocusCell | null = null;
+  /** Document listeners live only while a menu is open (K2). */
+  private detachDocument: (() => void) | null = null;
+
+  constructor(private readonly s: MenuDeps<T>) {
+    s.injector().get(DestroyRef, null)?.onDestroy(() => this.unbindDocument());
+  }
 
   contextMenuEnabled(): boolean {
     return !!(
@@ -59,20 +69,13 @@ export class MenuHost<T> {
       220,
       8 + items.length * 36,
     );
-    this.contextMenuState.set({
-      left: pos.left,
-      top: pos.top,
-      ctx: null,
-      source: 'header',
-      items,
-    });
-    this.focusFirstMenuItem();
+    this.openMenu({ left: pos.left, top: pos.top, ctx: null, source: 'header', items });
   }
 
   closeColumnMenu(): void {
     this.columnMenuColumnId.set(null);
     if (this.contextMenuState()?.source === 'header') {
-      this.contextMenuState.set(null);
+      this.closeMenuState();
     }
   }
 
@@ -158,9 +161,8 @@ export class MenuHost<T> {
     }
 
     const pos = positionMenu(event.clientX, event.clientY, 200, 8 + items.length * 36);
-    this.contextMenuState.set({ left: pos.left, top: pos.top, ctx, source: 'cell', items });
+    this.openMenu({ left: pos.left, top: pos.top, ctx, source: 'cell', items });
     this.s.publishContextMenuOpened(ctx);
-    this.focusFirstMenuItem();
   }
 
   /**
@@ -173,17 +175,12 @@ export class MenuHost<T> {
     event.preventDefault();
     event.stopPropagation();
 
+    const focus = this.s.kernel().focus;
+    focus.focusCell(focus.leafHeaderRow(), column.id, 'header');
     this.columnMenuColumnId.set(column.id);
     const items = this.leanColumnMenuItems(column);
     const pos = positionMenu(event.clientX, event.clientY, 220, 8 + items.length * 36);
-    this.contextMenuState.set({
-      left: pos.left,
-      top: pos.top,
-      ctx: null,
-      source: 'header',
-      items,
-    });
-    this.focusFirstMenuItem();
+    this.openMenu({ left: pos.left, top: pos.top, ctx: null, source: 'header', items });
   }
 
   runContextMenuItem(item: DataGridContextMenuItem<T>): void {
@@ -204,14 +201,25 @@ export class MenuHost<T> {
       this.columnMenuColumnId.set(null);
       return;
     }
-    this.contextMenuState.set(null);
+    this.closeMenuState();
     this.columnMenuColumnId.set(null);
     this.s.publishContextMenuClosed();
   }
 
-  /** Arrow / Home / End / Escape while a column or context menu is open (AG pattern). */
+  /**
+   * Menu keyboard (AG pattern): arrows / Home / End move, Escape / Tab close
+   * and return focus to the invoker. Every key stops here so the grid body /
+   * header keyboard model never sees Enter / Space / letters meant for an item.
+   */
   onMenuKeydown(event: KeyboardEvent): void {
     if (!this.contextMenuState()) {
+      return;
+    }
+    event.stopPropagation();
+    if (event.key === 'Escape' || event.key === 'Tab') {
+      event.preventDefault();
+      this.closeContextMenu();
+      this.closeColumnMenu();
       return;
     }
     const items = this.menuItemElements();
@@ -231,24 +239,104 @@ export class MenuHost<T> {
       items[0]!.focus();
     } else if (event.key === 'End') {
       items[items.length - 1]!.focus();
-    } else if (event.key === 'Escape') {
-      this.closeContextMenu();
-      this.closeColumnMenu();
     } else {
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
   }
 
-  private menuItemElements(): HTMLElement[] {
-    return Array.from(
-      this.s.hostElement().querySelectorAll<HTMLElement>('.al-data-grid__ctx-item:not(:disabled)'),
+  private openMenu(state: MenuState<T>): void {
+    if (!this.contextMenuState()) {
+      this.invoker = this.s.kernel().focus.getFocus();
+    }
+    this.contextMenuState.set(state);
+    this.bindDocument();
+    this.focusFirstMenuItem();
+  }
+
+  /** Clear menu state; hand focus back to the invoker when it was inside the menu. */
+  private closeMenuState(): void {
+    const menuEl = this.menuElement();
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const hadFocus =
+      !!menuEl && (!active || active === document.body || menuEl.contains(active));
+    const invoker = this.invoker;
+    this.invoker = null;
+    this.contextMenuState.set(null);
+    this.unbindDocument();
+    if (!hadFocus || !invoker) {
+      return;
+    }
+    afterNextRender(
+      {
+        write: () => {
+          const now = document.activeElement;
+          // Item actions may move focus themselves (dialogs, inputs) — keep that.
+          if (now && now !== document.body) {
+            return;
+          }
+          const focus = this.s.kernel().focus;
+          focus.setFocus(focus.getFocus() ?? invoker);
+        },
+      },
+      { injector: this.s.injector() },
     );
   }
 
+  private menuElement(): HTMLElement | null {
+    return this.s.hostElement().querySelector<HTMLElement>(':scope > .al-data-grid__ctx');
+  }
+
+  private menuItemElements(): HTMLElement[] {
+    const menu = this.menuElement();
+    return menu
+      ? Array.from(
+          menu.querySelectorAll<HTMLElement>(
+            '.al-data-grid__ctx-item:not(:disabled), [role="menuitem"]:not(:disabled):not(.al-data-grid__ctx-item)',
+          ),
+        )
+      : [];
+  }
+
+  /** After the menu renders (zoneless-safe): first item, else the menu container. */
   private focusFirstMenuItem(): void {
-    queueMicrotask(() => this.menuItemElements()[0]?.focus());
+    afterNextRender(
+      {
+        write: () => {
+          if (!this.contextMenuState()) {
+            return;
+          }
+          (this.menuItemElements()[0] ?? this.menuElement())?.focus({ preventScroll: true });
+        },
+      },
+      { injector: this.s.injector() },
+    );
+  }
+
+  private bindDocument(): void {
+    if (this.detachDocument) {
+      return;
+    }
+    const doc = this.s.hostElement().ownerDocument;
+    const onPointerDown = (event: Event) => this.onDocumentPointerDown(event);
+    const onKeydown = (event: KeyboardEvent) => {
+      // Escape with focus outside the menu (focus left it) still closes it.
+      if (event.key === 'Escape' && !event.defaultPrevented && this.contextMenuState()) {
+        event.preventDefault();
+        this.closeContextMenu();
+      }
+    };
+    doc.addEventListener('pointerdown', onPointerDown);
+    doc.addEventListener('keydown', onKeydown);
+    this.detachDocument = () => {
+      doc.removeEventListener('pointerdown', onPointerDown);
+      doc.removeEventListener('keydown', onKeydown);
+    };
+  }
+
+  private unbindDocument(): void {
+    this.detachDocument?.();
+    this.detachDocument = null;
   }
 
   onDocumentPointerDown(event: Event): void {
@@ -256,10 +344,12 @@ export class MenuHost<T> {
       return;
     }
     const target = event.target as Node | null;
-    const menuEl = this.s.hostElement().querySelector('.al-data-grid__ctx');
+    const menuEl = this.menuElement();
     if (menuEl && target && menuEl.contains(target)) {
       return;
     }
+    // Pointer moves focus itself — do not pull it back to the invoker.
+    this.invoker = null;
     this.closeContextMenu();
   }
 }
