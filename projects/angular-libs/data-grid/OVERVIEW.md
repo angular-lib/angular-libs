@@ -360,10 +360,14 @@ We want the good UX, on `createGrid`, without locking into a wrong nested bag.
 | Enter while editing | Commit | Commit + move down |
 | Tab while editing | Browser (leave cell / page) | Commit + next/prev cell (wrap) |
 | Editor blur | Commit | Commit |
-| Boolean cell | Enter/F2 toggles value (no draft editor) | Same |
+| Click another cell while editing | Commit first (`editorBlur: 'cancel'` → cancel); invalid draft blocks the move | Same |
+| Boolean cell | Enter/F2/Space or checkbox click toggles (pointer on the cell does not) | Same |
+| fullRow: edit another row | `rowSwitch: 'commit'` (invalid row stays open) | Same |
 | Cancel | Escape | Same |
 
-Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur, tabEditing, typeToEdit, arrowEditing }`.
+Sparse overrides: `{ pointerStart, enterIdle, enterEditing, editorBlur, tabEditing, typeToEdit, arrowEditing, rowSwitch }`.
+`rowSwitch: 'commit' | 'cancel' | 'block'` (fullRow) — what starting an edit on another row does to the open one.
+Type-to-edit puts the caret after the seeded char; Enter / F2 / pointer select the whole value.
 `enterIdle: 'moveDown'` moves focus on Enter without opening an editor (F2 still edits).
 `pointerStart: 'none'` ≈ suppress click/dblclick edit (API / custom UI starts edit).
 `tabEditing: 'commitAndMove'` commits and moves horizontally with row wrap (Shift+Tab reverse).

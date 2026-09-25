@@ -24,7 +24,7 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 | Ctrl/Cmd+Home / End | First / last **row** (same column) |
 | PageUp / PageDown | Jump by viewport-sized page |
 | Enter / F2 | Start cell/row edit (group row or master-detail expand column: Enter toggles expand) |
-| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; Space reserved for selection except boolean cells) |
+| Printable / Backspace / Delete | Type-to-edit (`typeToEdit: 'replace'`; caret after the seed; AltGr chars count; Space reserved for selection except boolean cells) |
 | Space | Toggle row selection (group or expand column: expand/collapse; focused boolean cell: toggle value) |
 | Shift+F2 | Notes editor (`notesPlugin`) — does **not** start cell/row edit |
 | Escape | Cancel edit (does not clear range); second Escape clears range / close context menu |
@@ -34,7 +34,7 @@ the active cell range (`cellRangePlugin`); omitted otherwise.
 
 | Key | Action |
 | --- | --- |
-| Enter | Commit (`excel`: commit + move down) |
+| Enter | Commit (`excel`: commit + move down); ignored during IME composition; invalid draft stays open (`aria-invalid`) |
 | Tab / Shift+Tab | `tabEditing: 'commitAndMove'` → commit + next/prev cell (wrap); **fullRow** walks cells without committing the row; `'browser'` → leave page (default) |
 | Escape | Cancel edit (range stays); second Escape clears range |
 | ← → (fullRow + `arrowEditing: 'moveHorizontal'`) | Move to adjacent cell editor |

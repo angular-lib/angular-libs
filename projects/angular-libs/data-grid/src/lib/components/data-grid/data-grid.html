@@ -414,7 +414,7 @@
                                 [formField]="$any(field)"
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
-                                (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
                                 (keydown.tab)="editSyncHost.onRowEditorTab($event)"
                                 (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               />
@@ -429,7 +429,7 @@
                                 [alTooltipDelay]="0"
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
-                                (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
                                 (keydown.tab)="editSyncHost.onRowEditorTab($event)"
                                 (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               >
@@ -437,17 +437,38 @@
                                   <option [value]="opt">{{ opt }}</option>
                                 }
                               </select>
+                            } @else if (editSyncHost.isNumberEditor(col)) {
+                              <!-- Text + inputmode: type=number returns "" for locale input like "1,5". -->
+                              <input
+                                class="al-data-grid__edit-input"
+                                type="text"
+                                inputmode="decimal"
+                                autocomplete="off"
+                                [class.al-data-grid__edit-input--invalid]="
+                                  editSyncHost.fieldInvalid(field) || !!editSyncHost.rowTextDrafts.error(col.id)
+                                "
+                                [attr.aria-invalid]="
+                                  editSyncHost.fieldInvalid(field) || editSyncHost.rowTextDrafts.error(col.id) ? 'true' : null
+                                "
+                                [attr.data-al-caret]="editSyncHost.caretHint(id, col.id)"
+                                [value]="editSyncHost.rowTextDrafts.text(col.id, field)"
+                                (input)="editSyncHost.rowTextDrafts.input(col, field, $any($event.target).value)"
+                                [alTooltip]="editSyncHost.rowTextDrafts.error(col.id) ?? editSyncHost.fieldError(field)"
+                                alTooltipVariant="error"
+                                alTooltipPosition="bottom"
+                                [alTooltipDelay]="0"
+                                (click)="$event.stopPropagation()"
+                                (dblclick)="$event.stopPropagation()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
+                                (keydown.tab)="editSyncHost.onRowEditorTab($event)"
+                                (keydown.escape)="editSyncHost.onEditorEscape($event)"
+                              />
                             } @else {
                               <input
                                 class="al-data-grid__edit-input"
                                 [class.al-data-grid__edit-input--invalid]="editSyncHost.fieldInvalid(field)"
-                                [type]="
-                                  col.type === 'number' || col.filter === 'number' || col.cellEditor === 'number'
-                                    ? 'number'
-                                    : isDateColumn(col) || col.cellEditor === 'date'
-                                      ? 'date'
-                                      : 'text'
-                                "
+                                [type]="isDateColumn(col) || col.cellEditor === 'date' ? 'date' : 'text'"
+                                [attr.data-al-caret]="editSyncHost.caretHint(id, col.id)"
                                 [formField]="$any(field)"
                                 [alTooltip]="editSyncHost.fieldError(field)"
                                 alTooltipVariant="error"
@@ -455,7 +476,7 @@
                                 [alTooltipDelay]="0"
                                 (click)="$event.stopPropagation()"
                                 (dblclick)="$event.stopPropagation()"
-                                (keydown.enter)="editSyncHost.commitRowEdit(); $event.preventDefault()"
+                                (keydown.enter)="editSyncHost.onRowEditorEnter($event)"
                                 (keydown.tab)="editSyncHost.onRowEditorTab($event)"
                                 (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               />
@@ -463,7 +484,7 @@
                           } @else if (editing && customEditorType(col); as Editor) {
                             <div
                               class="al-data-grid__editor-host"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col); $event.preventDefault(); $event.stopPropagation()"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event); $event.stopPropagation()"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (focusout)="editSyncHost.onEditorHostFocusOut($event, row, id, rowIndex, col)"
@@ -482,7 +503,7 @@
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
                               (change)="editSyncHost.editDraft.set($any($event.target).value); editSyncHost.commitEdit(row, id, rowIndex, col)"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col); $event.preventDefault()"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
@@ -495,11 +516,12 @@
                             <input
                               class="al-data-grid__edit-input"
                               type="date"
+                              [attr.aria-invalid]="editSyncHost.editError() ? 'true' : null"
                               [value]="editSyncHost.editDraft()"
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
-                              (input)="editSyncHost.editDraft.set($any($event.target).value)"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col)"
+                              (input)="editSyncHost.onEditorInput($any($event.target).value)"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"
@@ -507,16 +529,21 @@
                           } @else if (editing) {
                             <input
                               class="al-data-grid__edit-input"
-                              [type]="
-                                col.type === 'number' || col.filter === 'number' || col.cellEditor === 'number'
-                                  ? 'number'
-                                  : 'text'
-                              "
+                              type="text"
+                              [attr.inputmode]="editSyncHost.isNumberEditor(col) ? 'decimal' : null"
+                              [attr.autocomplete]="editSyncHost.isNumberEditor(col) ? 'off' : null"
+                              [class.al-data-grid__edit-input--invalid]="!!editSyncHost.editError()"
+                              [attr.aria-invalid]="editSyncHost.editError() ? 'true' : null"
+                              [alTooltip]="editSyncHost.editError()"
+                              alTooltipVariant="error"
+                              alTooltipPosition="bottom"
+                              [alTooltipDelay]="0"
+                              [attr.data-al-caret]="editSyncHost.caretHint(id, col.id)"
                               [value]="editSyncHost.editDraft()"
                               (click)="$event.stopPropagation()"
                               (dblclick)="$event.stopPropagation()"
-                              (input)="editSyncHost.editDraft.set($any($event.target).value)"
-                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col)"
+                              (input)="editSyncHost.onEditorInput($any($event.target).value)"
+                              (keydown.enter)="editSyncHost.onEditorEnter(row, id, rowIndex, col, $event)"
                               (keydown.tab)="editSyncHost.onEditorTab($event, row, id, rowIndex, col)"
                               (keydown.escape)="editSyncHost.onEditorEscape($event)"
                               (blur)="editSyncHost.onEditorBlur(row, id, rowIndex, col)"

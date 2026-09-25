@@ -20,6 +20,7 @@ describe('Wave 3 policies', () => {
         tabEditing: 'commitAndMove',
         typeToEdit: 'replace',
         arrowEditing: 'moveHorizontal',
+        rowSwitch: 'commit',
       });
     });
 
@@ -39,6 +40,7 @@ describe('Wave 3 policies', () => {
         tabEditing: 'commitAndMove',
         typeToEdit: 'replace',
         arrowEditing: 'moveHorizontal',
+        rowSwitch: 'commit',
       });
     });
 

@@ -147,6 +147,8 @@ export interface EditSyncDeps<T> {
   publishRowEditStart(payload: DataGridEventMap<T>['rowEditStart']): void;
   publishRowEdit(payload: DataGridEventMap<T>['rowEdit']): void;
   publishRowEditCancel(payload: DataGridEventMap<T>['rowEditCancel']): void;
+  /** Number / date parsing locale + validation messages. */
+  resolvedLocale(): DataGridLocale;
   /** After edit start/stop — sync DOM focus to focused cell / editor. */
   syncDomFocusAfterEdit(): void;
 }

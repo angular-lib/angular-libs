@@ -17,7 +17,8 @@ import { isBooleanColumn, isDateColumn } from '../utils/cell-value';
 export interface RowEditAdapter<T = unknown> {
   readonly session: () => RowEditContext<T> | null;
   readonly draft: () => T | null;
-  start(row: T, rowId: string | number, rowIndex: number): void;
+  /** False when the open row keeps the session (`editInteraction.rowSwitch`). */
+  start(row: T, rowId: string | number, rowIndex: number): boolean;
   commit(): boolean;
   cancel(): void;
 }
