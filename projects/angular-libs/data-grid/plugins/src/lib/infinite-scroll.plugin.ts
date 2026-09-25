@@ -45,8 +45,9 @@ export function infiniteScrollPlugin<T = unknown>(
           };
 
           const onScroll = (event: Event): void => {
-            const viewport = event.target as HTMLElement | null;
-            if (!viewport?.classList?.contains('al-data-grid__scroll')) {
+            // Capture sees nested detail-grid scrollers too — only react to our own.
+            const viewport = scrollEl();
+            if (!viewport || event.target !== viewport) {
               return;
             }
             check(viewport);

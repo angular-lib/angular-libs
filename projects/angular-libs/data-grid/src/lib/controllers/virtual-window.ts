@@ -141,8 +141,8 @@ export function rowHeightAt(
 }
 
 /**
- * True when `el` intersects the scrollport *below* a sticky header.
- * Clicking an already-visible cell must not change scrollTop.
+ * True when `el` intersects the scrollport *below* a sticky header (1px counts).
+ * @deprecated Focus scrolling uses {@link scrollOffsetToReveal} (full visibility).
  */
 export function isRowInScrollport(
   el: HTMLElement,
@@ -158,4 +158,70 @@ export function isRowInScrollport(
     er.right > sr.left &&
     er.left < sr.right
   );
+}
+
+export interface RevealAxisInput {
+  /** Current scroll offset on this axis (`scrollTop` / `scrollLeft`). */
+  scroll: number;
+  /** Scrollport size on this axis (`clientHeight` / `clientWidth`). */
+  viewport: number;
+  /** Item start in scroll-content coordinates. */
+  itemStart: number;
+  itemSize: number;
+  /** Sticky band covering the start edge (header block / pinned-left columns). */
+  startInset?: number;
+  /** Sticky band covering the end edge (aggregate footer / pinned-right columns). */
+  endInset?: number;
+}
+
+/**
+ * Scroll offset that makes `[itemStart, itemStart + itemSize)` fully visible in
+ * the band between the sticky insets, or `null` when it already is.
+ * Items larger than the band align to its start edge.
+ */
+export function scrollOffsetToReveal(input: RevealAxisInput): number | null {
+  const startInset = Math.max(0, input.startInset ?? 0);
+  const endInset = Math.max(0, input.endInset ?? 0);
+  const size = Math.max(0, input.itemSize);
+  const bandStart = input.scroll + startInset;
+  const bandEnd = input.scroll + input.viewport - endInset;
+  const itemEnd = input.itemStart + size;
+  if (input.itemStart >= bandStart && itemEnd <= bandEnd) {
+    return null;
+  }
+  const band = Math.max(0, input.viewport - startInset - endInset);
+  const next =
+    input.itemStart < bandStart || size > band
+      ? input.itemStart - startInset
+      : itemEnd - (input.viewport - endInset);
+  const clamped = Math.max(0, Math.round(next));
+  return clamped === Math.round(input.scroll) ? null : clamped;
+}
+
+/**
+ * PageUp / PageDown step: how many rows fully fit in `bodyHeight` walking from
+ * `start` (forward for `direction = 1`, backward for `-1`). Always ≥ 1.
+ */
+export function rowsFittingHeight(
+  start: number,
+  bodyHeight: number,
+  rowHeight: number,
+  rowHeights?: readonly number[] | null,
+  direction: 1 | -1 = 1,
+): number {
+  const fallback = Math.max(1, rowHeight);
+  const count = rowHeights?.length ?? 0;
+  if (!rowHeights || count === 0) {
+    return Math.max(1, Math.floor(bodyHeight / fallback));
+  }
+  let used = 0;
+  let n = 0;
+  for (let i = Math.min(Math.max(0, start), count - 1); i >= 0 && i < count; i += direction) {
+    used += Math.max(0, rowHeights[i] ?? fallback);
+    if (used > bodyHeight) {
+      break;
+    }
+    n++;
+  }
+  return Math.max(1, n);
 }

@@ -696,7 +696,7 @@ export class DataGrid<T = unknown> {
   }
 
   ariaRowCount(): number {
-    return ariaRowCountOf(this.headerRows(), this.session.displayRows().length);
+    return ariaRowCountOf(this.headerRows(), this.viewportHost.ariaBodyRowCount());
   }
 
   ariaColIndex(visibleColIndex: number): number {
@@ -712,7 +712,7 @@ export class DataGrid<T = unknown> {
   }
 
   ariaBodyRowIndex(displayIndex: number): number {
-    return ariaBodyRowIndexOf(this.headerRows(), displayIndex);
+    return ariaBodyRowIndexOf(this.headerRows(), displayIndex, this.viewportHost.ariaRowOffset());
   }
 
   masterAriaDetails(rowId: string | number): string | null {

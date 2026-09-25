@@ -710,7 +710,7 @@
             <al-data-grid-status-bar
               [pagination]="pagination()"
               [showRowCount]="showPaginationRowCount()"
-              [rowCount]="session.processedRows().length"
+              [rowCount]="viewportHost.totalRowCount()"
               [pageIndex]="viewportHost.pageIndex()"
               [totalPages]="viewportHost.totalPages()"
               [slotItems]="session.kernel.statusBarSlotItems()"

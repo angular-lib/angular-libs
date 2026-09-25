@@ -305,8 +305,8 @@ export interface RowReorderEvent<T = unknown> {
   toId: string | number;
   rowIds: Array<string | number>;
   /**
-   * Processed rows after reorder. Host should sync source data when the list is
-   * flat and unsorted/unfiltered — prefer `fromId`/`toId` when applying to source.
+   * Full source `[data]` order after the move (not the filtered/processed view),
+   * so `rows.set($event.rows)` never drops rows.
    */
   rows: T[];
 }

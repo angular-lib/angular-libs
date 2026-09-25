@@ -99,6 +99,12 @@ export interface CreateGridOptions<T = unknown> {
   multiSort?: boolean;
   /** Skip client sort/filter; emit `queryChange` instead. Default false. */
   serverSide?: boolean;
+  /**
+   * Server total row count (with `serverSide` + pagination). When set, `[data]` is
+   * the current page only: the grid pages by this count and emits `queryChange`
+   * on page change. Writable later via {@link GridController.serverRowCount}.
+   */
+  serverRowCount?: number | null;
 }
 
 /**
@@ -163,6 +169,11 @@ export interface GridController<T = unknown> {
   };
   readonly multiSort: WritableSignal<boolean>;
   readonly serverSide: WritableSignal<boolean>;
+  /**
+   * Server total row count; `null` = unknown (client pages the returned rows).
+   * Set after each fetch: `grid.serverRowCount.set(res.total)`.
+   */
+  readonly serverRowCount: WritableSignal<number | null>;
   /** Typed adapter lookup — prefer holding the plugin instance; this is for discovery. */
   getAdapter<A>(id: string, guard: (value: unknown) => value is A): A | null;
   /** Replace the plugin list (reactivates on the bound grid). */
@@ -241,6 +252,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
   };
   const multiSort = signal(options.multiSort ?? true);
   const serverSide = signal(options.serverSide ?? false);
+  const serverRowCount = signal<number | null>(options.serverRowCount ?? null);
 
   const requireOwnedRows = (): WritableSignal<readonly T[]> => {
     if (!ownedRows) {
@@ -271,6 +283,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     chrome,
     multiSort,
     serverSide,
+    serverRowCount,
     getAdapter,
     get rowGroup() {
       return getAdapter('rowGroup', isRowGroupAdapter);

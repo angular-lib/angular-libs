@@ -158,9 +158,9 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
   const effectiveCreateRowForm = () => opts.createRowForm() ?? ctrl().createRowForm;
 
   const pagination = () => ctrl().viewport.pagination();
-  const pageSize = () => ctrl().viewport.pageSize();
+  const pageSize = () => Math.max(1, Math.floor(ctrl().viewport.pageSize()) || 1);
   const virtual = () => ctrl().viewport.virtual();
-  const rowHeight = () => ctrl().viewport.rowHeight();
+  const rowHeight = () => Math.max(1, ctrl().viewport.rowHeight() || 1);
   const overscan = () => ctrl().viewport.overscan();
   const multiSort = () => ctrl().multiSort();
   const columnReorder = () => ctrl().chrome.columnReorder();
@@ -302,6 +302,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
     rowHeight,
     overscan,
     serverSide,
+    serverRowCount: () => ctrl().serverRowCount(),
     displayRows: () => displayRows(),
     processedRows: () => processedRows(),
     visibleColumns: () => columnLayout.visibleColumns(),
@@ -517,7 +518,8 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
       api,
       getDisplayRowCount: () => viewport.pagedDisplayRows().length,
       getColumnIds: () => columnLayout.visibleColumns().map((c) => c.id),
-      ensureRowVisible: (rowIndex) => viewport.ensureRowVisible(rowIndex),
+      ensureRowVisible: (rowIndex) =>
+        viewport.scrollCellIntoView(rowIndex, kernel.focus.getFocus()?.columnId),
       onFocusChange: (cell, reason) => {
         viewport.focusedCell.set(cell);
         if (reason !== 'reconcile') {
@@ -528,7 +530,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
         // only when it was on this grid's own cell — never steal from elsewhere.
         if (cell && domFocusOnOwnCell(opts.hostElement())) {
           if (focusRealmOf(cell) === 'body') {
-            viewport.ensureRowVisible(cell.rowIndex);
+            viewport.scrollCellIntoView(cell.rowIndex, cell.columnId);
           }
           editSync.syncDomFocus(cell, { force: true });
         }
@@ -564,8 +566,7 @@ export function createDataGridSession<T>(opts: CreateSessionOptions<T>): GridSes
         return !!item && item.kind === 'data' && isMasterDetailExpandFocus(cell?.columnId);
       },
       isSkipRow: (rowIndex) => viewport.pagedDisplayRows()[rowIndex]?.kind === 'plugin',
-      getPageRowCount: () =>
-        Math.max(1, Math.floor(viewport.viewportHeight() / rowHeight()) || 10),
+      getPageRowCount: () => viewport.pageRowCount(),
       onHeaderActivate: (columnId, multi) => columnLayout.activateHeaderSort(columnId, multi),
       onOpenColumnMenu: (columnId) => menu.openColumnMenu(columnId),
       hasFloatingFilters: () => ctrl().chrome.floatingFilters() && columnLayout.hasFilters(),
