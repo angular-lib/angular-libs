@@ -91,9 +91,8 @@ export type {
 } from './lib/utils/column-groups';
 
 export {
-  parseSetFilter as ɵparseSetFilter,
-  serializeSetFilter as ɵserializeSetFilter,
   collectSetFilterValues as ɵcollectSetFilterValues,
+  compileColumnFilter as ɵcompileColumnFilter,
 } from './lib/utils/filter-rows';
 
 export {

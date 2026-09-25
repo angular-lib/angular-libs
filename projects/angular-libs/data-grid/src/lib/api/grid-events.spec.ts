@@ -45,7 +45,7 @@ describe('GridEventBus', () => {
     bus.on('rowEditCancel', (event) => payloads.push(event));
 
     bus.emit('sortChange', { sorts: [{ columnId: 'name', direction: 'asc' }] });
-    bus.emit('filterChange', { filters: { name: 'Ada' } });
+    bus.emit('filterChange', { filters: { name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } } });
     bus.emit('columnOrderChange', { columnOrder: ['name', 'age'] });
     bus.emit('findMatchesChange', {
       query: 'ada',
@@ -55,7 +55,7 @@ describe('GridEventBus', () => {
 
     expect(payloads).toEqual([
       { sorts: [{ columnId: 'name', direction: 'asc' }] },
-      { filters: { name: 'Ada' } },
+      { filters: { name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } } },
       { columnOrder: ['name', 'age'] },
       { query: 'ada', matches: [{ rowId: 1, rowIndex: 0, columnId: 'name' }] },
       { rowId: 1, row: { id: 1 }, rowIndex: 0 },

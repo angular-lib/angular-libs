@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, inject, input, output } from '@angular/core';
+import { DEFAULT_FILTER_DEBOUNCE_MS, InputDebouncer } from '../../utils/debounce';
 
 /**
  * Find chrome — AG-style compact field: search icon + input + prev/next chevrons.
@@ -18,8 +19,9 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
         class="al-dg-find__input"
         type="text"
         [value]="query()"
-        (input)="queryChange.emit($any($event.target).value)"
+        (input)="queryInput.push($any($event.target).value)"
         (keydown.enter)="onEnter($event)"
+        (blur)="queryInput.flush()"
         [placeholder]="placeholder()"
         data-testid="al-dg-find-input"
         [attr.aria-label]="ariaLabel()"
@@ -159,14 +161,27 @@ export class DataGridFindBar {
   readonly ariaLabel = input('Find in grid');
   readonly prevAriaLabel = input('Previous match');
   readonly nextAriaLabel = input('Next match');
+  /** Debounce for typed queries (ms, `0` = per keystroke). */
+  readonly debounceMs = input(DEFAULT_FILTER_DEBOUNCE_MS);
 
   readonly queryChange = output<string>();
   readonly next = output<void>();
   readonly prev = output<void>();
 
+  readonly queryInput = new InputDebouncer<string>(
+    (value) => this.queryChange.emit(value),
+    () => this.debounceMs(),
+  );
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.queryInput.cancel());
+  }
+
   onEnter(event: Event): void {
     const keyEvent = event as KeyboardEvent;
     keyEvent.preventDefault();
+    // Search the text as typed before stepping.
+    this.queryInput.flush();
     if (keyEvent.shiftKey) {
       this.prev.emit();
     } else {

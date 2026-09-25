@@ -23,6 +23,7 @@ import {
   type GridRowModelResult,
 } from './utils/grid-row-model';
 import type { AfterSortHook } from './utils/row-pipeline';
+import { DEFAULT_FILTER_DEBOUNCE_MS } from './utils/debounce';
 import {
   applyRowTransaction,
   type RowTransaction,
@@ -51,6 +52,11 @@ export interface GridChromeOptions {
   columnReorder?: boolean; // default true
   /** Enable context menu chrome (items still from binder). default false */
   contextMenu?: boolean;
+  /**
+   * Debounce (ms) for typed filter / quick-filter / find inputs; `0` = per keystroke.
+   * API / state writes are always immediate. default 200
+   */
+  filterDebounceMs?: number;
 }
 
 /** Scope of header select-all — see {@link CreateGridOptions.selectAll}. */
@@ -165,6 +171,7 @@ export interface GridController<T = unknown> {
     stripe: WritableSignal<boolean>;
     columnReorder: WritableSignal<boolean>;
     contextMenu: WritableSignal<boolean>;
+    filterDebounceMs: WritableSignal<number>;
   };
   readonly multiSort: WritableSignal<boolean>;
   readonly serverSide: WritableSignal<boolean>;
@@ -260,6 +267,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     stripe: signal(options.chrome?.stripe ?? true),
     columnReorder: signal(options.chrome?.columnReorder ?? true),
     contextMenu: signal(options.chrome?.contextMenu ?? false),
+    filterDebounceMs: signal(options.chrome?.filterDebounceMs ?? DEFAULT_FILTER_DEBOUNCE_MS),
   };
   const multiSort = signal(options.multiSort ?? true);
   const serverSide = signal(options.serverSide ?? false);

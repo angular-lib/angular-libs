@@ -174,7 +174,7 @@ export class ViewportHost<T> {
       hasActiveFilter:
         !!this.s.externalFilter() ||
         !!this.s.quickFilter().trim() ||
-        Object.values(this.s.filters()).some((v) => !!v?.trim()),
+        Object.keys(this.s.filters()).length > 0,
       displayIsFlat: !this.s.displayRows().some((row) => row.kind !== 'data'),
     }),
   );

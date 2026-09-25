@@ -65,7 +65,9 @@ export function activateFloatingFilter(host: HTMLElement, columnId: string): boo
   if (!el) {
     return false;
   }
-  const inner = el.querySelector('input, select, textarea') as HTMLElement | null;
+  const inner = el.querySelector(
+    '.al-dg-filter-field__primary, input, select, textarea',
+  ) as HTMLElement | null;
   if (!inner) {
     return false;
   }

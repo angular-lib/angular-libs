@@ -44,7 +44,10 @@ export type { DataGridToolbarLabels } from './lib/components/chrome/data-grid-to
 export { DataGridStatusBar } from './lib/components/chrome/data-grid-status-bar';
 export type { DataGridStatusBarLabels } from './lib/components/chrome/data-grid-status-bar';
 export { DataGridSidebar } from './lib/components/chrome/data-grid-sidebar';
-export { DataGridFilterField } from './lib/components/chrome/data-grid-filter-field';
+export {
+  DataGridFilterField,
+  describeFilterModel,
+} from './lib/components/chrome/data-grid-filter-field';
 export {
   DATA_GRID_SIDEBAR_HOST,
 } from './lib/components/chrome/sidebar-host';
@@ -145,7 +148,42 @@ export type {
 export {
   toDateKey,
   formatLocalDateKey,
+  filterText,
+  setFilterKey,
+  EMPTY_SET_FILTER_OPTIONS,
 } from './lib/utils/filter-rows';
+export type { SetFilterOption, SetFilterOptions } from './lib/utils/filter-rows';
+export {
+  DATE_FILTER_OPS,
+  NUMBER_FILTER_OPS,
+  TEXT_FILTER_OPS,
+  formatNumberFilterInput,
+  isValidColumnFilterModel,
+  normalizeFilterModel,
+  parseNumberFilterInput,
+  resolveFilterKind,
+  sameFilterModel,
+  sanitizeFilterState,
+} from './lib/utils/filter-model';
+export type {
+  BooleanFilterModel,
+  ColumnFilterKind,
+  ColumnFilterModel,
+  ColumnFilterParams,
+  CustomFilterModel,
+  DateFilterCondition,
+  DateFilterModel,
+  DateFilterOp,
+  FilterJoin,
+  NumberFilterCondition,
+  NumberFilterModel,
+  NumberFilterOp,
+  SetFilterModel,
+  TextFilterCondition,
+  TextFilterModel,
+  TextFilterOp,
+} from './lib/utils/filter-model';
+export { InputDebouncer, DEFAULT_FILTER_DEBOUNCE_MS } from './lib/utils/debounce';
 export {
   parseClipboardMatrix,
   applyPasteMatrix,

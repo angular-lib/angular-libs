@@ -2,6 +2,7 @@ import type {
   ColumnPin,
   DataGridState,
 } from '../components/data-grid/data-grid.types';
+import { sanitizeFilterState } from './filter-model';
 
 export function createEmptyGridState(): DataGridState {
   return {
@@ -43,7 +44,7 @@ export function parseGridState(raw: string): DataGridState | null {
       ...createEmptyGridState(),
       ...parsed,
       sorts: Array.isArray(parsed.sorts) ? parsed.sorts : [],
-      filters: parsed.filters && typeof parsed.filters === 'object' ? parsed.filters : {},
+      filters: sanitizeFilterState(parsed.filters),
       quickFilter: typeof parsed.quickFilter === 'string' ? parsed.quickFilter : '',
       hiddenColumnIds: Array.isArray(parsed.hiddenColumnIds) ? parsed.hiddenColumnIds : [],
       columnOrder: Array.isArray(parsed.columnOrder) ? parsed.columnOrder : [],

@@ -129,6 +129,7 @@ const STATE_KEY = 'al-data-grid-demo-state';
           </label>
           <button type="button" class="btn" (click)="saveState()">Save state</button>
           <button type="button" class="btn" (click)="restoreState()">Restore</button>
+          <button type="button" class="btn" (click)="showHighEarners()">Salary ≥ 100k</button>
           <button
             type="button"
             class="btn"
@@ -635,6 +636,14 @@ export class DataGridDemoComponent {
     if (state) {
       grid.api.setState(state);
     }
+  }
+
+  /** Typed filter model — same shape the floating `>=100000` shorthand produces. */
+  showHighEarners(): void {
+    this.gridRef()?.api.setColumnFilter('salary', {
+      kind: 'number',
+      conditions: [{ op: 'greaterThanOrEqual', value: 100_000 }],
+    });
   }
 
   /** Discovery: the grid's range adapter via its typed key (or hold `cellRangePlugin()`). */

@@ -24,7 +24,6 @@ import { FindController } from '../../controllers/find';
 import { activatePlugins, dedupePlugins, notifyPlugins } from '../../plugins/types';
 import { parseGridState, serializeGridState } from '../../utils/state';
 import { flattenColumnDefs, buildLeafGroupMap, buildVisibleGroupHeaderRow, resolveColumnOrGroupDefs, sameColumnGroup } from '../../utils/column-groups';
-import { parseSetFilter, serializeSetFilter } from '../../utils/filter-rows';
 import { parseClipboardMatrix, tileMatrix } from '../../utils/clipboard-paste';
 import {
   findPlugin,
@@ -93,7 +92,7 @@ describe('data-grid utils', () => {
   it('filters, quick-filters, and sorts rows', () => {
     const resolved = resolveColumns(columns);
     const byId = new Map(resolved.map((c) => [c.id, c]));
-    const filtered = filterRows(people, { name: 'a' }, byId);
+    const filtered = filterRows(people, { name: { kind: 'text', conditions: [{ op: 'contains', value: 'a' }] } }, byId);
     expect(filtered.map((p) => p.name)).toEqual(['Ada', 'Grace', 'Alan']);
 
     const quick = quickFilterRows(people, 'york', resolved);
@@ -110,7 +109,7 @@ describe('data-grid utils', () => {
 
     const raw = serializeGridState({
       sorts: [{ columnId: 'age', direction: 'desc' }],
-      filters: { name: 'Ada' },
+      filters: { name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } },
       quickFilter: 'x',
       hiddenColumnIds: ['city'],
       columnOrder: ['age', 'name'],
@@ -335,7 +334,6 @@ describe('data-grid utils', () => {
     expect(header[0]).toMatchObject({ label: 'A', colspan: 2 });
     expect(header[1]?.columnId).toBe('age');
 
-    expect(parseSetFilter(serializeSetFilter(['Ada', 'Alan']))).toEqual(['Ada', 'Alan']);
     expect(parseClipboardMatrix('a\tb\nc\td')).toEqual([
       ['a', 'b'],
       ['c', 'd'],
@@ -579,7 +577,7 @@ class HostGrid {
     rowId: (row: Person) => row.id,
     selection: 'multi',
     viewport: { pagination: true, pageSize: 2, virtual: false },
-    chrome: { showToolbar: true },
+    chrome: { showToolbar: true, filterDebounceMs: 0 },
     plugins: [sideBarPlugin<Person>()],
   });
 }
@@ -644,7 +642,7 @@ describe('DataGrid', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: 'Ada' });
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } });
   });
 
   it('uses a single roving tabindex=0 inside the grid frame', async () => {
@@ -805,7 +803,7 @@ describe('row pipeline + display model', () => {
     const byId = new Map(resolved.map((c) => [c.id, c]));
     const rows = runClientRowPipeline({
       data: people,
-      filters: { name: 'a' },
+      filters: { name: { kind: 'text', conditions: [{ op: 'contains', value: 'a' }] } },
       quickFilter: '',
       externalFilter: null,
       sorts: [{ columnId: 'age', direction: 'asc' }],
@@ -825,7 +823,7 @@ describe('row pipeline + display model', () => {
     });
     const { processedRows, displayRows } = grid.computeRowModel({
       data: people,
-      filters: { city: 'London' },
+      filters: { city: { kind: 'text', conditions: [{ op: 'contains', value: 'London' }] } },
       quickFilter: '',
       externalFilter: null,
       sorts: [{ columnId: 'age', direction: 'desc' }],
@@ -1205,7 +1203,7 @@ describe('DataGrid master-detail UI', () => {
       { columnId: 'number', direction: 'desc' },
     ]);
 
-    host.grid.api()!.setFilterModel({ name: 'Olivia' });
+    host.grid.api()!.setFilterModel({ name: { kind: 'text', conditions: [{ op: 'contains', value: 'Olivia' }] } });
     fixture.detectChanges();
     await fixture.whenStable();
     expect(el.querySelector('[data-testid="al-dg-plugin-row-md:1"]')).toBeFalsy();
@@ -1786,7 +1784,7 @@ describe('createGrid + controller binding', () => {
         columns,
         rowId: (r: Person) => r.id,
         viewport: { virtual: false },
-        chrome: { floatingFilters: true },
+        chrome: { floatingFilters: true, filterDebounceMs: 0 },
         plugins: [this.sideBar],
       });
     }
@@ -1819,9 +1817,9 @@ describe('createGrid + controller binding', () => {
     fixture.detectChanges();
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: 'Ada' });
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ name: { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] } });
 
-    fixture.componentInstance.grid.api()?.setFilterModel({ age: '36' });
+    fixture.componentInstance.grid.api()?.setFilterModel({ age: { kind: 'number', conditions: [{ op: 'equals', value: 36 }] } });
     fixture.detectChanges();
     await fixture.whenStable();
 
@@ -1835,7 +1833,9 @@ describe('createGrid + controller binding', () => {
     await fixture.whenStable();
 
     expect(el.querySelector('[data-testid="al-dg-filter-card-name"]')).toBeFalsy();
-    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({ age: '36' });
+    expect(fixture.componentInstance.grid.api()?.getFilterModel()).toEqual({
+      age: { kind: 'number', conditions: [{ op: 'equals', value: 36 }] },
+    });
   });
 
   it('custom tool panel: inputs + api.openToolPanel', async () => {
@@ -2071,12 +2071,13 @@ describe('createGrid + controller binding', () => {
 
     const el: HTMLElement = fixture.nativeElement;
     const gridEl = el.querySelector('al-data-grid') as HTMLElement;
-    const details = el.querySelector<HTMLDetailsElement>(
-      '[data-testid="al-dg-filter-name"] [data-testid="al-dg-set-filter"]',
+    const trigger = el.querySelector<HTMLButtonElement>(
+      '[data-testid="al-dg-filter-name"] [data-testid="al-dg-set-filter-trigger"]',
     );
-    expect(details).toBeTruthy();
-    details!.open = true;
+    expect(trigger).toBeTruthy();
+    trigger!.click();
     fixture.detectChanges();
+    await fixture.whenStable();
 
     const label = el.querySelector<HTMLLabelElement>(
       '[data-testid="al-dg-filter-name"] .al-dg-filter-field__set-item',

@@ -7,12 +7,13 @@ import {
   inject,
   input,
   output,
-  signal,
   untracked,
 } from '@angular/core';
 import { NgComponentOutlet } from '@angular/common';
 import type { DataGridApi } from '../../api/grid-api';
-import type { ResolvedColumn } from '../data-grid/data-grid.types';
+import type { DataGridFilterState, ResolvedColumn } from '../data-grid/data-grid.types';
+import type { ColumnFilterModel } from '../../utils/filter-model';
+import { EMPTY_SET_FILTER_OPTIONS, type SetFilterOptions } from '../../utils/filter-rows';
 import type { DataGridSidebarSlotItem } from '../../plugins/types';
 import {
   DATA_GRID_SIDEBAR_HOST,
@@ -140,12 +141,12 @@ export class DataGridSidebar {
   readonly columns = input.required<readonly ResolvedColumn<any>[]>();
   readonly filterableColumns = input.required<readonly ResolvedColumn<any>[]>();
   readonly hiddenColumnIds = input<readonly string[]>([]);
-  readonly filters = input<Record<string, string>>({});
+  readonly filters = input<DataGridFilterState>({});
   readonly quickFilter = input('');
   readonly locale = input.required<import('../../locale/default-locale').DataGridLocale>();
-  /** Precomputed set-filter option lists keyed by column id. */
-  readonly setFilterOptionsById = input<ReadonlyMap<string, readonly string[]>>(
-    new Map(),
+  /** Lazy set-filter option getter factory (column-layout host). */
+  readonly setFilterOptions = input<(columnId: string) => () => SetFilterOptions>(
+    () => () => EMPTY_SET_FILTER_OPTIONS,
   );
 
   readonly openPanelChange = output<string | null>();
@@ -153,13 +154,9 @@ export class DataGridSidebar {
   readonly reorder = output<{ fromIndex: number; toIndex: number }>();
   readonly showAll = output<void>();
   readonly autoSize = output<void>();
-  readonly filterChange = output<{ columnId: string; value: string }>();
+  readonly filterChange = output<{ columnId: string; model: ColumnFilterModel | null }>();
   readonly quickFilterChange = output<string>();
   readonly clearAll = output<void>();
-
-  /** Filter cards open in the filters tool panel (survives panel tab switches). */
-  private readonly openFilterIds = signal<string[]>([]);
-  private readonly expandedFilterIds = signal<ReadonlySet<string>>(new Set());
 
   /** Shared host object — getters close over inputs. */
   private readonly host: DataGridSidebarHost;
@@ -183,36 +180,6 @@ export class DataGridSidebar {
   });
 
   constructor() {
-    // Auto-include filter cards when a filter value is set outside the panel.
-    effect(() => {
-      const filters = this.filters();
-      const filterable = new Set(this.filterableColumns().map((c) => c.id));
-      untracked(() => {
-        this.openFilterIds.update((ids) => {
-          let next = ids.filter((id) => filterable.has(id));
-          let changed = next.length !== ids.length;
-          const toExpand: string[] = [];
-          for (const [id, value] of Object.entries(filters)) {
-            if (value && filterable.has(id) && !next.includes(id)) {
-              next = [...next, id];
-              toExpand.push(id);
-              changed = true;
-            }
-          }
-          if (toExpand.length) {
-            this.expandedFilterIds.update((set) => {
-              const copy = new Set(set);
-              for (const id of toExpand) {
-                copy.add(id);
-              }
-              return copy;
-            });
-          }
-          return changed ? next : ids;
-        });
-      });
-    });
-
     // Drop cached injectors when the panel registry identity changes.
     effect(() => {
       this.panels();
@@ -235,21 +202,17 @@ export class DataGridSidebar {
       hiddenColumnIds: computed(() => this.hiddenColumnIds()),
       filters: computed(() => this.filters()),
       quickFilter: computed(() => this.quickFilter()),
-      openFilterColumnIds: this.openFilterIds.asReadonly(),
-      expandedFilterColumnIds: this.expandedFilterIds.asReadonly(),
+      filterDebounceMs: computed(() => this.controller().chrome.filterDebounceMs()),
       locale: computed(() => this.locale()),
       setColumnVisible: (columnId, visible) =>
         this.visibilityChange.emit({ columnId, visible }),
       reorderColumns: (fromIndex, toIndex) => this.reorder.emit({ fromIndex, toIndex }),
       showAllColumns: () => this.showAll.emit(),
       autoSizeColumns: () => this.autoSize.emit(),
-      setFilter: (columnId, value) => this.filterChange.emit({ columnId, value }),
+      setFilter: (columnId, model) => this.filterChange.emit({ columnId, model }),
       setQuickFilter: (value) => this.quickFilterChange.emit(value),
       clearFilters: () => this.clearAll.emit(),
-      getSetFilterOptions: (columnId) => this.setFilterOptionsById().get(columnId) ?? [],
-      addFilterColumn: (columnId) => this.addFilterColumn(columnId),
-      removeFilterColumn: (columnId) => this.removeFilterColumn(columnId),
-      toggleFilterColumnExpanded: (columnId) => this.toggleFilterColumnExpanded(columnId),
+      getSetFilterOptions: (columnId) => this.setFilterOptions()(columnId)(),
     };
   }
 
@@ -276,46 +239,5 @@ export class DataGridSidebar {
 
   togglePanel(panel: string): void {
     this.openPanelChange.emit(this.openPanel() === panel ? null : panel);
-  }
-
-  private addFilterColumn(columnId: string): void {
-    const filterable = this.filterableColumns().some((c) => c.id === columnId);
-    if (!filterable) {
-      return;
-    }
-    this.openFilterIds.update((ids) => (ids.includes(columnId) ? ids : [...ids, columnId]));
-    this.expandedFilterIds.update((set) => {
-      if (set.has(columnId)) {
-        return set;
-      }
-      const copy = new Set(set);
-      copy.add(columnId);
-      return copy;
-    });
-  }
-
-  private removeFilterColumn(columnId: string): void {
-    this.openFilterIds.update((ids) => ids.filter((id) => id !== columnId));
-    this.expandedFilterIds.update((set) => {
-      if (!set.has(columnId)) {
-        return set;
-      }
-      const copy = new Set(set);
-      copy.delete(columnId);
-      return copy;
-    });
-    this.filterChange.emit({ columnId, value: '' });
-  }
-
-  private toggleFilterColumnExpanded(columnId: string): void {
-    this.expandedFilterIds.update((set) => {
-      const copy = new Set(set);
-      if (copy.has(columnId)) {
-        copy.delete(columnId);
-      } else {
-        copy.add(columnId);
-      }
-      return copy;
-    });
   }
 }
