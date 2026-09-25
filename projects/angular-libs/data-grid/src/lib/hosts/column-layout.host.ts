@@ -22,7 +22,17 @@ import {
 } from '../utils/column-groups';
 import { estimateColumnWidth } from '../utils/autosize';
 import { downloadCsv, rowsToCsvExport, type CsvExportOptions } from '../utils/csv';
-import { collectSetFilterValues } from '../utils/filter-rows';
+import {
+  EMPTY_SET_FILTER_OPTIONS,
+  collectSetFilterValues,
+  type SetFilterOptions,
+} from '../utils/filter-rows';
+import {
+  normalizeFilterModel,
+  resolveFilterKind,
+  sanitizeFilterState,
+  type ColumnFilterModel,
+} from '../utils/filter-model';
 import { nextSortDirection } from '../utils/sort-rows';
 import { GRID_STATE_VERSION, jsonEqual, sanitizeGridState } from '../utils/state';
 import type { ColumnLayoutDeps } from './binder-surface';
@@ -123,17 +133,41 @@ export class ColumnLayoutHost<T> {
     this.orderedColumns().filter((c) => !!c.filter),
   );
 
-  /** Set-filter option lists for sidebar / shared filter field (keyed by column id). */
-  readonly setFilterOptionsById: Signal<Map<string, string[]>> = computed(() => {
-    const map = new Map<string, string[]>();
-    const rows = this.s.data();
-    for (const col of this.filterableColumns()) {
-      if (col.filter === 'set') {
-        map.set(col.id, collectSetFilterValues(rows, col));
-      }
-    }
-    return map;
+  /** Per-column lazy set-filter option computeds (rebuilt when column defs change). */
+  private readonly setFilterOptionCache = computed(() => {
+    this.columnsById();
+    return new Map<string, Signal<SetFilterOptions>>();
   });
+
+  /**
+   * Distinct set-filter values for one column — computed on first read and
+   * memoized until `[data]` / columns change (closed dropdowns cost nothing).
+   */
+  getSetFilterOptions(columnId: string): SetFilterOptions {
+    const cache = this.setFilterOptionCache();
+    let options = cache.get(columnId);
+    if (!options) {
+      const column = this.columnsById().get(columnId);
+      if (!column || resolveFilterKind(column) !== 'set') {
+        return EMPTY_SET_FILTER_OPTIONS;
+      }
+      options = computed(() => collectSetFilterValues(this.s.data(), column));
+      cache.set(columnId, options);
+    }
+    return options();
+  }
+
+  private readonly setFilterOptionGetters = new Map<string, () => SetFilterOptions>();
+
+  /** Stable (per column id) getter for `DataGridFilterField.setOptions`. */
+  readonly setFilterOptionsFn = (columnId: string): (() => SetFilterOptions) => {
+    let getter = this.setFilterOptionGetters.get(columnId);
+    if (!getter) {
+      getter = () => this.getSetFilterOptions(columnId);
+      this.setFilterOptionGetters.set(columnId, getter);
+    }
+    return getter;
+  };
 
   readonly hasFilters: Signal<boolean> = computed(() =>
     this.resolvedColumns().some((c) => !!c.filter),
@@ -233,11 +267,25 @@ export class ColumnLayoutHost<T> {
     this.s.notifyPlugins('onSortChange', { sorts });
   }
 
-  setFilter(columnId: string, value: string): void {
-    const next = { ...this.filters(), [columnId]: value };
-    if (!value) {
+  /** Set (or with `null` / an empty model, clear) one column's filter. */
+  setColumnFilter(columnId: string, model: ColumnFilterModel | null): void {
+    const normalized = normalizeFilterModel(model);
+    const next = { ...this.filters() };
+    if (normalized) {
+      next[columnId] = normalized;
+    } else if (columnId in next) {
       delete next[columnId];
+    } else {
+      return;
     }
+    this.applyFilters(next);
+  }
+
+  getColumnFilter(columnId: string): ColumnFilterModel | null {
+    return this.filters()[columnId] ?? null;
+  }
+
+  private applyFilters(next: DataGridFilterState): void {
     this.filters.set(next);
     this.s.publishFilter({ filters: next });
     this.s.notifyPlugins('onFilterChange', { filters: next });
@@ -258,10 +306,9 @@ export class ColumnLayoutHost<T> {
     return { ...this.filters() };
   }
 
+  /** Replace all column filters; invalid / empty models are dropped. */
   setFilterModel(filters: DataGridFilterState): void {
-    this.filters.set({ ...filters });
-    this.s.publishFilter({ filters: this.filters() });
-    this.s.notifyPlugins('onFilterChange', { filters: this.filters() });
+    this.applyFilters(sanitizeFilterState(filters));
   }
 
   getSortModel(): SortState[] {

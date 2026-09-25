@@ -39,6 +39,7 @@ export type FlashCellsPlugin<T = unknown> = DataGridPlugin<T> & FlashCellsAdapte
  * Opt-in cell flash highlight. Hold the return value and call `flashCells`.
  *
  * Requires a stable `rowId`. Not included in `defaultGridPlugins()`.
+ * One instance may serve several grids: `flashCells` applies to all of them.
  *
  * @example
  * ```ts
@@ -66,7 +67,8 @@ export function flashCellsPlugin<T = any>(
   const flashes = signal<ReadonlyMap<string, FlashEntry>>(new Map());
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
   let tokenCounter = 0;
-  let liveContext: DataGridPluginContext<T> | null = null;
+  /** Attached grids — flashes (keyed by row id + column id) show in each of them. */
+  const grids = new Set<DataGridPluginContext<T>>();
 
   const clearTimers = (): void => {
     for (const timer of timers.values()) {
@@ -122,10 +124,10 @@ export function flashCellsPlugin<T = any>(
     if (!rowIds?.length) {
       return [];
     }
-    const columnIds =
-      params.columnIds?.length
-        ? params.columnIds
-        : (liveContext?.api.getVisibleColumnIds() ?? []);
+    // Omitted columnIds → every visible column of every attached grid.
+    const columnIds = params.columnIds?.length
+      ? params.columnIds
+      : [...new Set([...grids].flatMap((ctx) => ctx.api.getVisibleColumnIds()))];
     if (!columnIds.length) {
       return [];
     }
@@ -180,7 +182,7 @@ export function flashCellsPlugin<T = any>(
     clearFlash: () => adapter.clearFlash(),
 
     setup(context: DataGridPluginContext<T>): () => void {
-      liveContext = context;
+      grids.add(context);
 
       const cleanDecorator = context.capabilities.registerCellDecorator({
         id: 'flash-cells',
@@ -203,8 +205,10 @@ export function flashCellsPlugin<T = any>(
 
       return () => {
         cleanDecorator();
-        clearFlash();
-        liveContext = null;
+        grids.delete(context);
+        if (!grids.size) {
+          clearFlash();
+        }
       };
     },
   };

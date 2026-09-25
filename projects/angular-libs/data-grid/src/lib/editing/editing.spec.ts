@@ -241,7 +241,7 @@ describe('isTypeToEditKey', () => {
 
 describe('cell range with string ids', () => {
   it('drag-select starts on numeric-looking string row ids', async () => {
-    const { cellRangePlugin } = await import('@angular-libs/data-grid/plugins');
+    const { cellRangePlugin, CELL_RANGE_ADAPTER } = await import('@angular-libs/data-grid/plugins');
     interface Item {
       id: string;
       name: string;
@@ -278,7 +278,7 @@ describe('cell range with string ids', () => {
           `.al-data-grid__td[data-row-id="${id}"][data-column-id="name"]`,
         ) as HTMLElement;
         td.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
-        const range = fixture.componentInstance.grid.api()!.getCellRange();
+        const range = fixture.componentInstance.grid.api()!.getAdapter(CELL_RANGE_ADAPTER)?.getRange() ?? null;
         expect(range?.anchor.columnId).toBe('name');
         td.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }));
       }

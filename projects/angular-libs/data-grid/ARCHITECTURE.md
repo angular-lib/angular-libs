@@ -61,10 +61,16 @@ createDataGridSession(…)                ← runtime root (mounted grid)
 3. Prefer `capabilities` / `slots` over reaching into the component.
 4. Editing is **kernel-adjacent** (always available), not an optional chrome plugin.
 5. Plugin activation is **imperative** on `GridKernel` only — never from an Angular
-   `effect` (slot/capability writes would re-trigger it). Chrome toggles use held
-   adapters (`sideBar.setEnabled`); rare list changes use `setPlugins` →
-   `api.recomposePlugins`. Open tool-panel state uses `linkedSignal`, never an
-   effect that writes `activeSidePanel`.
+   `effect` that tracks slot/capability writes. Chrome toggles use held
+   adapters (`sideBar.setEnabled`); rare list changes use `setPlugins` — the
+   binder forwards the controller's plugin signal to `kernel.recomposePlugins`
+   (untracked, identity diff: only added / removed instances set up / torn down).
+   Each plugin's registrations are scoped and rolled back if its `setup` throws;
+   setup / cleanup / interaction / hook errors go to Angular's `ErrorHandler`.
+   Open tool-panel state uses `linkedSignal`, never an effect that writes
+   `activeSidePanel`.
+6. `[controller]` is static per `<al-data-grid>` — binding another controller is
+   reported and ignored; recreate the grid instead.
 
 ---
 
@@ -271,8 +277,14 @@ re-bundle `GridKernel`, `DataGridApi`, … into each FESM/`.d.ts` and break
 
 Optional later: `…/plugins/enterprise` **only** if bundle size demands it (I / P3).
 
-`DataGridApi` feature methods are thin façades — prefer held adapters
-(`groups.setColumns`, `ranges.clearRange`). `bind*Adapter` is `@internal`.
+Core knows no specific plugin: feature state lives on held adapters
+(`groups.setColumns`, `ranges.clearRange`), published per grid via
+`context.adapters.register(KEY, adapter)` and discovered with typed keys
+(`api.getAdapter(ROW_GROUP_ADAPTER)` / `grid.getAdapter(…)`). Core-owned seams a
+plugin can fill: `registerCellWidget` (Enter / Space on a cell, e.g. the
+master-detail expand toggle), `registerRowAria` (`aria-details`),
+`registerRangeSelection` (range paint / ARIA / Escape / Shift+arrow / copy) and
+display-view flags (`nestedWidget`, `regionId`).
 
 ---
 
@@ -322,7 +334,7 @@ Host owns `rows` and (for full-row edit) the Signal Forms tree; plugins own feat
 | 0 Governance & docs | ✅ |
 | 1 Plugins-only flags + error isolation | ✅ |
 | 2 Controller / `runGridRowModel` | ✅ |
-| 3 Split API hosts + `getAdapter` | ✅ `composeDataGridApiHost` from behavioral hosts; typed `getAdapter` / guards |
+| 3 Split API hosts + `getAdapter` | ✅ `composeDataGridApiHost` from behavioral hosts; typed `adapterKey` registry |
 | 4 Chrome extraction | ✅ toolbar / find / status / sidebar shell; panels in plugins |
 | 5 Editing seams | ✅ host `rowForm` canonical (docs) + `RowEditSession` |
 | 6 Interactions + display views | ✅ view registry overrides `group`; exclusive display builders |
@@ -342,7 +354,7 @@ Binder = Angular IO + template + keyboard coordinators. Runtime state lives on s
 
 | Item | Status |
 | --- | --- |
-| Reactive `setPlugins` recomposition (id-key) | ✅ |
+| Reactive `setPlugins` recomposition (instance identity, once per change) | ✅ |
 | `api.getLocale()` + localized plugin chrome | ✅ |
 | Tree adapter + exclusive display builders | ✅ |
 | Row reorder `fromId`/`toId` + drag gating | ✅ |

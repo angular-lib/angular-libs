@@ -15,6 +15,7 @@ import type {
   SortChangeEvent,
 } from '../components/data-grid/data-grid.types';
 import { createGrid, type CreateGridOptions } from '../create-grid';
+import type { ColumnFilterModel } from '../utils/filter-model';
 import type { DataGridPlugin } from '../plugins/types';
 
 interface Item {
@@ -166,7 +167,10 @@ describe('initialState (S2)', () => {
     gridOptions = {
       initialState: {
         sorts: [{ columnId: 'qty', direction: 'desc' }],
-        filters: { gone: 'x', qty: 5 as unknown as string },
+        filters: {
+          gone: { kind: 'text', conditions: [{ op: 'contains', value: 'x' }] },
+          qty: 5 as unknown as ColumnFilterModel,
+        },
         hiddenColumnIds: ['dept', 'gone'],
         columnOrder: ['gone', 'qty', 'name'],
         pageIndex: 1,

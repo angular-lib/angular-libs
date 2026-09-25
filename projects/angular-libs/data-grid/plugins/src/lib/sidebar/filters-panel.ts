@@ -1,5 +1,40 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { DATA_GRID_SIDEBAR_HOST, DataGridFilterField } from '@angular-libs/data-grid';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  computed,
+  inject,
+  signal,
+  type WritableSignal,
+} from '@angular/core';
+import {
+  DATA_GRID_SIDEBAR_HOST,
+  DataGridFilterField,
+  InputDebouncer,
+  type DataGridSidebarHost,
+  type SetFilterOptions,
+} from '@angular-libs/data-grid';
+
+/**
+ * Filter-card UI state (added cards, collapsed cards). Keyed by the sidebar
+ * host so it survives panel tab switches (the panel component is recreated)
+ * and dies with the sidebar — no state in the core shell.
+ */
+interface FilterCardState {
+  added: WritableSignal<readonly string[]>;
+  collapsed: WritableSignal<ReadonlySet<string>>;
+}
+
+const cardStates = new WeakMap<DataGridSidebarHost, FilterCardState>();
+
+function cardStateFor(host: DataGridSidebarHost): FilterCardState {
+  let state = cardStates.get(host);
+  if (!state) {
+    state = { added: signal<readonly string[]>([]), collapsed: signal<ReadonlySet<string>>(new Set()) };
+    cardStates.set(host, state);
+  }
+  return state;
+}
 
 const panelStyles = `
   :host { display: block; height: 100%; }
@@ -84,7 +119,9 @@ const panelStyles = `
         <input
           type="search"
           [value]="host.quickFilter()"
-          (input)="host.setQuickFilter($any($event.target).value)"
+          (input)="quickFilterInput.push($any($event.target).value)"
+          (keydown.enter)="quickFilterInput.flush()"
+          (blur)="quickFilterInput.flush()"
           [placeholder]="host.locale().quickFilterPlaceholder"
           data-testid="al-dg-quick-filter"
         />
@@ -118,7 +155,7 @@ const panelStyles = `
                 type="button"
                 class="al-dg-panel__card-toggle"
                 [attr.aria-expanded]="isExpanded(col.id)"
-                (click)="host.toggleFilterColumnExpanded(col.id)"
+                (click)="toggleExpanded(col.id)"
               >
                 <span class="al-dg-panel__card-chevron" aria-hidden="true">
                   {{ isExpanded(col.id) ? '▼' : '▶' }}
@@ -134,7 +171,7 @@ const panelStyles = `
                 [attr.aria-label]="host.locale().filtersRemoveFilter + ' ' + col.header"
                 [attr.title]="host.locale().filtersRemoveFilter"
                 data-testid="al-dg-filter-card-remove"
-                (click)="host.removeFilterColumn(col.id)"
+                (click)="removeCard(col.id)"
               >
                 ×
               </button>
@@ -143,12 +180,13 @@ const panelStyles = `
               <div class="al-dg-panel__card-body">
                 <al-data-grid-filter-field
                   [column]="$any(col)"
-                  [value]="host.filters()[col.id] ?? ''"
-                  [setOptions]="host.getSetFilterOptions(col.id)"
+                  [model]="host.filters()[col.id] ?? null"
+                  [setOptions]="setOptionsFor(col.id)"
                   [ariaLabel]="host.locale().filterColumnAriaLabel + ' ' + col.header"
                   [locale]="host.locale()"
+                  [debounceMs]="host.filterDebounceMs()"
                   variant="panel"
-                  (valueChange)="host.setFilter(col.id, $event)"
+                  (modelChange)="host.setFilter(col.id, $event)"
                 />
               </div>
             }
@@ -174,28 +212,79 @@ const panelStyles = `
 })
 export class DataGridFiltersPanel {
   readonly host = inject(DATA_GRID_SIDEBAR_HOST);
+  private readonly cards = cardStateFor(this.host);
+  private readonly setOptionGetters = new Map<string, () => SetFilterOptions>();
 
+  /** Typed quick filter — debounced like the toolbar field. */
+  readonly quickFilterInput = new InputDebouncer<string>(
+    (value) => this.host.setQuickFilter(value),
+    () => this.host.filterDebounceMs(),
+  );
+
+  /** Cards: explicitly added columns, then any column with an active filter. */
   readonly openColumns = computed(() => {
-    const byId = new Map(this.host.filterableColumns().map((c) => [c.id, c]));
-    return this.host
-      .openFilterColumnIds()
-      .map((id) => byId.get(id))
-      .filter((c): c is NonNullable<typeof c> => !!c);
+    const filterable = this.host.filterableColumns();
+    const byId = new Map(filterable.map((c) => [c.id, c]));
+    const filters = this.host.filters();
+    const ids = [...this.cards.added()];
+    for (const col of filterable) {
+      if (filters[col.id] && !ids.includes(col.id)) {
+        ids.push(col.id);
+      }
+    }
+    return ids.map((id) => byId.get(id)).filter((c): c is NonNullable<typeof c> => !!c);
   });
 
   readonly addableColumns = computed(() => {
-    const open = new Set(this.host.openFilterColumnIds());
+    const open = new Set(this.openColumns().map((c) => c.id));
     return this.host.filterableColumns().filter((c) => !open.has(c.id));
   });
 
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.quickFilterInput.cancel());
+  }
+
   isExpanded(columnId: string): boolean {
-    return this.host.expandedFilterColumnIds().has(columnId);
+    return !this.cards.collapsed().has(columnId);
+  }
+
+  toggleExpanded(columnId: string): void {
+    this.cards.collapsed.update((set) => {
+      const copy = new Set(set);
+      if (!copy.delete(columnId)) {
+        copy.add(columnId);
+      }
+      return copy;
+    });
   }
 
   onAddFilter(columnId: string): void {
-    if (!columnId) {
+    if (!columnId || !this.host.filterableColumns().some((c) => c.id === columnId)) {
       return;
     }
-    this.host.addFilterColumn(columnId);
+    this.cards.added.update((ids) => (ids.includes(columnId) ? ids : [...ids, columnId]));
+    this.cards.collapsed.update((set) => {
+      if (!set.has(columnId)) {
+        return set;
+      }
+      const copy = new Set(set);
+      copy.delete(columnId);
+      return copy;
+    });
+  }
+
+  /** Remove the card and clear that column's filter. */
+  removeCard(columnId: string): void {
+    this.cards.added.update((ids) => ids.filter((id) => id !== columnId));
+    this.host.setFilter(columnId, null);
+  }
+
+  setOptionsFor(columnId: string): () => SetFilterOptions {
+    let getter = this.setOptionGetters.get(columnId);
+    if (!getter) {
+      getter = () => this.host.getSetFilterOptions(columnId);
+      this.setOptionGetters.set(columnId, getter);
+    }
+    return getter;
   }
 }

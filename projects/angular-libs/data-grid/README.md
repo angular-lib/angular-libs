@@ -153,8 +153,9 @@ Also available **only** from `@angular-libs/data-grid/plugins` (preferred).
 
 Sidebar panel components (`DataGridColumnsPanel`, `DataGridFiltersPanel`,
 `DataGridRowGroupPanel`) live in the plugins package and register via slots.
-The filters tool panel shows filter cards (add / remove / expand) for open
-filters — values set from floating filters are auto-added.
+The filters tool panel shows filter cards (add / remove / expand) — any column
+with an active filter gets a card automatically. Cards edit up to two
+conditions joined with AND / OR.
 
 ### Custom tool panels
 
@@ -211,7 +212,8 @@ columns = [md.expandColumn(), { field: 'name' }];
 
 - **Groups** sidebar tab: check columns to group, reorder levels, **Ungroup**
 - Expand / Collapse / Ungroup live on the held adapter (`groups.expandAll()`, `groups.collapseAll()`, `groups.clear()`) and `DataGridApi` — no default toolbar buttons
-- API: `api.setRowGroupColumns(['role'])`, `api.clearRowGroup()`, `api.toggleGroup(id)`
+- API: `api.toggleGroup(id)`; group columns via the held adapter or
+  `grid.getAdapter(ROW_GROUP_ADAPTER)?.setColumns(['role'])`
 - Tree: held `TreeDataAdapter` (`collapsedIds`, `expandAll`, `collapseAll`). The row
   at a path **is** that node (e.g. `['UK']` is the parent of `['UK', 'London']`);
   group rows are synthesized only for missing ancestors. Parent data rows show an
@@ -252,6 +254,7 @@ For server paging, pass the total and bind only the current page as `[data]`:
 ```ts
 const grid = createGrid({ columns, serverSide: true, viewport: { pagination: true, pageSize: 50 } });
 // (queryChange)="load($event)" — { sorts, filters, quickFilter, pageIndex, pageSize }
+// `filters` is the typed model (see "Filtering"); quickFilter words are AND-ed.
 async load(q: DataGridQuery) {
   const res = await api.fetch(q);
   this.rows.set(res.rows);
@@ -303,6 +306,53 @@ report it in `PasteEvent.invalidCells`.
   (no `field` / `valueSetter`). Clipboard text is TSV (quoted fields may hold tabs /
   newlines); commas never split a cell.
 
+## Filtering
+
+`filter: true` infers the kind from `type` (number / boolean / date, else text);
+or set it explicitly: `'text' | 'number' | 'date' | 'boolean' | 'set' | 'custom'`.
+The floating filter, filters panel and filter logic share one resolver, so
+`{ type: 'date', filter: 'text' }` is a text filter everywhere.
+
+The filter state is a typed, JSON-serializable model per column:
+
+```ts
+grid.api()?.setColumnFilter('salary', {
+  kind: 'number',
+  conditions: [{ op: 'inRange', value: 50_000, valueTo: 90_000 }], // inclusive
+});
+grid.api()?.setFilterModel({
+  name: { kind: 'text', conditions: [{ op: 'startsWith', value: 'a' }, { op: 'endsWith', value: 'n' }], join: 'or' },
+  hired: { kind: 'date', conditions: [{ op: 'after', value: '2024-01-31' }] }, // local yyyy-MM-dd
+  role: { kind: 'set', values: ['Engineer', null] },  // include-list; null = (Blanks)
+  active: { kind: 'boolean', value: true },
+});
+grid.api()?.setColumnFilter('salary', null); // clear one
+```
+
+| Kind | Operators |
+| --- | --- |
+| text | `contains` `notContains` `equals` `notEqual` `startsWith` `endsWith` `blank` `notBlank` (case-insensitive; matches raw **and** `valueFormatter` text) |
+| number | `equals` `notEqual` `lessThan` `lessThanOrEqual` `greaterThan` `greaterThanOrEqual` `inRange` `blank` `notBlank` |
+| date | `equals` `notEqual` `before` `after` `inRange` `blank` `notBlank` (Date, ISO strings and epoch ms compare as local days) |
+
+Blank / non-numeric values never match comparisons (incl. `notEqual`). Number
+floating filters accept shorthand — `>100`, `<=5`, `!=0`, `10..20` / `10-20` —
+and mark unparseable input `aria-invalid` (the filter is cleared, not silently kept).
+Set filters start with everything checked; the dropdown has search,
+(Select all), (Blanks), a count summary and closes on outside click / Escape.
+Options sort numerically / naturally and are capped by `filterParams.setValueLimit`
+(default 1000, with a notice); use `filterParams.setValues` for server-side data.
+
+Per column: `filterValueGetter(row)` changes what is filtered (e.g. an object's
+code), and `filterPredicate(value, row, model)` replaces built-in evaluation
+(required for `{ kind: 'custom', value }` models). Invalid / legacy entries are
+dropped by `setFilterModel` and `parseGridState` (`isValidColumnFilterModel`).
+
+The quick filter splits on whitespace: every word must appear in some visible
+column (raw or formatted). Typed filter / quick-filter / find inputs are
+debounced by `createGrid({ chrome: { filterDebounceMs } })` (default 200, `0`
+= per keystroke); Enter / blur apply immediately and API writes are never delayed.
+
 ## Column groups
 
 Groups are **membership**, not decoration:
@@ -328,7 +378,7 @@ columns: ColumnOrGroupDef<Emp>[] = [
 ```ts
 grid.api()?.exportDataAsCsv();
 grid.api()?.exportCsv({ filename: 'people.csv', columnKeys: ['name', 'city'], onlySelected: true });
-grid.api()?.setFilterModel({ name: 'Ada' });
+grid.api()?.setColumnFilter('name', { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] });
 grid.api()?.getState();
 grid.api()?.getLocale(); // plugins use this for chrome strings
 ```

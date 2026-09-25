@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
 import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
+import type { RowGroupAdapter } from '../row-group.adapter';
 
 @Component({
   selector: 'al-data-grid-row-group-panel',
@@ -34,7 +35,7 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
                 <button
                   type="button"
                   class="al-dg-panel__icon-btn"
-                  [disabled]="levelOf(col.id) >= host.groupColumnIds().length - 1"
+                  [disabled]="levelOf(col.id) >= adapter().columns().length - 1"
                   (click)="move(col.id, 1)"
                   [attr.aria-label]="host.locale().moveGroupDown"
                 >
@@ -49,8 +50,8 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
         <button
           type="button"
           class="al-dg-panel__btn"
-          [disabled]="!host.groupColumnIds().length"
-          (click)="host.setGroupColumns([])"
+          [disabled]="!adapter().columns().length"
+          (click)="adapter().setColumns([])"
           data-testid="al-dg-ungroup"
         >
           {{ host.locale().ungroup }}
@@ -98,30 +99,32 @@ import { DATA_GRID_SIDEBAR_HOST } from '@angular-libs/data-grid';
     .al-dg-panel__btn:disabled { opacity: 0.45; cursor: default; }
   `,
 })
+/** Groups tool panel — registered by `rowGroupPlugin` with its held adapter as input. */
 export class DataGridRowGroupPanel {
   readonly host = inject(DATA_GRID_SIDEBAR_HOST);
+  readonly adapter = input.required<RowGroupAdapter>();
 
   isGrouped(columnId: string): boolean {
-    return this.host.groupColumnIds().includes(columnId);
+    return this.adapter().columns().includes(columnId);
   }
 
   levelOf(columnId: string): number {
-    return this.host.groupColumnIds().indexOf(columnId);
+    return this.adapter().columns().indexOf(columnId);
   }
 
   toggle(columnId: string, checked: boolean): void {
-    const current = [...this.host.groupColumnIds()];
+    const current = [...this.adapter().columns()];
     if (checked) {
       if (!current.includes(columnId)) {
-        this.host.setGroupColumns([...current, columnId]);
+        this.adapter().setColumns([...current, columnId]);
       }
       return;
     }
-    this.host.setGroupColumns(current.filter((id) => id !== columnId));
+    this.adapter().setColumns(current.filter((id) => id !== columnId));
   }
 
   move(columnId: string, delta: number): void {
-    const current = [...this.host.groupColumnIds()];
+    const current = [...this.adapter().columns()];
     const from = current.indexOf(columnId);
     if (from < 0) {
       return;
@@ -133,6 +136,6 @@ export class DataGridRowGroupPanel {
     const next = [...current];
     const [item] = next.splice(from, 1);
     next.splice(to, 0, item!);
-    this.host.setGroupColumns(next);
+    this.adapter().setColumns(next);
   }
 }

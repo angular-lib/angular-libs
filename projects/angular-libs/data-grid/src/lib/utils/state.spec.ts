@@ -9,10 +9,15 @@ import {
   serializeGridState,
 } from './state';
 
+const ADA = { kind: 'text' as const, conditions: [{ op: 'contains' as const, value: 'Ada' }] };
+
 describe('grid state schema (S2)', () => {
   it('drops invalid filter values instead of crashing the filter pipeline', () => {
-    const parsed = parseGridState('{"filters":{"age":5,"name":"Ada","city":""}}');
-    expect(parsed?.filters).toEqual({ name: 'Ada' });
+    const ada = { kind: 'text', conditions: [{ op: 'contains', value: 'Ada' }] };
+    const parsed = parseGridState(
+      JSON.stringify({ filters: { age: 5, name: ada, city: '', dept: { kind: 'nope' } } }),
+    );
+    expect(parsed?.filters).toEqual({ name: ada });
   });
 
   it('validates sort entries (direction, shape, duplicates)', () => {
@@ -58,7 +63,7 @@ describe('grid state schema (S2)', () => {
           { columnId: 'gone', direction: 'asc' },
           { columnId: 'name', direction: 'asc' },
         ],
-        filters: { gone: 'x', name: 'Ada' },
+        filters: { gone: ADA, name: ADA },
         hiddenColumnIds: ['gone', 'age'],
         columnOrder: ['gone', 'age', 'name'],
         widthOverrides: { gone: 10, name: 100 },
@@ -68,7 +73,7 @@ describe('grid state schema (S2)', () => {
     );
     expect(state).toEqual({
       sorts: [{ columnId: 'name', direction: 'asc' }],
-      filters: { name: 'Ada' },
+      filters: { name: ADA },
       hiddenColumnIds: ['age'],
       columnOrder: ['age', 'name'],
       widthOverrides: { name: 100 },

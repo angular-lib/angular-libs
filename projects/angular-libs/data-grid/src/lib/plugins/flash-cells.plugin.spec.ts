@@ -41,6 +41,7 @@ describe('flashCellsPlugin', () => {
       injector: null as never,
       slots: {} as never,
       capabilities: caps,
+      adapters: null as never,
     });
 
     expect(decoratorClass(caps, 1, 'name')).not.toContain('al-dg-cell--flash');
@@ -83,6 +84,7 @@ describe('flashCellsPlugin', () => {
       injector: null as never,
       slots: {} as never,
       capabilities: caps,
+      adapters: null as never,
     });
 
     flash.flashCells({
@@ -109,6 +111,7 @@ describe('flashCellsPlugin', () => {
       injector: null as never,
       slots: {} as never,
       capabilities: caps,
+      adapters: null as never,
     });
 
     flash.flashCells({
@@ -136,6 +139,7 @@ describe('flashCellsPlugin', () => {
         injector: null as never,
         slots: {} as never,
         capabilities: caps,
+        adapters: null as never,
       });
 
       flash.flashCells({ cells: [{ rowId: 1, columnId: 'name' }] });

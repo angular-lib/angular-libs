@@ -5,6 +5,7 @@ import type {
   DataGridState,
   SortState,
 } from '../components/data-grid/data-grid.types';
+import { sanitizeFilterState } from './filter-model';
 
 /** Current {@link DataGridState} schema version. */
 export const GRID_STATE_VERSION = 1 as const;
@@ -25,15 +26,6 @@ export function createEmptyGridState(): DataGridState {
     activeSidePanel: null,
     slices: {},
   };
-}
-
-/**
- * Validation hook for one column's value inside `DataGridState.filters`.
- * The state layer treats the filter model as opaque per-column values; this is
- * the only place that knows their shape (update it with the filter model).
- */
-export function isValidFilterValue(value: unknown): value is DataGridFilterState[string] {
-  return typeof value === 'string' && value !== '';
 }
 
 export function serializeGridState(state: DataGridState): string {
@@ -109,10 +101,11 @@ export function sanitizeGridState(
 
   const filters = input['filters'];
   if (isPlainObject(filters)) {
+    // The filter model owns validation (`sanitizeFilterState`); here only ids.
     const next: DataGridFilterState = {};
-    for (const [id, value] of Object.entries(filters)) {
-      if (known(id) && isValidFilterValue(value)) {
-        next[id] = value;
+    for (const [id, model] of Object.entries(sanitizeFilterState(filters))) {
+      if (known(id)) {
+        next[id] = model;
       }
     }
     out.filters = next;

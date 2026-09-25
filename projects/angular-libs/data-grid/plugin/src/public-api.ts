@@ -16,8 +16,12 @@ export {
   ɵactivatePlugins as activatePlugins,
   ɵdedupePlugins as dedupePlugins,
   ɵnotifyPlugins as notifyPlugins,
+  ɵsetupPlugin as setupPlugin,
 } from '@angular-libs/data-grid';
 export type {
+  ɵActivePlugin as ActivePlugin,
+  ɵPluginErrorReporter as PluginErrorReporter,
+  ɵPluginHook as PluginHook,
   ɵDataGridPlugin as DataGridPlugin,
   ɵDataGridPluginContext as DataGridPluginContext,
   ɵDataGridSlotId as DataGridSlotId,
@@ -30,13 +34,15 @@ export type {
 } from '@angular-libs/data-grid';
 export { ɵGridKernel as GridKernel } from '@angular-libs/data-grid';
 export type { ɵGridKernelOptions as GridKernelOptions } from '@angular-libs/data-grid';
-export {
-  ɵGridCapabilities as GridCapabilities,
-  ɵROW_GROUP_ADAPTER as ROW_GROUP_ADAPTER,
-  ɵTREE_DATA_ADAPTER as TREE_DATA_ADAPTER,
-} from '@angular-libs/data-grid';
+export { ɵGridCapabilities as GridCapabilities } from '@angular-libs/data-grid';
+export { ɵGridAdapterRegistry as GridAdapterRegistry } from '@angular-libs/data-grid';
+export { adapterKey } from '@angular-libs/data-grid';
+export type { AdapterKey } from '@angular-libs/data-grid';
 export type {
   ɵAggregateContribution as AggregateContribution,
+  ɵCellWidgetContribution as CellWidgetContribution,
+  ɵRangeSelectionContribution as RangeSelectionContribution,
+  ɵRowAriaContribution as RowAriaContribution,
   ɵCellDecoratorContext as CellDecoratorContext,
   ɵCellDecoratorContribution as CellDecoratorContribution,
   ɵContextMenuContribution as ContextMenuContribution,
@@ -64,6 +70,7 @@ export type {
   ɵDataGridLocaleHost as DataGridLocaleHost,
 } from '@angular-libs/data-grid';
 export type {
+  ɵDataGridAdaptersHost as DataGridAdaptersHost,
   ɵDataGridApiHost as DataGridApiHost,
   ɵDataGridClipboardHost as DataGridClipboardHost,
   ɵDataGridColumnsHost as DataGridColumnsHost,
@@ -74,7 +81,6 @@ export type {
   ɵDataGridSelectionHost as DataGridSelectionHost,
   ɵDataGridSideBarApiHost as DataGridSideBarApiHost,
   ɵDataGridViewportHost as DataGridViewportHost,
-  ɵPluginLifecycle as PluginLifecycle,
 } from '@angular-libs/data-grid';
 export {
   ɵcellInNormalizedRange as cellInNormalizedRange,
@@ -107,15 +113,3 @@ export {
   ɵformatAggregateValue as formatAggregateValue,
 } from '@angular-libs/data-grid';
 export { ɵflattenColumnDefs as flattenColumnDefs } from '@angular-libs/data-grid';
-
-export {
-  isCellRangeAdapter,
-  isRowGroupAdapter,
-  isTreeDataAdapter,
-  pickAdapter,
-} from '@angular-libs/data-grid';
-export type {
-  BoundCellRangeAdapter,
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-} from '@angular-libs/data-grid';

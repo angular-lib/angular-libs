@@ -3,6 +3,7 @@ import { collectAllGroupIds } from '@angular-libs/data-grid/plugin';
 import {
   buildGroupedRowsFromAdapter,
   createRowGroupAdapter,
+  ROW_GROUP_ADAPTER,
   type RowGroupAdapter,
 } from './row-group.adapter';
 import { DataGridRowGroupPanel } from './sidebar/row-group-panel';
@@ -18,9 +19,10 @@ export type RowGroupPlugin<T = unknown> = DataGridPlugin<T> & RowGroupAdapter;
 /**
  * Row grouping as a capability plugin + store-style adapter.
  *
- * Expand / collapse / clear are available on the adapter and {@link DataGridApi}
- * — no default toolbar buttons (compose your own via `registerToolbar` / `[toolbarActions]`).
+ * Group columns live on the held adapter (also `api.getAdapter(ROW_GROUP_ADAPTER)`);
+ * expand / collapse on the adapter and {@link DataGridApi} — no default toolbar buttons (compose your own via `registerToolbar` / `[toolbarActions]`).
  * Mutually exclusive with `treeDataPlugin` / `masterDetailPlugin` (one display builder).
+ * One instance may serve several grids — they share the adapter (same grouping).
  *
  * @example
  * ```ts
@@ -70,9 +72,10 @@ export function rowGroupPlugin<T = any>(
         label: locale().groupsPanelShortLabel,
         order: 30,
         component: DataGridRowGroupPanel,
+        inputs: { adapter },
       });
 
-      context.api.bindRowGroupAdapter(adapter);
+      const cleanAdapter = context.adapters.register(ROW_GROUP_ADAPTER, adapter);
 
       // `state.slices.rowGroup` — persisted / restored with grid state.
       const cleanState = context.capabilities.registerStateSlice({
@@ -83,7 +86,7 @@ export function rowGroupPlugin<T = any>(
 
       return () => {
         cleanState();
-        context.api.bindRowGroupAdapter(null);
+        cleanAdapter();
         cleanSidebar();
         cleanDisplay();
       };

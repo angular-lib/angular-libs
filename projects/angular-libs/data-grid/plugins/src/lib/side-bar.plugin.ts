@@ -37,6 +37,10 @@ const PANEL_META: Record<
  *
  * Panels register once during setup. {@link SideBarAdapter.setEnabled} only
  * toggles `sideBarConfig` — no remount / slot churn, no plugin list rebuild.
+ * One instance may serve several grids (e.g. `detailGrid.plugins`): state is
+ * per grid and `setEnabled` applies to every attached grid.
+ * Panel ids other than `columns` / `filters` are registered by their own
+ * plugins (e.g. `rowGroupPlugin` adds `rowGroup`).
  */
 export function sideBarPlugin<T = any>(
   options: SideBarPluginOptions = true,
@@ -45,18 +49,15 @@ export function sideBarPlugin<T = any>(
   const enabled = signal(initiallyOn);
   const config: boolean | SideBarConfig = options === false ? true : options;
 
-  let context: DataGridPluginContext<T> | null = null;
-  let clearConfig: (() => void) | null = null;
-  const panelCleanups: Array<() => void> = [];
+  /** Per attached grid: its context + the `enableSideBar` cleanup while shown. */
+  const grids = new Map<DataGridPluginContext<T>, { clearConfig: (() => void) | null }>();
 
-  const applyVisibility = (): void => {
-    clearConfig?.();
-    clearConfig = null;
-    const ctx = context;
-    if (!ctx || !enabled()) {
-      return;
-    }
-    clearConfig = ctx.slots.enableSideBar(config);
+  const applyVisibility = (
+    ctx: DataGridPluginContext<T>,
+    state: { clearConfig: (() => void) | null },
+  ): void => {
+    state.clearConfig?.();
+    state.clearConfig = enabled() ? ctx.slots.enableSideBar(config) : null;
   };
 
   return {
@@ -67,22 +68,22 @@ export function sideBarPlugin<T = any>(
         return;
       }
       enabled.set(next);
-      applyVisibility();
+      for (const [ctx, state] of grids) {
+        applyVisibility(ctx, state);
+      }
     },
     setup(ctx: DataGridPluginContext<T>): () => void {
-      context = ctx;
       const locale = () => ctx.api.getLocale();
+      const state = { clearConfig: null as (() => void) | null };
+      grids.set(ctx, state);
 
       const cfg = typeof config === 'object' ? config : null;
       const panelIds: SideBarPanelId[] =
         cfg?.panels !== undefined ? [...cfg.panels] : ['columns', 'filters'];
+      const panelCleanups: Array<() => void> = [];
 
       for (const id of panelIds) {
-        if (id === 'rowGroup') {
-          // Registered by rowGroupPlugin — skip here.
-          continue;
-        }
-        const meta = PANEL_META[id];
+        const meta = PANEL_META[id as keyof typeof PANEL_META];
         if (!meta) {
           continue;
         }
@@ -96,15 +97,15 @@ export function sideBarPlugin<T = any>(
         );
       }
 
-      applyVisibility();
+      applyVisibility(ctx, state);
 
       return () => {
-        clearConfig?.();
-        clearConfig = null;
+        state.clearConfig?.();
+        state.clearConfig = null;
         for (const cleanup of panelCleanups.splice(0).reverse()) {
           cleanup();
         }
-        context = null;
+        grids.delete(ctx);
       };
     },
   };

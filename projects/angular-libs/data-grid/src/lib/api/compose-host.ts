@@ -7,6 +7,7 @@
  */
 
 import type {
+  DataGridAdaptersHost,
   DataGridApiHost,
   DataGridClipboardHost,
   DataGridColumnsHost,
@@ -55,6 +56,7 @@ export function composeDataGridApiHost<T>(parts: {
   clipboard?: DataGridClipboardHost<T>;
   locale: DataGridLocaleHost;
   sideBar?: DataGridSideBarApiHost;
+  adapters?: DataGridAdaptersHost;
 }): ComposedDataGridApiHost<T> {
   return {
     ...flattenHost(parts.selection),
@@ -66,5 +68,6 @@ export function composeDataGridApiHost<T>(parts: {
     ...(parts.rowGroup ? flattenHost(parts.rowGroup) : {}),
     ...(parts.clipboard ? flattenHost(parts.clipboard) : {}),
     ...(parts.sideBar ? flattenHost(parts.sideBar) : {}),
+    ...(parts.adapters ? flattenHost(parts.adapters) : {}),
   };
 }

@@ -6,6 +6,7 @@
 
 import type { FieldTree, SchemaOrSchemaFn } from '@angular/forms/signals';
 import type { Type, WritableSignal } from '@angular/core';
+import type { ColumnFilterModel, ColumnFilterParams } from '../../utils/filter-model';
 
 export type SortDirection = 'asc' | 'desc';
 
@@ -13,7 +14,18 @@ export type EditMode = 'cell' | 'fullRow';
 
 export type ColumnAlign = 'left' | 'center' | 'right';
 
-export type ColumnFilterType = boolean | 'text' | 'number' | 'boolean' | 'date' | 'set';
+/**
+ * Filter UI / model kind. `true` infers from `type` (number / boolean / date,
+ * else text). `'custom'` has no built-in UI — pair it with `filterPredicate`.
+ */
+export type ColumnFilterType =
+  | boolean
+  | 'text'
+  | 'number'
+  | 'boolean'
+  | 'date'
+  | 'set'
+  | 'custom';
 
 export type ColumnDataType = 'text' | 'number' | 'boolean' | 'date';
 
@@ -84,8 +96,21 @@ export interface ColumnDef<T = unknown> {
   flex?: number;
   /** Enable header click sorting. Default true. */
   sortable?: boolean;
-  /** Enable filter UI for this column. */
+  /** Enable filter UI for this column (see {@link ColumnFilterType}). */
   filter?: ColumnFilterType;
+  /**
+   * Value the column filter (and set-filter options) read instead of the cell
+   * value. When set, text filters match this value only (not `valueFormatter` output).
+   */
+  filterValueGetter?: (row: T, rowIndex: number) => unknown;
+  /**
+   * Replace built-in evaluation for this column: return `true` to keep the row.
+   * Receives the filter value (`filterValueGetter` / cell value) and the active model.
+   * Required for `{ kind: 'custom' }` models.
+   */
+  filterPredicate?: (value: unknown, row: T, model: ColumnFilterModel) => boolean;
+  /** Set-filter value source / limits. */
+  filterParams?: ColumnFilterParams;
   /** Allow inline editing. */
   editable?: boolean;
   /** Pin column to an edge. */
@@ -385,9 +410,11 @@ export interface FillEvent<T = unknown> extends PasteEvent<T> {
   source: CellRange;
 }
 
-export interface DataGridFilterState {
-  [columnId: string]: string;
-}
+/**
+ * Column id → typed filter model. Absent = no filter. Plain JSON — safe to
+ * persist, and sent as-is to the server in `DataGridQuery.filters`.
+ */
+export type DataGridFilterState = Record<string, ColumnFilterModel>;
 
 /**
  * Snapshot for persist / restore (localStorage, URL, etc.) — schema version 1.
@@ -399,7 +426,7 @@ export interface DataGridState {
   /** Schema version — `parseGridState` / `migrateGridState` upgrade older snapshots. */
   version: 1;
   sorts: SortState[];
-  /** Column filter model — opaque per-column values (validated by `isValidFilterValue`). */
+  /** Column filter model (per-column `ColumnFilterModel`, validated by `sanitizeFilterState`). */
   filters: DataGridFilterState;
   quickFilter: string;
   hiddenColumnIds: string[];
@@ -431,6 +458,10 @@ export interface SetGridStateOptions {
 /** Emitted in server-side mode so the host can fetch. */
 export interface DataGridQuery {
   sorts: SortState[];
+  /**
+   * Typed column filters — translate each {@link ColumnFilterModel} to your
+   * backend (`kind` + `conditions` / `values`; dates are local `yyyy-MM-dd`).
+   */
   filters: DataGridFilterState;
   quickFilter: string;
   pageIndex: number;

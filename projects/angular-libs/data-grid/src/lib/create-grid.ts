@@ -6,12 +6,8 @@
  */
 
 import { computed, isDevMode, signal, type Signal, type WritableSignal } from '@angular/core';
-import type {
-  DataGridApi,
-  BoundCellRangeAdapter,
-  BoundRowGroupAdapter,
-  BoundTreeDataAdapter,
-} from './api/grid-api';
+import type { DataGridApi } from './api/grid-api';
+import type { AdapterKey } from './plugins/adapter-registry';
 import type {
   ColumnOrGroupDef,
   CreateRowFormFn,
@@ -29,6 +25,7 @@ import {
   type GridRowModelResult,
 } from './utils/grid-row-model';
 import type { AfterSortHook } from './utils/row-pipeline';
+import { DEFAULT_FILTER_DEBOUNCE_MS } from './utils/debounce';
 import {
   applyRowTransaction,
   type RowTransaction,
@@ -58,6 +55,11 @@ export interface GridChromeOptions {
   columnReorder?: boolean; // default true
   /** Enable context menu chrome (items still from binder). default false */
   contextMenu?: boolean;
+  /**
+   * Debounce (ms) for typed filter / quick-filter / find inputs; `0` = per keystroke.
+   * API / state writes are always immediate. default 200
+   */
+  filterDebounceMs?: number;
 }
 
 /** Scope of header select-all — see {@link CreateGridOptions.selectAll}. */
@@ -184,21 +186,6 @@ export interface GridController<T = unknown> {
    * Always false when `rows` was omitted.
    */
   readonly autoApplyWrites: boolean;
-  /**
-   * Typed adapter when `rowGroupPlugin` is in `plugins`.
-   * Prefer holding the plugin instance; this is for discovery.
-   */
-  readonly rowGroup: BoundRowGroupAdapter | null;
-  /**
-   * Typed adapter when `treeDataPlugin` is in `plugins`.
-   * Prefer holding the plugin instance; this is for discovery.
-   */
-  readonly treeData: BoundTreeDataAdapter | null;
-  /**
-   * Typed adapter when `cellRangePlugin` is in `plugins`.
-   * Prefer holding the plugin instance; this is for discovery.
-   */
-  readonly cellRange: BoundCellRangeAdapter | null;
   /** Populated when a DataGrid binds via `[controller]`. */
   readonly api: Signal<DataGridApi<T> | null>;
   /** Sanitized `createGrid({ initialState })` (applied on each mount); `null` when omitted. */
@@ -222,6 +209,7 @@ export interface GridController<T = unknown> {
     stripe: WritableSignal<boolean>;
     columnReorder: WritableSignal<boolean>;
     contextMenu: WritableSignal<boolean>;
+    filterDebounceMs: WritableSignal<number>;
   };
   readonly multiSort: WritableSignal<boolean>;
   readonly serverSide: WritableSignal<boolean>;
@@ -230,10 +218,18 @@ export interface GridController<T = unknown> {
    * Set after each fetch: `grid.serverRowCount.set(res.total)`.
    */
   readonly serverRowCount: WritableSignal<number | null>;
-  /** Typed adapter lookup — prefer holding the plugin instance; this is for discovery. */
-  getAdapter<A>(id: string, guard: (value: unknown) => value is A): A | null;
-  /** Replace the plugin list (reactivates on the bound grid). */
+  /**
+   * Adapter a plugin registered under `key` on the bound grid (`null` until
+   * mounted). Reactive. Prefer holding the plugin instance; this is for discovery.
+   * Keys come from the plugin package, e.g. `grid.getAdapter(ROW_GROUP_ADAPTER)`.
+   */
+  getAdapter<A>(key: AdapterKey<A>): A | null;
+  /**
+   * Replace the plugin list. The bound grid reconciles once, by instance
+   * identity: removed plugins torn down, added ones set up, unchanged ones kept.
+   */
   setPlugins(plugins: readonly DataGridPlugin<T>[]): void;
+  /** @internal Bind plumbing — called by `<al-data-grid>` on mount / destroy. */
   bindApi(api: DataGridApi<T> | null): void;
   /**
    * Immutable batch update on controller-owned `rows`. Throws if `rows` or an
@@ -310,6 +306,7 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     stripe: signal(options.chrome?.stripe ?? true),
     columnReorder: signal(options.chrome?.columnReorder ?? true),
     contextMenu: signal(options.chrome?.contextMenu ?? false),
+    filterDebounceMs: signal(options.chrome?.filterDebounceMs ?? DEFAULT_FILTER_DEBOUNCE_MS),
   };
   const multiSort = signal(options.multiSort ?? true);
   const serverSide = signal(options.serverSide ?? false);
@@ -323,9 +320,6 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     }
     return ownedRows;
   };
-
-  const getAdapter = <A>(id: string, guard: (value: unknown) => value is A): A | null =>
-    pickAdapter(plugins(), id, guard);
 
   return {
     columns: signal(options.columns),
@@ -349,24 +343,14 @@ export function createGrid<T = unknown>(options: CreateGridOptions<T>): GridCont
     multiSort,
     serverSide,
     serverRowCount,
-    getAdapter,
-    get rowGroup() {
-      return getAdapter('rowGroup', isRowGroupAdapter);
-    },
-    get treeData() {
-      return getAdapter('treeData', isTreeDataAdapter);
-    },
-    get cellRange() {
-      return getAdapter('cellRange', isCellRangeAdapter);
-    },
+    getAdapter: (key) => api()?.getAdapter(key) ?? null,
     api: api.asReadonly(),
     initialState,
     state: computed(() => api()?.state() ?? null),
     query: computed(() => api()?.query() ?? null),
     setPlugins(next) {
+      // The bound grid reconciles from this signal (single owner: the kernel).
       plugins.set([...next]);
-      // Kernel-owned recomposition (no-ops until the grid has mounted).
-      api()?.recomposePlugins(next);
     },
     bindApi(next) {
       api.set(next);
@@ -409,66 +393,5 @@ function warnIndexRowIdOnce(): void {
     '[data-grid] createGrid({ rows }) without rowId: rows are identified by their index in ' +
       '`rows`, so ids shift whenever rows are added / removed / reordered. Pass a stable ' +
       'rowId, e.g. rowId: (r) => r.id.',
-  );
-}
-
-/**
- * Resolve a typed plugin∩adapter from a plugin list by stable `id`.
- * Prefer {@link GridController.getAdapter} when you already hold a controller.
- */
-export function pickAdapter<T, A>(
-  plugins: readonly DataGridPlugin<T>[],
-  id: string,
-  guard: (value: unknown) => value is A,
-): A | null {
-  for (const plugin of plugins) {
-    if (plugin.id === id && guard(plugin)) {
-      return plugin;
-    }
-  }
-  return null;
-}
-
-/** Type guard for {@link BoundRowGroupAdapter} (and `rowGroupPlugin` instances). */
-export function isRowGroupAdapter(value: unknown): value is BoundRowGroupAdapter {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const v = value as BoundRowGroupAdapter;
-  return (
-    typeof v.setColumns === 'function' &&
-    typeof v.clear === 'function' &&
-    typeof v.columns === 'function' &&
-    typeof v.active === 'function'
-  );
-}
-
-/** Type guard for {@link BoundTreeDataAdapter} (and `treeDataPlugin` instances). */
-export function isTreeDataAdapter(value: unknown): value is BoundTreeDataAdapter {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const v = value as BoundTreeDataAdapter;
-  return (
-    typeof v.toggleCollapsed === 'function' &&
-    typeof v.expandAll === 'function' &&
-    typeof v.collapseAll === 'function' &&
-    typeof v.collapsedIds === 'function' &&
-    typeof v.collectAllGroupIds === 'function'
-  );
-}
-
-/** Type guard for {@link BoundCellRangeAdapter} (and `cellRangePlugin` instances). */
-export function isCellRangeAdapter(value: unknown): value is BoundCellRangeAdapter {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const v = value as BoundCellRangeAdapter;
-  return (
-    typeof v.getRange === 'function' &&
-    typeof v.setRange === 'function' &&
-    typeof v.clearRange === 'function' &&
-    typeof v.getClipboardText === 'function' &&
-    typeof v.extendRange === 'function'
   );
 }

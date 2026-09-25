@@ -3,7 +3,7 @@
  */
 
 import { computed, signal, type Signal } from '@angular/core';
-import type { ColumnDef } from '@angular-libs/data-grid';
+import { adapterKey, type ColumnDef } from '@angular-libs/data-grid';
 import {
   buildDisplayRows,
   collectAllGroupIds,
@@ -21,6 +21,9 @@ export interface RowGroupAdapter {
   expandAll(): void;
   collapseAll(allGroupIds: readonly string[]): void;
 }
+
+/** Discovery key — `grid.getAdapter(ROW_GROUP_ADAPTER)` / `api.getAdapter(…)`. */
+export const ROW_GROUP_ADAPTER = adapterKey<RowGroupAdapter>('rowGroup');
 
 export function createRowGroupAdapter(
   initialColumns: readonly string[] = [],

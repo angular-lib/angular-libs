@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
-import { GridCapabilities } from '@angular-libs/data-grid/plugin';
+import { GridAdapterRegistry, GridCapabilities } from '@angular-libs/data-grid/plugin';
 import type { CustomDisplayRow } from '@angular-libs/data-grid/plugin';
 import {
   buildMasterDetailDisplayRows,
@@ -50,6 +50,7 @@ function pluginContext(
     injector: null as never,
     slots: {} as never,
     capabilities: caps,
+    adapters: new GridAdapterRegistry(),
   };
 }
 

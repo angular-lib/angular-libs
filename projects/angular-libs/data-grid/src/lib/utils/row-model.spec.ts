@@ -114,7 +114,7 @@ describe('R5 no-op stages', () => {
     const rows: Item[] = [{ id: 1, name: 'a' }];
     const byId = byIdOf<Item>([{ field: 'name' }]);
     expect(filterRows(rows, {}, byId)).toBe(rows);
-    expect(filterRows(rows, { name: '  ' }, byId)).toBe(rows);
+    expect(filterRows(rows, { name: { kind: 'text', conditions: [{ op: 'contains', value: '  ' }] } }, byId)).toBe(rows);
     expect(quickFilterRows(rows, ' ', [])).toBe(rows);
     expect(applyExternalFilter(rows, null)).toBe(rows);
   });

@@ -29,6 +29,7 @@ export function statusBarPlugin<T = any>(
           context.slots.registerStatusBar({
             id: 'rows',
             order: 10,
+            rowCount: true,
             text: () => {
               const locale = context.api.getLocale();
               return `${context.api.getProcessedRows().length} ${locale.statusRows}`;
